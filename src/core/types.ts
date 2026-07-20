@@ -16,6 +16,19 @@ export type EnemyType = 'basic' | 'fast' | 'power' | 'armor';
 export type PowerupType =
   'star' | 'helmet' | 'clock' | 'shovel' | 'grenade' | 'tank';
 
+// Level authoring format (v1) — see content doc 05 §1. Kept in core (not
+// levels/) so the core stays import-free while game.ts consumes it directly.
+export interface LevelData {
+  version: 1;
+  id: string;
+  name: string;
+  author?: string;
+  terrain: string[];
+  partials?: { tx: number; ty: number; mask: number }[];
+  enemies: EnemyType[];
+  noAutoBase?: boolean;
+}
+
 export const Terrain = {
   Empty: 0,
   Brick: 1,
