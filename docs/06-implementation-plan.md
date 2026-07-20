@@ -133,7 +133,8 @@ export function createGame(level: LevelData, opts: { players: 1 | 2; seed: numbe
 export function stepGame(state: GameState, intents: readonly [PlayerIntent, PlayerIntent]): void; // one 60Hz tick
 export function hashState(state: GameState): number;    // FNV-1a 32-bit over canonical fields
 
-// ---- levels/schema.ts ---- (format: 05-content-levels.md §1)
+// ---- LevelData type lives in core/types.ts (keeps core import-free); ----
+// ---- levels/schema.ts re-exports it and owns validation (format: 05-content-levels.md §1) ----
 export interface LevelData { version: 1; id: string; name: string; author?: string;
   terrain: string[]; partials?: { tx: number; ty: number; mask: number }[];
   enemies: EnemyType[]; noAutoBase?: boolean }
