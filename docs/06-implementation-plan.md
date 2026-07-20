@@ -218,7 +218,7 @@ e2e/smoke.spec.ts             · Playwright
 ### - [ ] T0.2 Core kernel: constants, types, rng, grid, events — Lane main
 **Files:** create `src/core/{constants,types,events,rng,grid}.ts`; tests `tests/core/{rng,grid,constants}.test.ts`.
 **Spec:** fidelity §1–2 + §2 Contract Zero. **Produces:** every §2 type; `grid`: `aabbOverlap`, `tileAt(sx,sy)`, `subcellIndex`, `snap8(v)`, `tilesInAabb`, `forEachSubcellUnder(aabb)`.
-**Tests (concrete):** mulberry32 with seed 12345 first 3 floats match snapshot & repeatable; `nextInt(4)` distribution over 4k draws within ±5%; `snap8(37.3)===40`, `snap8(36)===36`, `snap8(-3)===0` (clamped ≥0); `spawnIntervalTicks(1,1)===186`, `(35,1)===50`, `(1,2)===166`, `(99,1)===50`, floor `30`, ceil `192`; constants spot-check vs fidelity tables (PLAYER_SPEED 45 etc.).
+**Tests (concrete):** mulberry32 with seed 12345 first 3 floats match snapshot & repeatable; `nextInt(4)` distribution over 10k draws within ±5% (4k was statistically too tight at ~1.8σ); `snap8(37.3)===40`, `snap8(32)===32`, `snap8(36)===40` (nearest multiple of 8, half rounds up — tie-break is a calibration-grade detail), `snap8(-3)===0` (clamped ≥0); `spawnIntervalTicks(1,1)===186`, `(35,1)===50`, `(1,2)===166`, `(99,1)===50`, floor `30`, ceil `192`; constants spot-check vs fidelity tables (PLAYER_SPEED 45 etc.).
 **Steps:** standard cycle. **Commit:** `feat(core): kernel types, constants with CAL tags, seeded rng, grid math`
 
 ## Phase 1 — Core simulation (all Lane main, sequential; gate G1 at end)
