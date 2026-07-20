@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+package-lock.json
+
+# Authored prose (design docs + root readme) — maintained by hand, not governed
+# by the code formatter. docs/assets holds binary/SVG art.
+docs
+README.md
