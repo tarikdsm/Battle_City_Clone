@@ -156,6 +156,7 @@ export function hashState(state: GameState): number {
     feed(t.dir);
     feed(t.moving ? 1 : 0);
     feed(t.sliding ? 1 : 0);
+    feed(t.slideV);
     feed(t.hp);
     feed(t.tier);
     feed(t.shieldT);

@@ -67,6 +67,7 @@ export interface Tank {
   dir: Dir;
   moving: boolean;
   sliding: boolean;
+  slideV: number; // residual ice-slide speed (u/s); 0 when not sliding. Hashed.
   hp: number;
   tier: 0 | 1 | 2 | 3;
   shieldT: number;

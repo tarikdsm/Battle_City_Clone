@@ -24,11 +24,10 @@ export function aiSystem(state: GameState, intents: Intents): void {
   void intents;
 }
 
-// 4. tank movement (players then enemies, index order; turn-snap; ice)
-export function movementSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 4. tank movement (players then enemies, index order; turn-snap; ice) — T1.2.
+// Delegated to ./movement; the exported name/signature stays identical so the
+// call site in game.ts never changes.
+export { movementSystem } from './movement';
 
 // 5. firing (spawn bullets)
 export function firingSystem(state: GameState, intents: Intents): void {

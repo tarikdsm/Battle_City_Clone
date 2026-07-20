@@ -68,7 +68,7 @@ export interface Tank {
   carrier?: boolean;              // true while flashing (drops power-up on first hit)
   x: number; y: number;           // AABB top-left, units; size TANK_SIZE
   prevX: number; prevY: number;   // previous tick (render interpolation)
-  dir: Dir; moving: boolean; sliding: boolean;
+  dir: Dir; moving: boolean; sliding: boolean; slideV: number; // residual ice-slide speed (u/s, 0 when not sliding; hashed)
   hp: number; tier: 0 | 1 | 2 | 3;            // tier meaningful for players (0 for enemies)
   shieldT: number; stunT: number; frozenT: number; spawningT: number; // seconds remaining, 0 = inactive
   bulletsAirborne: number;
