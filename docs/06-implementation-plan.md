@@ -36,7 +36,7 @@ Every task inherits these. Violations fail review.
   6. Commit with the given message.
   Any deviation/blocker → report back to orchestrator instead of improvising around the contract.
 - **Review loop per task:** executor reports → orchestrator runs spec-compliance review + code review (fresh reviewer subagent for risky tasks) → fixes if needed → integrate.
-- **Parallel lanes:** tasks marked with the same `Lane` letter never run concurrently; different lanes may, **only** after Gate G2, each in its own worktree branch (`lane/<letter>`), merged by the orchestrator (merge order: A render, B audio, C content; `npm run check` after each merge).
+- **Sequential execution (owner mandate, 2026-07-20):** exactly one executor agent runs at a time — no parallel dispatch of any kind. `Lane` letters remain in task headers as *dependency documentation only*; all tasks execute in plan order on the `dev` branch, merged to `main` by the orchestrator at each gate.
 - **Phase gates:**
   - **G1** after Phase 1: all parity tests + golden replays green; sim step < 2 ms.
   - **G2** after Phase 3: first playable — owner plays stage 1 in browser and approves feel.
@@ -317,7 +317,7 @@ e2e/smoke.spec.ts             · Playwright
 **Spec:** GDD §5–6, §9.
 **Steps:** standard cycle + run `npm run e2e` locally green.
 **Commit:** `feat(app): first playable stage with minimal HUD and smoke e2e`
-**⛔ Gate G2** — owner plays; feel sign-off before lanes open.
+**⛔ Gate G2** — owner plays; feel sign-off.
 
 ## Phase 4 — VFX & juice (Lane A after G2)
 
