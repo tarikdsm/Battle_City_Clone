@@ -1,0 +1,84 @@
+# Battle City Remake — Content: Levels & Campaigns
+
+**Doc:** 05 · **Status:** Approved design (2026-07-20) · **Audience:** content/transcription implementers, editor implementers
+
+## 1. Level data format (v1)
+
+```ts
+interface LevelData {
+  version: 1;
+  id: string;              // "orig-01".."orig-35", "neo-01".."neo-12", "custom-<uuid>"
+  name: string;            // "Stage 1", "First Frost", user text for customs
+  author?: string;         // customs only
+  terrain: string[];       // exactly 13 strings of exactly 13 chars (rows, top to bottom)
+  partials?: { tx: number; ty: number; mask: number }[]; // subcell mask override
+  enemies: EnemyType[];    // exactly 20 entries, spawn order; EnemyType = "basic"|"fast"|"power"|"armor"
+  noAutoBase?: boolean;    // default false: eagle + brick ring auto-stamped (fidelity §2)
+}
+```
+
+**Terrain characters:** `.` empty · `B` brick · `S` steel · `W` water · `T` trees · `I` ice.
+
+- The eagle tile and base ring are auto-stamped over whatever the rows contain (unless `noAutoBase`, reserved for future use — v1 content never sets it).
+- `partials` refine a tile to specific subcells: `mask` bits `1=TL, 2=TR, 4=BL, 8=BR` (only valid on `B`/`S` tiles). The NES originals use half-tiles extensively — transcriptions must reproduce them.
+- Spawn tiles `(0,0) (6,0) (12,0)` and player tiles `(4,12) (8,12)` must be empty; validation enforces this (architecture §9).
+- Carrier positions are **not** data: always the 4th/11th/18th spawn (fidelity §3.2).
+
+Runtime validation errors are user-readable (editor imports).
+
+## 2. Original campaign (35 stages)
+
+### 2.1 Sources
+
+Primary: original NES gameplay/stage references — GameFAQs complete guides ([brian_sulpher's walkthrough](https://gamefaqs.gamespot.com/nes/562966-battle-city/faqs/29287), [Shirow's FAQ](https://gamefaqs.gamespot.com/nes/562966-battle-city/faqs/15969)) and [StrategyWiki's Battle City pages](https://strategywiki.org/wiki/Battle_City), cross-checked against stage screenshots/longplay footage. The transcription task fetches and cites the exact source used per stage.
+
+### 2.2 Transcription protocol (agent workflow)
+
+1. **Transcriber** produces `terrain` rows + `partials` + the enemy composition for one stage from the references, and renders an ASCII preview (tooling script `scripts/level-preview.ts`, built in the content phase) side by side with the source description.
+2. **Independent verifier** (separate agent, sees only the JSON + original reference, not the transcriber's notes) checks tile-by-tile and signs off or files a diff.
+3. Acceptance checklist per stage: 13×13 shape valid · spawn/player tiles clear · eagle ring intact · half-tile placements match reference · enemy list has 20 with correct type counts · stage is completable (path from spawns to open field exists).
+4. Output: `src/levels/original/stage01.json` … `stage35.json` + a generated contact-sheet preview (all 35 ASCII maps in one reviewable file) for the orchestrator gate.
+
+Enemy composition per stage (counts of basic/fast/power/armor summing to 20) comes from the same references; it is **data produced by the transcription task**, stored in each stage file, and spot-verified against footage for stages 1–5.
+
+Known anchor for sanity-checking (from the classic layout): stage 1 is the sparse brick layout whose enemy mix is dominated by basic tanks with a couple of fasts; if a transcription of stage 1 deviates wildly from this, the pipeline is suspect.
+
+## 3. Neo Campaign (12 new stages)
+
+**Constraints:** original mechanics and terrain vocabulary only — creativity lives in layout, terrain interplay, and wave composition. Difficulty band ≈ original stages 18–35. Every stage passes the same validation + completability checklist, plus a playtest gate (fun check by the orchestrator + owner).
+
+| ID | Name | Motif brief | Wave flavor |
+|---|---|---|---|
+| neo-01 | First Frost | ice avenues force drift-aim; brick islands as brakes | fast-heavy |
+| neo-02 | Twin Rivers | two vertical water channels, three bridges as chokepoints | power on bridges |
+| neo-03 | The Orchard | dense tree cover — ambush warfare, sound cues matter | basic swarm + armors hidden |
+| neo-04 | Foundry | steel maze with narrow brick doors; tier-3 rewards | power-heavy |
+| neo-05 | Shatterfront | thick brick labyrinth that erodes into open war | balanced, armor finale |
+| neo-06 | Frozen Harbor | ice sheet meeting water docks; sliding near edges | fast + power |
+| neo-07 | Greenwall | tree curtain hiding a brick fortress | armor-heavy |
+| neo-08 | The Vault | eagle in a steel pocket with one brick throat; shovel is king | mixed, relentless |
+| neo-09 | Mirrorworks | perfect left/right symmetry; designed around 2P split defense | mirrored waves |
+| neo-10 | Sandglass | hourglass shape, all traffic through the waist | power snipers |
+| neo-11 | Blackout | near-empty field — pure dodging and spacing | fast swarm |
+| neo-12 | Last Stand | all terrains, three-phase erosion toward the base | armor-heavy finale |
+
+Authoring happens in our own editor (dogfooding gate: if authoring feels bad, the editor gets fixed first).
+
+## 4. Difficulty guidance
+
+- Spawn pressure comes from the fidelity §7 formula — Neo stages declare an *effective stage number* via position in campaign (neo-01 ≈ stage 20 pressure, neo-12 = 35).
+- Mix curve across a campaign: armor share rises toward the end; fast tanks spike mid-campaign; power tanks appear where sightlines are long.
+- Openness metric (share of empty tiles) recorded per stage in the contact sheet — the curve should oscillate (dense/open alternation keeps runs fresh, as the original does).
+
+## 5. Custom levels & sharing
+
+- Saved to `bc.customLevels.v1` (architecture §4.2).
+- Export: pretty JSON file download **and** share string `BC1.<base64url(minified JSON)>` (~0.5 KB); import accepts both, validates, and reports precise errors.
+- Future format versions bump the `BC1` prefix; v1 readers reject unknown prefixes with a clear message.
+
+## 6. Deliverables summary (content phase)
+
+1. `scripts/level-preview.ts` (ASCII contact sheet generator).
+2. 35 original stage files, transcribed + independently verified + contact sheet.
+3. 12 Neo stage files, authored in-editor + playtested.
+4. Validation suite covering §1 rules (part of core/levels tests).

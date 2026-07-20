@@ -1,0 +1,134 @@
+# Battle City Remake — Art Direction
+
+**Doc:** 03 · **Status:** Approved design (2026-07-20) · **Audience:** render/FX/UI implementers
+
+Reference image: [assets/style-mockup.svg](assets/style-mockup.svg) (approved by the owner). The mockup is a static suggestion — the real game is fully dynamic 3D. When this doc and readability conflict, **readability wins** (GDD pillar 2).
+
+## 1. Pillars
+
+1. **A toy diorama under stage lights.** Low-poly, beveled, slightly chunky pieces on a dark board — like a premium board game photographed in a dark room with dramatic lighting.
+2. **Light is the spectacle.** Explosions, muzzle flashes, tracers, and power-ups emit real light onto the scene. Emissive surfaces are rationed (bullets, flashes, power-ups, spawn stars, eagle emblem) so bloom stays special.
+3. **Silhouette before color.** Every tank type and terrain type is identifiable in grayscale. Color reinforces, never carries alone.
+4. **Motion sells the toy.** Track steps, turret recoil, body tilt into turns, debris with gravity — everything reacts physically.
+
+## 2. Camera & framing
+
+- Orthographic. Pitch **32°** from vertical, yaw **0°** (grid axes stay screen-aligned — readability). Board centered with ~0.75-tile margin; HUD docked right (landscape) or bottom (portrait).
+- **Shake:** trauma-based (`trauma ∈ [0,1]`, decays 1.2/s; offset = trauma² · max 3 u; roll ≤ 0.3°). Sources: own shot +0.05, nearby explosion +0.25, base +0.6. Disabled by reduced-motion/setting.
+- **Stage fly-in:** 600 ms ease from elevated pitch 55° down to 32° while the curtain wipe opens.
+- **Base-destruction moment:** 0.6 s at 0.25× presentation speed + slight dolly-in (sim handles the scripted lock; see architecture §5).
+
+## 3. Palette
+
+Fixed tokens (render constants; UI mirrors via CSS custom properties):
+
+| Token | Hex | Use |
+|---|---|---|
+| board | `#10121b` | ground plane |
+| grid line | `#191d2b` | subtle lattice |
+| brick top / side | `#bf5a33` / `#6f3118` | mortar `#8f3f20`, top lip `#d9744c` |
+| steel top / side | `#b7c0cd` / `#5c6474` | rivet `#dde3ec` |
+| water deep / wave | `#173f75` / `#4285d8` | highlight `#7db1ea` |
+| trees canopy / depth | `#2e7d3a` / `#1c5527` | highlight `#46a04f` |
+| ice | `#cadeed` @ 25% | sheen `#e8f4fb` |
+| P1 tank | `#d99c2b` family | gold; accents `#f2c14e` |
+| P2 tank | `#3aa655` family | green; accents `#7fd695` |
+| Enemy Basic | gunmetal `#8a8f9c` + red `#cf4b4b` | compact silhouette |
+| Enemy Fast | sand `#c8a05a` + orange | slim, long hull |
+| Enemy Power | violet `#8f6bd0` | wide barrel shroud |
+| Enemy Armor | silver `#c3cad6` layered plates | HP tints per fidelity §3.2 |
+| Power-up / gold | `#ffd76b` (emissive) | star, pickups, eagle emblem |
+| Spawn star / UI accent | `#7fc4ff` (emissive) | spawn, focus rings |
+| Danger | `#e24b4a` | carrier flash, base-threat UI |
+
+## 4. Entity models (all procedural — primitives + bevels, no imported meshes)
+
+Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks ×2, hull box (beveled), turret (cylinder/box), barrel (cylinder), + per-type trim. Player tier is visible: **+1 thin barrel ring per star tier**; tier 3 adds a gold emissive barrel tip.
+
+| Entity | Silhouette recipe |
+|---|---|
+| Player | balanced hull, rounded turret, center barrel; P1 gold / P2 green |
+| Basic | short hull, small turret set back |
+| Fast | narrow hull (12 u wide), elongated, tracks exposed front |
+| Power | standard hull, oversized barrel shroud (muzzle brake) |
+| Armor | tall stacked plates (+2 u height), twin exhausts; plates tint by HP |
+| Bullet | 4×4 u emissive capsule + short additive tracer trail |
+| Eagle base | stone pedestal + gold shield emblem (emissive at low intensity); destroyed → cracked pedestal, fallen dimmed emblem, smoke wisps |
+| Carrier state | whole-tank red emissive pulse at 4 Hz (fidelity §3.2) |
+| Spawn star | flat emissive 4-point star billboard, twinkle scale 1.3 s + 2 rising rings |
+
+## 5. Terrain construction
+
+| Terrain | Build |
+|---|---|
+| Brick | 4 subcell boxes per tile, h = 10 u, per-subcell removal; mortar inset lines; slight per-subcell hue jitter (±3%) for texture |
+| Steel | subcell boxes h = 10 u, beveled top, center rivet; brighter roughness contrast |
+| Water | plane recessed −3 u with animated shader: two scrolling sine-warped normal layers + fresnel tint + soft edge foam against neighbors |
+| Trees | canopy clusters (3–5 flattened spheres) floating at h = 14 u over a dark trunk hint; canopy renders **above tanks/bullets**; alpha ~0.95 with soft shadow blob |
+| Ice | flush glossy decal, high specular, faint sheen streaks; skid marks fade in 2 s |
+| Board edge | thin raised frame wall (h = 6 u) in `#262b3d` |
+
+## 6. Lighting rig
+
+- **Key:** directional, from top-left (azimuth −35°, elevation 50°), warm white (#fff2e0), intensity ~3.0, shadow map 2048 PCF-soft (High preset).
+- **Fill:** hemisphere (cool sky #2a3550 / warm ground #1a1410), intensity 0.35.
+- **Dynamic point-light pool (max 8, priority by proximity/importance):** muzzle flash (range 40 u, 60 ms), bullet glow (tiny, attached, Low: off), explosion (range 90 u, 400 ms, quadratic decay), base explosion (range 160 u, 1.2 s), power-up idle pulse (range 24 u, 1.2 s sine), spawn star (range 30 u).
+- ACES tone mapping, exposure 1.1.
+
+## 7. Post-processing per quality preset
+
+| Preset | Effects |
+|---|---|
+| High | UnrealBloom (strength 0.55, radius 0.4, threshold 0.85) + SMAA + vignette 0.25 + grade (slight teal shadows / warm highlights); DPR ≤ 2; shadows on |
+| Medium | Bloom (0.4) + FXAA + vignette; DPR ≤ 1.5; shadows on (1024) |
+| Low | FXAA only; DPR 1; shadows off; lights pool halved; particle budgets halved |
+
+## 8. VFX event table (budgets are hard caps; pooled)
+
+| Event | Recipe | Budget |
+|---|---|---|
+| Shot fired | muzzle star sprite 60 ms + point light + barrel recoil + 3 spark motes | 3 particles |
+| Brick hit | 6–10 brick-colored chunk boxes, gravity 600 u/s², 1 bounce, 0.7 s life + dust puff | 10 |
+| Steel hit (no damage) | 5 white-hot sparks, ricochet cone opposite bullet + *clink* light 40 ms | 5 |
+| Steel destroyed | 8 metal shards + sparks | 12 |
+| Tank explosion | flash sphere scale 1→2.2 over 120 ms, 12 debris chunks (hull-colored), 4 smoke puffs 1.2 s, expanding ground ring, point light | 20 |
+| Player explosion | tank explosion + 200 ms white screen-edge flash (respect flash-reduction) | 20 |
+| Base explosion | slow-mo beat + double ring shockwave + 5 gold emblem shards + tall smoke column + long light | 30 |
+| Power-up spawn/pickup | gold burst 8 motes / ring + rising sparkles | 8 |
+| Enemy spawn | star twinkle + 2 rising rings | 6 |
+| Ice skid | 2 skid-mark decals + frost motes | 4 |
+| Tree rustle (tank under canopy) | 3 leaf motes + canopy jiggle 150 ms | 3 |
+| Stun (friendly fire) | yellow ring + orbiting stars over stunned tank | 4 |
+
+Global cap ~180 live particles (High); FxSystem drops lowest-priority when exceeded.
+
+## 9. Animation
+
+| Thing | Spec |
+|---|---|
+| Tracks | stepped scroll, 8 u per visual step, rate ∝ speed; stationary = still |
+| Turret recoil | 2 u back, 80 ms out-back ease per shot |
+| Turn | hull yaw snaps logically; visual eases 100 ms with 2.5° lean into the turn |
+| Engine idle | 0.3 u vertical vibration @ 9 Hz while moving (pairs with engine hum audio) |
+| Power-up | bob ±2 u @ 1.2 s + 0.5 rps yaw + light pulse |
+| Water | UV flow 0.05/s + secondary 0.023/s counter-flow |
+| Trees | vertex sway noise, amplitude 0.6 u, frequency 0.4 Hz |
+| Carrier flash | emissive pulse 4 Hz square (reads at small size) |
+| Armor HP tint | crossfade 150 ms on hit + white hit-flash 60 ms (all tanks) |
+
+## 10. HUD & UI style
+
+- **Fonts (bundled OFL, woff2):** Orbitron (display: title, stage number, scores) + Inter (body/menus). Tabular numerals for scores.
+- **HUD (right dock, landscape):** enemy-remaining icon grid (4×5 mini tank glyphs, dimming as consumed), per-player card (lives as tank pips, live score, tier stars), stage flag+number. Portrait/touch: slim top bar + bottom control zone.
+- **Menus:** dark translucent panels (`#10121b` @ 92%) with 1 px `#262b3d` borders, gold accent for selection, cyan focus ring (gamepad/keyboard), 150 ms slide/fade transitions.
+- **Curtain transition:** the NES gray curtain reimagined — twin steel shutters wipe in/out (300 ms each) synced with the camera fly-in.
+- **Score popups:** world-space billboards (`+100`), Orbitron 10 u, float up 12 u, fade 700 ms.
+- **Title screen:** logo built from beveled 3D letters on the board, attract-mode camera drift, tank silhouettes rolling by under rim light.
+
+## 11. Readability & accessibility rules
+
+- Type silhouettes distinct in grayscale (§4); carrier flash also modulates scale ±4% for colorblind visibility.
+- Optional high-contrast mode: 1 px dark outlines on all tanks + brighter bullet tracers.
+- Effects never cover the player's own tank for >100 ms; smoke max alpha 0.35 over playfield.
+- `prefers-reduced-motion` or settings toggle: no shake, no slow-mo, no screen flash; all gameplay information preserved.
+- Minimum contrast for HUD text 4.5:1 against its panel.
