@@ -4,7 +4,7 @@ A faithful remake of Namco's **Battle City** (NES, 1985) for the modern web — 
 
 **▶ Play the latest build:** <https://tarikdsm.github.io/Battle_City_Clone/> (auto-deployed from `dev`/`main` by GitHub Actions on every push — during development it reflects work in progress, not a finished game).
 
-**Status:** in development — core simulation phase (see the [implementation plan](docs/06-implementation-plan.md)).
+**Status:** in development — core simulation phase: toolchain, kernel, level loading, movement (turn snap + ice), full combat matrix with subcell terrain damage, and the enemy spawner are done and review-gated (113 unit tests). Live progress: [implementation plan](docs/06-implementation-plan.md) · [execution status](docs/07-execution-status.md).
 
 ## Documentation
 

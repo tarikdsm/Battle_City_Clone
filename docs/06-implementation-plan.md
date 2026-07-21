@@ -24,6 +24,13 @@ Every task inherits these. Violations fail review.
 
 ---
 
+## Execution status (last updated 2026-07-21)
+
+Sequential subagent execution in progress on branch `dev`. Live ledger: `.superpowers/sdd/progress.md` (git-ignored, local); committed snapshot + resume protocol: [07-execution-status.md](07-execution-status.md).
+
+- **Done + task-reviewed:** T0.1, T0.2, T1.1, T1.2, T1.3, T1.4 (checked below). 113 unit tests green.
+- **Next on resume:** T1.5 (power-ups) → T1.6 (AI) → T1.7 (players/flow) → T1.8 (integration + golden replays) → Gate G1 (owner review of the complete core). Briefs for T1.5/T1.6 are already written (local, regenerable from this plan).
+
 ## 1. Orchestration protocol
 
 - **Dispatch:** the orchestrator sends each task to a fresh Opus 4.8 subagent. The task brief = this plan's task block + §Global Constraints + §2 Contract Zero + the doc sections listed under *Spec*. The executor must read those repo docs before coding.
@@ -73,6 +80,7 @@ export interface Tank {
   shieldT: number; stunT: number; frozenT: number; spawningT: number; // seconds remaining, 0 = inactive
   bulletsAirborne: number;
   fireHeld: boolean;           // previous-tick fire level (core fires on press edge; hashed after bulletsAirborne)
+  aiTimerT: number;            // enemy decision-timer seconds (added by T1.6; hashed after fireHeld)
 }
 
 export interface Bullet {
@@ -210,14 +218,14 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 0 — Foundation
 
-### - [ ] T0.1 Scaffold & toolchain — Lane main
+### - [x] T0.1 Scaffold & toolchain — Lane main
 **Files:** create `package.json`, `vite.config.ts`, `tsconfig.json`, `eslint.config.js`, `.prettierrc`, `index.html`, `src/app/main.ts` (canvas mount + "boot ok" console), `playwright.config.ts`, `e2e/smoke.spec.ts` (page loads, no console errors), `tests/setup.test.ts` (trivial green test), dir skeleton per §3 with `.gitkeep`.
 **Spec:** arch §1–2. **Produces:** working toolchain, npm scripts (§2 list), ESLint boundary rules (core restricted imports + banned globals `Math.random|Date|window|document|performance` within `src/core/**`).
 **Tests:** `tests/setup.test.ts` (1+1) and boundary lint proof: a temp file importing `three` inside `src/core` must fail `npm run lint` (executor demonstrates in report, then deletes).
 **Steps:** standard cycle. Pin `three` exact version; record versions in report. Playwright installs chromium.
 **Commit:** `chore: scaffold vite+ts+three toolchain with core boundary rules`
 
-### - [ ] T0.2 Core kernel: constants, types, rng, grid, events — Lane main
+### - [x] T0.2 Core kernel: constants, types, rng, grid, events — Lane main
 **Files:** create `src/core/{constants,types,events,rng,grid}.ts`; tests `tests/core/{rng,grid,constants}.test.ts`.
 **Spec:** fidelity §1–2 + §2 Contract Zero. **Produces:** every §2 type; `grid`: `aabbOverlap`, `tileAt(sx,sy)`, `subcellIndex`, `snap8(v)`, `tilesInAabb`, `forEachSubcellUnder(aabb)`.
 **Tests (concrete):** mulberry32 with seed 12345 first 3 floats match snapshot & repeatable; `nextInt(4)` distribution over 10k draws within ±5% (4k was statistically too tight at ~1.8σ); `snap8(37.3)===40`, `snap8(32)===32`, `snap8(36)===40` (nearest multiple of 8, half rounds up — tie-break is a calibration-grade detail), `snap8(-3)===0` (clamped ≥0); `spawnIntervalTicks(1,1)===186`, `(35,1)===50`, `(1,2)===166`, `(99,1)===50`, floor `30`, ceil `192`; constants spot-check vs fidelity tables (PLAYER_SPEED 45 etc.).
@@ -225,25 +233,25 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 1 — Core simulation (all Lane main, sequential; gate G1 at end)
 
-### - [ ] T1.1 Level loading, terrain, game skeleton
+### - [x] T1.1 Level loading, terrain, game skeleton
 **Files:** create `src/levels/schema.ts`, `src/core/game.ts` (createGame + stepGame skeleton: clears `events`, advances `tick`, calls empty system fns in arch §3.2 order; hashState), `src/core/systems/index.ts` stubs; test `tests/core/level.test.ts`, `tests/levels/schema.test.ts`; fixture `tests/fixtures/level-basic.json` (simple valid level: border-safe brick cross + 20 basics).
 **Spec:** content §1, fidelity §1–2, arch §3.1–3.3.
 **Tests:** validateLevel rejects: 12 rows, 14-char row, bad char, 19 enemies, partials on `W`, occupied spawn tile — each with readable error containing the reason; accepts fixture; createGame stamps eagle ring bricks at `(5,11)(6,11)(7,11)(5,12)(7,12)` (assert subcell kinds), spawn/player tiles empty, `terrain.length===676`; partials mask applied (tile (2,2) mask 5 → TL+BL brick only); hashState stable across two identical createGame calls and changes when a subcell differs.
 **Commit:** `feat(core): level schema/validation, terrain grid, game skeleton with system order`
 
-### - [ ] T1.2 Movement: players, turn snap, blocking, ice
+### - [x] T1.2 Movement: players, turn snap, blocking, ice
 **Files:** create `src/core/systems/movement.ts`; test `tests/core/movement.test.ts`.
 **Spec:** fidelity §4; parity P-01, P-09 (movement half).
 **Tests:** helper `game()` builds state from fixture + places tanks directly. Cases: move right 60 ticks from x=32 ⇒ x=32+45·1=77 (float tolerance 1e-9); turning up at x=37.3 snaps x to 40, at x=36 stays 36 (P-01); 180° reversal keeps x exact (P-01); blocked flush against brick subcell (tank at x approaching wall stops with `x+16===wallX`); tank-vs-tank blocking; water blocks, trees don't (P-09); border clamp; ice: enter ice tile, release input ⇒ slides ~4.2u (45²/(2·240)) then stops, `iceSkidStarted` emitted once; new input overrides slide; `treeEntered` emitted on entering trees tile.
 **Commit:** `feat(core): movement system with turn snap, blocking, ice slide (P-01, P-09)`
 
-### - [ ] T1.3 Bullets, combat, terrain damage
+### - [x] T1.3 Bullets, combat, terrain damage
 **Files:** create `src/core/systems/bullets.ts`; test `tests/core/bullets.test.ts`.
 **Spec:** fidelity §3.1 (tier table), §5, §6; parity P-02, P-04–P-08, P-10, P-22, P-24.
 **Tests:** fire spawns bullet at muzzle center moving 120 u/s tier0 / 240 tier1+ (P-02); cap: tier0/1 one airborne, tier2/3 two — third fire ignored until despawn (P-22); enemy cap 1 (P-24); brick: rightward bullet into tile ⇒ removedMask west half `TL|BL=5`, second hit clears; upward bullet ⇒ south half `BL|BR=12` (P-04); tier3 clears full tile one hit; steel: tier<3 `steelHit destroyed:false` bullet gone, tier3 removes near half (P-05); player bullet vs enemy bullet both die + `bulletsCanceled` (P-07); enemy bullet passes through enemy tank (P-06); player bullet on other player ⇒ `playerStunned` 3s, no hp loss, stunned can't move/fire until timer (P-08); armor takes 4 hits with `tankHit hpLeft` 3,2,1 then destroyed 400 pts; eagle hit by any bullet ⇒ `baseDestroyed`, phase `baseLost` (P-10); border despawn event; shielded player consumes bullet without damage.
 **Commit:** `feat(core): bullets, interaction matrix, subcell terrain damage (P-02..P-10, P-22, P-24)`
 
-### - [ ] T1.4 Enemy spawner
+### - [x] T1.4 Enemy spawner
 **Files:** create `src/core/systems/spawner.ts`; test `tests/core/spawner.test.ts`.
 **Spec:** fidelity §7; parity P-11, P-12, P-25.
 **Tests:** first spawn at tick 0 at left point; subsequent at `spawnIntervalTicks` cadence cycling L→C→R (P-12); icons semantics: `enemySpawnStarted` events count == spawned (HUD consumes); cap 4 enforced (P-11); blocked point (tank parked) ⇒ hold + retry 0.5s without advancing cycle (P-12); materialize after `SPAWN_ANIM_S` with `enemySpawned`, no collision while spawning; ordinals 4/11/18 flagged `carrier:true` (P-13 half); queue exhausts at 20; stage>35 uses capped formula (P-25); 2P interval term.

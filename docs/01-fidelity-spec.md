@@ -97,6 +97,7 @@ Levels are 13×13 tiles; each tile is one of: empty, brick, steel, water, trees,
 ### 6.1 Brick
 - Tracked as 4 independent subcells per tile.
 - A non-tier-3 bullet impact removes the **near half of the tile relative to travel direction** (the 2 subcells adjacent to the impacted face, i.e. an 8 u-deep, 16 u-wide bite aligned to the tile) — two hits fully clear a tile `[CAL-07]`.
+- The damaged tile is the tile **containing the struck subcell** (both tile coordinates derive from it — never from the bullet center, which sits exactly on a tile boundary in half of all firing lanes). When a bullet straddles two tiles that both hold matching terrain at the same face distance, the lower-coordinate tile wins (deterministic; amended 2026-07-21 during T1.3 review).
 - A tier-3 player bullet impact removes **all 4 subcells** of the impacted tile in one hit `[CAL-07]`.
 - Collision uses remaining subcells only.
 
