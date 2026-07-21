@@ -2,7 +2,9 @@
 
 A faithful remake of Namco's **Battle City** (NES, 1985) for the modern web — identical gameplay, stunning 2.5D presentation. TypeScript + Three.js + WebAudio, 100% procedural assets, PWA/offline, 1P + 2P local co-op, the 35 original stages, a new 12-stage campaign, and a map editor.
 
-**Status:** design/documentation phase — no code yet.
+**▶ Play the latest build:** <https://tarikdsm.github.io/Battle_City_Clone/> (auto-deployed from `dev`/`main` by GitHub Actions on every push — during development it reflects work in progress, not a finished game).
+
+**Status:** in development — core simulation phase (see the [implementation plan](docs/06-implementation-plan.md)).
 
 ## Documentation
 
