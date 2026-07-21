@@ -114,13 +114,16 @@ describe('createGame — players', () => {
 });
 
 describe('stepGame — skeleton', () => {
-  it('advances tick and clears events each step', () => {
+  it('advances tick and clears the prior frame events each step', () => {
     const s = createGame(blankLevel(), OPTS);
     s.events.push({ t: 'gameOver' });
     const before = s.tick;
     stepGame(s, [NULL_INTENT, NULL_INTENT]);
     expect(s.tick).toBe(before + 1);
-    expect(s.events.length).toBe(0);
+    // Events are wiped at the top of each step; live systems may then emit their
+    // own (the spawner starts enemy #1 at t=0), so assert the stale sentinel is
+    // gone rather than that the array is empty.
+    expect(s.events.some((e) => e.t === 'gameOver')).toBe(false);
   });
 });
 

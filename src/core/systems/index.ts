@@ -12,11 +12,9 @@ export function stageflowSystem(state: GameState, intents: Intents): void {
   void intents;
 }
 
-// 2. enemy spawn starts / materializations
-export function spawnerSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 2. enemy spawn starts / materializations — T1.4. Delegated to ./spawner; the
+// exported name/signature stays identical so the call site in game.ts never changes.
+export { spawnerSystem } from './spawner';
 
 // 3. AI decisions -> enemy intents
 export function aiSystem(state: GameState, intents: Intents): void {
