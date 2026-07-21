@@ -308,6 +308,68 @@ describe('bullets — brick & steel damage (P-04, P-05)', () => {
   });
 });
 
+// --- Regression: damaged tile derives fully from the struck subcell ---------
+// Half of all snap-8 firing lanes put the bullet's perpendicular CENTRE exactly
+// on a 16u tile boundary (x=88 tank firing Up -> bullet x=94, centre 96.0). The
+// damaged tile must come from the struck subcell, never floor(centre/TILE), or
+// the bullet vanishes against a wall it leaves undamaged ("dud hit").
+
+describe('bullets — damaged tile from struck subcell (no dud hits)', () => {
+  function fireFrom(
+    s: GameState,
+    over: Partial<Tank> & Pick<Tank, 'x' | 'y' | 'dir'>,
+  ): Bullet {
+    const t = addTank(s, { id: 1, kind: 'player', playerIndex: 0, ...over });
+    expect(tryFire(s, t)).toBe(true);
+    return s.bullets[s.bullets.length - 1];
+  }
+
+  it('boundary lane firing Up damages the struck column, not the empty neighbour', () => {
+    // Brick only in tile column 5; column 6 empty. x=88 lane -> centre x = 96.0.
+    const l = emptyLevel();
+    setTileChar(l, 5, 3, 'B');
+    const s = createGame(l, OPTS);
+    const b = fireFrom(s, { x: 88, y: 72, dir: UP });
+    flyUntilDead(s, b);
+    const hit = findEvent(s, 'brickHit');
+    expect(hit.tx).toBe(5);
+    expect(hit.ty).toBe(3);
+    expect(hit.removedMask).toBe(12); // south pair actually cleared
+    expect(tileMask(s, 5, 3, Terrain.Brick)).toBe(3); // wall really changed (no dud)
+    expect(b.alive).toBe(false);
+  });
+
+  it('boundary lane firing Right damages the struck row, not the empty neighbour', () => {
+    // Brick only in tile row 5; row 6 empty. y=88 lane -> centre y = 96.0.
+    const l = emptyLevel();
+    setTileChar(l, 7, 5, 'B');
+    const s = createGame(l, OPTS);
+    const b = fireFrom(s, { x: 72, y: 88, dir: RIGHT });
+    flyUntilDead(s, b);
+    const hit = findEvent(s, 'brickHit');
+    expect(hit.tx).toBe(7);
+    expect(hit.ty).toBe(5);
+    expect(hit.removedMask).toBe(5); // west pair
+    expect(tileMask(s, 7, 5, Terrain.Brick)).toBe(10);
+    expect(b.alive).toBe(false);
+  });
+
+  it('straddling two brick tiles damages exactly the lower-coordinate one', () => {
+    const l = emptyLevel();
+    setTileChar(l, 5, 3, 'B');
+    setTileChar(l, 6, 3, 'B');
+    const s = createGame(l, OPTS);
+    const b = fireFrom(s, { x: 88, y: 72, dir: UP }); // bullet [94,98] straddles cols 5 & 6
+    flyUntilDead(s, b);
+    expect(s.events.filter((e) => e.t === 'brickHit').length).toBe(1);
+    const hit = findEvent(s, 'brickHit');
+    expect(hit.tx).toBe(5);
+    expect(hit.ty).toBe(3);
+    expect(tileMask(s, 5, 3, Terrain.Brick)).toBe(3); // struck tile changed
+    expect(tileMask(s, 6, 3, Terrain.Brick)).toBe(15); // neighbour untouched
+  });
+});
+
 // --- 7,8 · bullet vs bullet (P-07, P-06) -----------------------------------
 
 describe('bullets — bullet vs bullet (P-06, P-07)', () => {

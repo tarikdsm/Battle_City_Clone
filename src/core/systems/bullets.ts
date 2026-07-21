@@ -301,7 +301,8 @@ function resolveBulletVsTerrain(state: GameState, b: Bullet): void {
 
   let bestKind = NONE;
   let bestFace = forward ? Infinity : -Infinity;
-  let bestSubTravel = -1; // subcell index on the travel axis of the winning cell
+  let bestSx = -1; // struck subcell (both coords) of the winning brick/steel cell
+  let bestSy = -1;
 
   // Terrain subcells strictly overlapping the swept box.
   const sxMin = Math.max(0, Math.floor(boxA.x / SUBCELL));
@@ -327,7 +328,8 @@ function resolveBulletVsTerrain(state: GameState, b: Bullet): void {
       if (forward ? face < bestFace : face > bestFace) {
         bestFace = face;
         bestKind = kind === Terrain.Steel ? STEEL : BRICK;
-        bestSubTravel = horizontal ? sx : sy;
+        bestSx = sx;
+        bestSy = sy;
       }
     }
   }
@@ -383,15 +385,15 @@ function resolveBulletVsTerrain(state: GameState, b: Bullet): void {
     return;
   }
 
-  // Brick / steel: impacted tile = travel-axis tile of the struck subcell, with
-  // the perpendicular axis taken from the bullet's centre (matches the spec's
-  // "tile containing the bullet's centre at impact" for straddle disambiguation).
-  const travelTile = Math.floor(bestSubTravel / 2);
-  const perpTile = horizontal
-    ? Math.floor((b.y + BULLET_SIZE / 2) / TILE)
-    : Math.floor((b.x + BULLET_SIZE / 2) / TILE);
-  const tx = horizontal ? travelTile : perpTile;
-  const ty = horizontal ? perpTile : travelTile;
+  // Brick / steel: the impacted tile is derived ENTIRELY from the struck subcell
+  // found by the nearest-face scan (controller ruling amending the brief). Using
+  // the bullet centre for the perpendicular axis produced "dud hits": on the many
+  // snap-8 lanes whose centre lands exactly on a 16u tile boundary, floor(centre/
+  // TILE) points at the neighbouring tile, which may hold no matching terrain — the
+  // bullet then dies against a wall it leaves untouched. On a genuine two-tile
+  // straddle the ascending scan already fixes the lower-coordinate subcell.
+  const tx = Math.floor(bestSx / 2);
+  const ty = Math.floor(bestSy / 2);
 
   if (bestKind === STEEL) {
     const removedMask = b.canHurtSteel ? damageTile(state, tx, ty, Terrain.Steel, b) : 0;
