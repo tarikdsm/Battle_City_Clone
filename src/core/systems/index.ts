@@ -29,17 +29,10 @@ export function aiSystem(state: GameState, intents: Intents): void {
 // call site in game.ts never changes.
 export { movementSystem } from './movement';
 
-// 5. firing (spawn bullets)
-export function firingSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
-
-// 6. bullet advance (swept) + collisions (bullet/bullet, bullet/tank, bullet/terrain)
-export function bulletsSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 5. firing (spawn bullets) — T1.3. Delegated to ./bullets; names/signatures
+// stay identical so the call site in game.ts never changes.
+// 6. bullet advance (swept) + collisions (bullet/bullet, bullet/tank, bullet/terrain) — T1.3.
+export { firingSystem, bulletsSystem } from './bullets';
 
 // 7. power-up spawn / pickup
 export function powerupsSystem(state: GameState, intents: Intents): void {

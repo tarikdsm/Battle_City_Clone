@@ -49,6 +49,7 @@ export function makeTank(
     frozenT: 0,
     spawningT: 0,
     bulletsAirborne: 0,
+    fireHeld: false,
     prevX: init.x,
     prevY: init.y,
     ...init,

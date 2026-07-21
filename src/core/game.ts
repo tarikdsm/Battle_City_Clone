@@ -164,6 +164,7 @@ export function hashState(state: GameState): number {
     feed(t.frozenT);
     feed(t.spawningT);
     feed(t.bulletsAirborne);
+    feed(t.fireHeld ? 1 : 0);
   }
 
   for (const b of state.bullets) {

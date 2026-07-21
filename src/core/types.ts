@@ -75,6 +75,10 @@ export interface Tank {
   frozenT: number;
   spawningT: number;
   bulletsAirborne: number;
+  // Edge-detect state for firing: the fire-intent value observed last tick. Core
+  // fires only on the press edge (fire && !fireHeld); the input layer's turbo
+  // pulse is what produces autofire. Updated unconditionally every tick (T1.3).
+  fireHeld: boolean;
 }
 
 export interface Bullet {
