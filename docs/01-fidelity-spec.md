@@ -76,7 +76,7 @@ Collecting a Star at tier 3 keeps tier 3 (score still awarded).
 ### 5.1 Bullets
 
 - Size **4×4 u** AABB, spawned centered on the muzzle (front-center of the shooter), traveling in the facing direction at the shooter's bullet speed.
-- A shooter may fire only while its airborne-bullet count is below its cap (player cap by tier; enemies 1). Holding fire refires as soon as a slot frees (player).
+- A shooter may fire only while its airborne-bullet count is below its cap (player cap by tier; enemies 1). The simulation fires on the **press edge** of the fire input (as the NES does); hold-to-autofire is implemented in the input layer as a turbo pulse (~10 Hz), so core outcomes never exceed what button mashing achieves on the NES.
 - Bullets despawn on any impact (single impact only — the first collision along the sweep) or at the field border (with impact puff, no terrain effect).
 
 ### 5.2 Interaction matrix

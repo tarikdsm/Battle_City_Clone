@@ -72,6 +72,7 @@ export interface Tank {
   hp: number; tier: 0 | 1 | 2 | 3;            // tier meaningful for players (0 for enemies)
   shieldT: number; stunT: number; frozenT: number; spawningT: number; // seconds remaining, 0 = inactive
   bulletsAirborne: number;
+  fireHeld: boolean;           // previous-tick fire level (core fires on press edge; hashed after bulletsAirborne)
 }
 
 export interface Bullet {
