@@ -20,6 +20,9 @@ test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
 
   await expect(page).toHaveTitle('Battle City');
   await expect(page.locator('canvas#game')).toHaveCount(1);
+  // Screens really mount on #ui: if main.ts silently fell back to <body>
+  // (missing or renamed #ui), this element would still be empty after boot.
+  await expect(page.locator('#ui')).not.toBeEmpty();
   expect(sawBootOk, 'expected "boot ok" in the console').toBe(true);
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });

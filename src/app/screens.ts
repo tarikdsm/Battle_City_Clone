@@ -31,6 +31,17 @@ export interface ScreenMachine {
   current(): ScreenName;
 }
 
+/**
+ * Baseline look for a full-bleed screen panel: centred column over the canvas.
+ * It lives with the screen machine because it belongs to *every* screen —
+ * T3.x's title/menu/pause and the error screen alike. (Placeholder styling
+ * until the UI layer gets real CSS with custom properties, arch §8.)
+ */
+export const OVERLAY_STYLE =
+  'position:fixed;inset:0;display:flex;flex-direction:column;' +
+  'align-items:center;justify-content:center;gap:0.75rem;padding:1.5rem;' +
+  'font:16px/1.5 system-ui,sans-serif;color:#e8e8e8;text-align:center;';
+
 export function createScreenMachine(root: HTMLElement): ScreenMachine {
   const registry = new Map<ScreenName, Screen>();
   // `null` = nothing mounted yet, which is what makes the very first

@@ -4,12 +4,8 @@
 // renderer lands in T2.2 and the real screens in T3.x, so `boot` is a placeholder.
 
 import { parseDebugFlags } from './debug';
-import {
-  createErrorRail,
-  createErrorScreen,
-  OVERLAY_STYLE,
-} from './errorScreen';
-import { createScreenMachine, type Screen } from './screens';
+import { createErrorRail, createErrorScreen } from './errorScreen';
+import { createScreenMachine, OVERLAY_STYLE, type Screen } from './screens';
 
 /** Placeholder until the title screen lands (T3.x). */
 function createBootScreen(): Screen {
@@ -32,7 +28,22 @@ function createBootScreen(): Screen {
 // The overlay root is resolved first and deliberately CANNOT fail: the error
 // screen has to have somewhere to render, so a missing #ui falls back to <body>
 // rather than throwing before the rails below are armed.
-const uiRoot = document.querySelector<HTMLElement>('#ui') ?? document.body;
+//
+// COUPLING: `document.body` is non-null here only because index.html loads this
+// module from the END of <body>. TypeScript cannot catch a regression — it types
+// `document.body` as non-nullable — so moving the <script> into <head> (or
+// dropping `type="module"`) would break this silently.
+const foundUiRoot = document.querySelector<HTMLElement>('#ui');
+const uiRoot = foundUiRoot ?? document.body;
+if (!foundUiRoot) {
+  // Today every screen is position:fixed/inset:0, so <body> renders the same
+  // and the fallback is invisible. That stops being true the moment a screen
+  // relies on #ui's own stacking context or CSS (e.g. the usual
+  // `#ui { pointer-events: none }` with children re-enabling it), so say so
+  // out loud. A warning, not an error: the e2e smoke asserts zero console
+  // ERRORS on a clean boot.
+  console.warn('#ui not found — mounting screens on <body> instead');
+}
 
 const screens = createScreenMachine(uiRoot);
 screens.register('boot', createBootScreen());

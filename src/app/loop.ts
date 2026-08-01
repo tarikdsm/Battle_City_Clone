@@ -91,9 +91,11 @@ export function createLoop(cb: LoopCallbacks, opts?: LoopOptions): Loop {
 
   function tickOnce(nowMs: number): void {
     let dt = nowMs - lastMs;
-    // NaN-safe by construction (`!(NaN > 0)` is true): a garbage timestamp
-    // contributes nothing instead of poisoning the accumulator.
-    if (!(dt > 0)) {
+    // One condition covers every unusable dt: NaN, ±Infinity and a backwards
+    // clock all contribute nothing. Infinity in particular must NOT fall
+    // through to the clamp below — a garbage timestamp is not a 250 ms spike,
+    // and treating it as one would burn a 10-step catch-up on nothing.
+    if (!Number.isFinite(dt) || dt <= 0) {
       dt = 0; // non-monotonic clock (or the very first frame): nothing to advance
     } else if (dt > MAX_DT_MS) {
       dt = MAX_DT_MS;
@@ -143,8 +145,13 @@ export function createLoop(cb: LoopCallbacks, opts?: LoopOptions): Loop {
       return;
     }
     // Re-baseline: without this the first frame's dt would be the whole page
-    // lifetime and get clamped, costing a pointless 10-step catch-up.
-    lastMs = now();
+    // lifetime and get clamped, costing a pointless 10-step catch-up. Gated on
+    // finiteness like every other write to lastMs — a clock that hands back
+    // garbage costs one frame, never the baseline.
+    const t = now();
+    if (Number.isFinite(t)) {
+      lastMs = t;
+    }
     handle = schedule(frame);
   }
 

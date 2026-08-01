@@ -160,6 +160,38 @@ describe('createLoop — fixed timestep (arch §3.4)', () => {
     // this frame is worth 100 ms.
     loop.tickOnce(150);
     expect(p.steps).toBe(6);
+
+    // Infinity is garbage too, not a maximal spike: it must not fall through to
+    // the 250 ms clamp and burn a 10-step catch-up on nothing.
+    p.steps = 0;
+    loop.tickOnce(Number.POSITIVE_INFINITY);
+    expect(p.steps).toBe(0);
+    expect(lastRender(p).dtMs).toBe(0);
+
+    // …and it left the baseline at 150, so the next real frame is worth 50 ms.
+    loop.tickOnce(200);
+    expect(p.steps).toBe(3);
+  });
+
+  it('survives a clock that returns NaN at start()', () => {
+    const p = probe();
+    const scheduled: ((t: number) => void)[] = [];
+    const loop = createLoop(p.cb, {
+      now: () => Number.NaN,
+      schedule: (fn) => {
+        scheduled.push(fn);
+        return 1;
+      },
+      cancel: () => {
+        /* nothing to cancel in this test */
+      },
+    });
+
+    loop.start();
+    // A NaN baseline would make every later dt NaN. The finiteness gate leaves
+    // lastMs at 0, so this frame is a normal 100 ms one.
+    scheduled[0](100);
+    expect(p.steps).toBe(6);
   });
 
   it('drives start/stop through the injected scheduler, never a global RAF', () => {

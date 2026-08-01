@@ -5,7 +5,7 @@
 // testable without a DOM. Only `enter()` touches `document`, and nothing here
 // runs at module load.
 
-import type { Screen } from './screens';
+import { OVERLAY_STYLE, type Screen } from './screens';
 
 /** What the player sees. The technical part goes in the copyable details. */
 export const FRIENDLY_MESSAGE =
@@ -113,11 +113,6 @@ export function createErrorRail(
 // ---------------------------------------------------------------------------
 // The screen itself.
 // ---------------------------------------------------------------------------
-
-export const OVERLAY_STYLE =
-  'position:fixed;inset:0;display:flex;flex-direction:column;' +
-  'align-items:center;justify-content:center;gap:0.75rem;padding:1.5rem;' +
-  'font:16px/1.5 system-ui,sans-serif;color:#e8e8e8;text-align:center;';
 
 async function copyDetails(details: string): Promise<boolean> {
   try {
