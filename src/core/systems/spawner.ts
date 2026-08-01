@@ -217,6 +217,10 @@ function resetEnemyTank(
   t.bulletsAirborne = 0;
   t.fireHeld = false;
   t.aiTimerT = 0; // due immediately: the new enemy decides on its first free tick
-  t.aiTileX = Math.floor(x / TILE); // lattice memory starts where it appears
+  // Lattice memory starts where the tank appears. Belt-and-braces rather than
+  // load-bearing: aiSystem re-arms both fields later in the same tick, and the
+  // read in between is discarded because `spawningT > 0` short-circuits first.
+  // Kept so a recycled slot is never observably stale — it is two assignments.
+  t.aiTileX = Math.floor(x / TILE);
   t.aiTileY = Math.floor(y / TILE);
 }

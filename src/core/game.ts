@@ -101,8 +101,13 @@ export function stepGame(
   // (respawn placement, a teleport effect) is covered for free. It is deliberately
   // NOT a simulation input: prev is excluded from hashState, and the AI keeps its
   // own hashed lattice memory (Tank.aiTileX/Y) rather than reading back from here.
-  // A pause early-out, when T1.7 adds one, belongs ABOVE this loop: a paused tick
-  // runs no systems, so re-snapshotting would flatten the interpolation.
+  //
+  // The invariant, for whoever extends this function: any tick that advances
+  // state.tick must leave every tank's prev equal to its position at the start of
+  // that tick — including a tick that runs no systems. T1.7's pause advances
+  // nothing and runs nothing, so its early-out returns before both `tick++` and
+  // this loop, and prev/x stay exactly as the last real tick left them. Pinning
+  // the interpolation alpha while paused is the app loop's job, not the core's.
   for (const t of state.tanks) {
     t.prevX = t.x;
     t.prevY = t.y;

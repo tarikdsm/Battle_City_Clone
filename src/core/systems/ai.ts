@@ -197,9 +197,10 @@ function isOpenInCurrentDecision(dir: Dir): boolean {
 }
 
 // One definition of "a player worth reasoning about", shared by the target
-// search and the alignment check: on the field, materialized, and actually
-// bound to a player slot.
-function isLivePlayer(t: Tank): boolean {
+// search and the alignment check: on the field, materialized, and actually bound
+// to a player slot. Narrowing `playerIndex` here is what lets the tie-break read
+// it without a second undefined guard.
+function isLivePlayer(t: Tank): t is Tank & { playerIndex: 0 | 1 } {
   return (
     t.kind === 'player' &&
     t.alive &&
@@ -234,7 +235,7 @@ function nearestPlayer(
   let bestD = Infinity;
   let bestIndex = Infinity;
   for (const t of state.tanks) {
-    if (!isLivePlayer(t) || t.playerIndex === undefined) continue;
+    if (!isLivePlayer(t)) continue;
     const d = Math.abs(t.x + HALF_TANK - cx) + Math.abs(t.y + HALF_TANK - cy);
     if (d < bestD || (d === bestD && t.playerIndex < bestIndex)) {
       best = t;

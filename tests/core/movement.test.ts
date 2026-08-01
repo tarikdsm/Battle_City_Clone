@@ -352,7 +352,11 @@ describe('movement — prev snapshot & hash', () => {
       ex: enemy.x,
       ey: enemy.y,
     };
-    expect(afterTick1.ex !== 100 || afterTick1.ey !== 100).toBe(true); // it moved
+    // The AI drove it somewhere — which axis is up to the seed.
+    expect({ x: afterTick1.ex, y: afterTick1.ey }).not.toEqual({
+      x: 100,
+      y: 100,
+    });
 
     stepDir(s, RIGHT); // tick 2
     // Both prevs are the END of tick 1 — i.e. the start of tick 2 — and NOT the
@@ -363,7 +367,10 @@ describe('movement — prev snapshot & hash', () => {
     expect(enemy.prevX).toBe(afterTick1.ex);
     expect(enemy.prevY).toBe(afterTick1.ey);
     expect(player.x).not.toBe(player.prevX);
-    expect(enemy.x !== enemy.prevX || enemy.y !== enemy.prevY).toBe(true);
+    expect({ x: enemy.x, y: enemy.y }).not.toEqual({
+      x: enemy.prevX,
+      y: enemy.prevY,
+    });
   });
 
   it('captures prev over a whole tick even for a tank nothing drives', () => {
