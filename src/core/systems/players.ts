@@ -37,9 +37,12 @@ const SPAWN_TILES: readonly (readonly [number, number])[] = [
 ];
 
 // The two player slots, as a frozen table: iterating it keeps the index typed as
-// `0 | 1` without a cast and without allocating a fresh array every tick. Shared
-// with winlose.ts, which walks the same slots.
-export const PLAYER_INDICES: readonly (0 | 1)[] = [0, 1];
+// `0 | 1` without a cast and without allocating a fresh array every tick. Frozen
+// at RUNTIME, not merely `readonly` — it is exported and shared with winlose.ts,
+// and `readonly` disappears at compile time.
+export const PLAYER_INDICES: readonly (0 | 1)[] = Object.freeze([0, 1] as (
+  0 | 1
+)[]);
 
 // --- Player tanks ----------------------------------------------------------
 

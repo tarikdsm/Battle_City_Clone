@@ -54,6 +54,13 @@ const SHOOTER_X = 32;
 const SHOOTER_Y = 96;
 const TARGET_X = 64;
 
+// Where a kill in that lane is reported: the tier-0 bullet leaves the muzzle at
+// (46, 102) and steps 2 u a tick, so the swept box first overlaps the target's
+// 64..80 span on the eighth tick, at x = 62. Both `tankDestroyed` and the
+// `scoreAwarded` it pays out carry exactly this point.
+const KILL_X = 62;
+const KILL_Y = 102;
+
 // --- Fixtures --------------------------------------------------------------
 
 function level(): LevelData {
@@ -288,15 +295,21 @@ describe('players — scoring (P-19)', () => {
       kill(s, p, e);
       expected += SCORE[type];
       expect(s.players[0].score).toBe(expected);
+      // The award lands where the kill did — the killing bullet's position, which
+      // is what the HUD floats the points from. Pinned exactly (and cross-checked
+      // against the kill event) so a swapped or zeroed coordinate cannot pass.
+      const killed = only(s, 'tankDestroyed');
+      expect(killed).toHaveLength(1);
       expect(only(s, 'scoreAwarded')).toEqual([
         {
           t: 'scoreAwarded',
           playerIndex: 0,
           points: SCORE[type],
-          x: expect.any(Number),
-          y: expect.any(Number),
+          x: KILL_X,
+          y: KILL_Y,
         },
       ]);
+      expect([killed[0].x, killed[0].y]).toEqual([KILL_X, KILL_Y]);
     }
 
     expect(s.players[0].score).toBe(100 + 200 + 300 + 400);
@@ -317,6 +330,15 @@ describe('players — scoring (P-19)', () => {
 
     expect(s.players[1].score).toBe(SCORE.fast);
     expect(s.players[1].destroyedByType.fast).toBe(1);
+    expect(only(s, 'scoreAwarded')).toEqual([
+      {
+        t: 'scoreAwarded',
+        playerIndex: 1,
+        points: SCORE.fast,
+        x: KILL_X,
+        y: KILL_Y,
+      },
+    ]);
     expect(s.players[0].score).toBe(0);
     expect(s.players[0].destroyedByType).toEqual({
       basic: 0,

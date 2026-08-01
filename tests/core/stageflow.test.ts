@@ -327,6 +327,45 @@ describe('stage flow — pause (P-26)', () => {
     expect(s.tick).toBe(tickBefore); // 60 held ticks, zero simulation
   });
 
+  it('P-26: pause works outside "playing" too — intro and game over', () => {
+    // The pause block reads the REAL intents and runs before the phase gating
+    // exists, so a locked-out player can still stop the clock. Structural today;
+    // this is the case that would catch a refactor moving pause behind the gate.
+    const intro = parked();
+    expect(intro.phase).toBe('intro');
+    stepN(intro, 10);
+    const introTick = intro.tick;
+    const introPhaseT = intro.phaseT;
+
+    step(intro, P1_PAUSE);
+    stepN(intro, 200, P1_PAUSE); // long enough to have opened the curtain twice
+    expect(intro.paused).toBe(true);
+    expect(intro.tick).toBe(introTick);
+    expect(intro.phase).toBe('intro'); // the intro clock froze with everything else
+    expect(intro.phaseT).toBe(introPhaseT);
+
+    step(intro); // release
+    step(intro, P1_PAUSE); // press again → resumes
+    expect(intro.paused).toBe(false);
+    expect(intro.tick).toBe(introTick + 1);
+
+    // And once the run is over, where the controls are equally dead.
+    const over = playing();
+    over.phase = 'gameOver';
+    over.phaseT = 0;
+    const overTick = over.tick;
+
+    step(over, P1_PAUSE);
+    expect(over.paused).toBe(true);
+    expect(over.tick).toBe(overTick);
+    expect(over.phaseT).toBe(0); // frozen, not counting
+
+    step(over);
+    step(over, P1_PAUSE);
+    expect(over.paused).toBe(false);
+    expect(over.tick).toBe(overTick + 1);
+  });
+
   it('P-26: either player may pause, and P2 may unpause what P1 paused', () => {
     const s = createGame(level(), { players: 2, seed: 42, stageNumber: 1 });
     s.phase = 'playing';

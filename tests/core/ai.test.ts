@@ -217,12 +217,24 @@ describe('ai — determinism (P-23)', () => {
     // simulation itself did not move: same rng state, same tank positions, dirs
     // and timers at tick 300, same lattice statistics — only the field count.
     //
-    // Re-recorded again, 0xd58fb38e → 0x36277e8f, when T1.7 gave createGame the
-    // two player tanks. This one IS a change of simulation: a live P1 stands on
-    // the field from tick 0, so the AI's "toward the nearest player" weight and
-    // its aligned fire rate finally have a target, and the whole draw stream
-    // diverges from there. The two new hashed fields (pauseHeld, respawnT) move
-    // it too. Both are intended; nothing about the AI's own rules changed.
+    // Re-recorded again, 0xd58fb38e → 0x36277e8f, for T1.7. Nothing about the
+    // AI's own rules changed; four independent things moved the value, and a
+    // future re-recorder needs all four to tell an intended diff from a bug:
+    //
+    //  1. RNG STREAM — a live P1 stands on the field from tick 0, so the AI's
+    //     "toward the nearest player" weight and its aligned fire rate finally
+    //     have a target. P1 is also a BLOCKER in probeMove, which changes which
+    //     directions count as open and therefore the uniform-pick fallback. Both
+    //     shift the draw stream from the first decision onward. (Nothing else
+    //     T1.7 added draws: players/winlose/tickPhase/tickRespawns take nothing
+    //     from the rng, and the spawner cannot see the players — spawn points are
+    //     at y=0, player tanks at y=192.)
+    //  2. FIELD COUNT — two player tanks are hashed, and enemies now occupy tank
+    //     ids 2+ instead of 0+; hashState feeds t.id.
+    //  3. PHASE — phaseT is ticked at all now, and the run crosses intro→playing
+    //     at tick 120, so tick 300 hashes phase 'playing' with phaseT ≈ 3.0
+    //     instead of 'intro' with phaseT 0.
+    //  4. NEW FIELDS — pauseHeld and respawnT joined the hash stream.
     expect(hashState(s)).toBe(0x36277e8f);
   });
 
