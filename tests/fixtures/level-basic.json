@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "test-basic",
+  "name": "Test Basic",
+  "terrain": [
+    ".............",
+    ".............",
+    ".............",
+    ".............",
+    "..S.......W..",
+    "......B......",
+    ".....BBB.....",
+    "......B......",
+    "..T.......I..",
+    ".............",
+    ".............",
+    ".............",
+    "............."
+  ],
+  "enemies": [
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic"
+  ]
+}

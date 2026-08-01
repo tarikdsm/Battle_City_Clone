@@ -1,0 +1,40 @@
+// src/core/systems/index.ts — the nine per-tick systems, invoked by stepGame in
+// this exact fixed order (arch §3.2). Every system shares one signature so the
+// call sites in game.ts never change as the logic lands.
+
+// 1. stage phase & timers (intro/clear/gameover, shovel, clock, shields, stun).
+// Delegated to ./stageflow — T1.5 landed the effect timers; T1.7 extends the same
+// module with the stage phases and pause. The exported name/signature never changes.
+export { stageflowSystem } from './stageflow';
+
+// 2. enemy spawn starts / materializations — T1.4. Delegated to ./spawner; the
+// exported name/signature stays identical so the call site in game.ts never changes.
+export { spawnerSystem } from './spawner';
+
+// 3. enemy AI: decisions, movement and fire rolls — T1.6. Delegated to ./ai; the
+// exported name/signature stays identical so the call site in game.ts never
+// changes. It moves the enemies itself (through movement.ts's moveTank), which
+// is why it also owns their prevX/prevY snapshot.
+export { aiSystem } from './ai';
+
+// 4. tank movement (players then enemies, index order; turn-snap; ice) — T1.2.
+// Delegated to ./movement; the exported name/signature stays identical so the
+// call site in game.ts never changes.
+export { movementSystem } from './movement';
+
+// 5. firing (spawn bullets) — T1.3. Delegated to ./bullets; names/signatures
+// stay identical so the call site in game.ts never changes.
+// 6. bullet advance (swept) + collisions (bullet/bullet, bullet/tank, bullet/terrain) — T1.3.
+export { firingSystem, bulletsSystem } from './bullets';
+
+// 7. power-up spawn / pickup — T1.5. Delegated to ./powerups; the exported
+// name/signature stays identical so the call site in game.ts never changes.
+export { powerupsSystem } from './powerups';
+
+// 8. score / lives / bonus-life bookkeeping — T1.7. Delegated to ./players, which
+// also owns the shape of a player tank (createGame and the respawn share it).
+export { playersSystem } from './players';
+
+// 9. win / lose evaluation — T1.7. Delegated to ./winlose; the exported name/
+// signature stays identical so the call site in game.ts never changes.
+export { winloseSystem } from './winlose';

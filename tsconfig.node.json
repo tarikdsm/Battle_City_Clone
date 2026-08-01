@@ -1,0 +1,24 @@
+{
+  // The NODE-SIDE program: tests, the Playwright e2e suite and the scripts. These
+  // legitimately touch the filesystem, timers and the process — the core's
+  // headless boundary (arch §2) is about `src/core`, not about the tooling that
+  // exercises it — so this program, and only this program, loads @types/node.
+  //
+  // Keeping the split is the point. `src` files still enter this program through
+  // the imports the tests make, but tsconfig.json is the config that OWNS them,
+  // and it has `types: []`; a Node global used under src/ therefore fails
+  // `npm run typecheck` (which runs both programs) and shows up in the editor.
+  // Merging the two back into one program would put @types/node/globals.d.ts in
+  // scope for the core, where `process.hrtime.bigint()` would typecheck cleanly.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "tests",
+    "e2e",
+    "scripts",
+    "vite.config.ts",
+    "playwright.config.ts"
+  ]
+}

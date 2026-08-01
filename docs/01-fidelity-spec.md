@@ -10,7 +10,7 @@ Presentation layers (render/audio/UI) may **never** alter any behavior specified
 
 - Length: **1 tile = 16 u**, **1 subcell = 8 u** (NES pixels map 1:1 to u).
 - Field: **13×13 tiles = 208×208 u** playable area. Origin (0,0) at **top-left**; +x right, +y down. Tile coords `(tx, ty)` ∈ 0..12; subcell coords ∈ 0..25.
-- Time: fixed simulation timestep **1/60 s** ("frame"). All speeds in u/s, durations in seconds (converted to whole frames internally).
+- Time: fixed simulation timestep **1/60 s** ("frame"). All speeds in u/s, durations in seconds (converted to whole frames internally). Countdown timers snap to exactly 0 once within half a tick of expiry, so an effect whose duration is a whole multiple of the tick lasts exactly its nominal number of frames despite float accumulation (implementation rule, ruled 2026-07-21).
 - Entity positions are stored as the **top-left corner** of their AABB, in float u; collision boxes are axis-aligned.
 
 ## 2. Field layout constants
@@ -76,7 +76,7 @@ Collecting a Star at tier 3 keeps tier 3 (score still awarded).
 ### 5.1 Bullets
 
 - Size **4×4 u** AABB, spawned centered on the muzzle (front-center of the shooter), traveling in the facing direction at the shooter's bullet speed.
-- A shooter may fire only while its airborne-bullet count is below its cap (player cap by tier; enemies 1). Holding fire refires as soon as a slot frees (player).
+- A shooter may fire only while its airborne-bullet count is below its cap (player cap by tier; enemies 1). The simulation fires on the **press edge** of the fire input (as the NES does); hold-to-autofire is implemented in the input layer as a turbo pulse (~10 Hz), so core outcomes never exceed what button mashing achieves on the NES.
 - Bullets despawn on any impact (single impact only — the first collision along the sweep) or at the field border (with impact puff, no terrain effect).
 
 ### 5.2 Interaction matrix
@@ -97,6 +97,7 @@ Levels are 13×13 tiles; each tile is one of: empty, brick, steel, water, trees,
 ### 6.1 Brick
 - Tracked as 4 independent subcells per tile.
 - A non-tier-3 bullet impact removes the **near half of the tile relative to travel direction** (the 2 subcells adjacent to the impacted face, i.e. an 8 u-deep, 16 u-wide bite aligned to the tile) — two hits fully clear a tile `[CAL-07]`.
+- The damaged tile is the tile **containing the struck subcell** (both tile coordinates derive from it — never from the bullet center, which sits exactly on a tile boundary in half of all firing lanes). When a bullet straddles two tiles that both hold matching terrain at the same face distance, the lower-coordinate tile wins (deterministic; amended 2026-07-21 during T1.3 review).
 - A tier-3 player bullet impact removes **all 4 subcells** of the impacted tile in one hit `[CAL-07]`.
 - Collision uses remaining subcells only.
 
@@ -129,7 +130,7 @@ Levels are 13×13 tiles; each tile is one of: empty, brick, steel, water, trees,
 | **Helmet** | Shield for **10 s** `[CAL-15]`; re-collect restarts the timer. |
 | **Clock** | All enemies (including ones that spawn during it) freeze — no move, no fire — for **10 s** `[CAL-16]`. |
 | **Shovel** | Base ring becomes **steel** and any destroyed ring subcells are repaired; lasts **20 s**: 17 s solid + 3 s blinking brick/steel warning, then reverts to **fully repaired brick** `[CAL-17]`. |
-| **Grenade** | All materialized enemies on field are destroyed instantly. **No points** for these kills. Tanks mid-spawn-animation are unaffected `[CAL-18]`. |
+| **Grenade** | All materialized enemies on field are destroyed instantly. **No points** for these kills. Tanks mid-spawn-animation are unaffected `[CAL-18]`. A carrier destroyed this way **drops nothing** — the drop is a bullet-hit mechanic, and the grenade is itself the reward (ruled 2026-07-22). |
 | **Tank** | +1 life to the collector. |
 
 ## 9. Enemy AI `[FEEL]`
