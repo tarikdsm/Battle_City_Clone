@@ -267,7 +267,11 @@ describe('spawner — materialization & slot reuse', () => {
 
     const enemy = aliveEnemies(s)[0];
     expect(enemy.spawningT).toBe(0);
-    near(enemy.frozenT, 5);
+    // Since T1.5, stageflow (system #1) counts the Clock down every tick, so what
+    // the enemy inherits at materialization is the REMAINING freeze — 5 s minus
+    // the 1.3 s the spawn animation took — and it runs in lockstep from there.
+    near(enemy.frozenT, 5 - SPAWN_ANIM_S);
+    expect(enemy.frozenT).toBe(s.clockT);
   });
 
   it('after all 20 enemies have started, no further spawns are attempted', () => {

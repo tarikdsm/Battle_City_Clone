@@ -6,11 +6,10 @@ import type { GameState, PlayerIntent } from '../types';
 
 type Intents = readonly [PlayerIntent, PlayerIntent];
 
-// 1. stage phase & timers (intro/clear/gameover, shovel, clock, shields, stun)
-export function stageflowSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 1. stage phase & timers (intro/clear/gameover, shovel, clock, shields, stun).
+// Delegated to ./stageflow — T1.5 landed the effect timers; T1.7 extends the same
+// module with the stage phases and pause. The exported name/signature never changes.
+export { stageflowSystem } from './stageflow';
 
 // 2. enemy spawn starts / materializations — T1.4. Delegated to ./spawner; the
 // exported name/signature stays identical so the call site in game.ts never changes.
@@ -32,11 +31,9 @@ export { movementSystem } from './movement';
 // 6. bullet advance (swept) + collisions (bullet/bullet, bullet/tank, bullet/terrain) — T1.3.
 export { firingSystem, bulletsSystem } from './bullets';
 
-// 7. power-up spawn / pickup
-export function powerupsSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 7. power-up spawn / pickup — T1.5. Delegated to ./powerups; the exported
+// name/signature stays identical so the call site in game.ts never changes.
+export { powerupsSystem } from './powerups';
 
 // 8. score / lives / bonus-life bookkeeping
 export function playersSystem(state: GameState, intents: Intents): void {
