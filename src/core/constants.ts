@@ -106,9 +106,36 @@ export const BASE_RING_TILES: readonly (readonly [number, number])[] = [
   [7, 12],
 ];
 
+// The campaign loops after stage 35 but the internal counter keeps rising, so
+// every stage-scaled formula clamps its stage term here (fidelity §7, §9, §11).
+export const STAGE_CAP = 35;
+
 // Ticks between enemy spawn attempts. CAL-11
 // = clamp(190 - 4*min(stage,35) - 20*(players-1), 30, 192)  (fidelity spec §7)
 export function spawnIntervalTicks(stage: number, players: 1 | 2): number {
-  const raw = 190 - 4 * Math.min(stage, 35) - 20 * (players - 1);
+  const raw = 190 - 4 * Math.min(stage, STAGE_CAP) - 20 * (players - 1);
   return Math.min(192, Math.max(30, raw));
 }
+
+// --- Enemy AI ---
+// [FEEL] fidelity §9. The NES AI is not documented at instruction level; this is
+// a perceived-equivalent reconstruction, and the calibration pass (§16) tunes
+// these numbers against reference footage until blind side-by-side review can't
+// tell them apart. What is NOT tunable is the structure they plug into: the
+// per-tick rng draw order (lattice roll → weighted pick → uniform fallback →
+// timer reset → fire roll) is what every golden replay bakes in, so changing a
+// value here rewrites recorded runs while changing the order breaks them.
+export const AI_W_KEEP = 0.4; // weight: keep the current direction
+export const AI_W_BASE_BASE = 0.2; // weight: turn toward the eagle, at stage 0
+export const AI_W_BASE_PER_STAGE = 0.005; // …+ per stage (stage term capped at STAGE_CAP)
+export const AI_W_BASE_MAX = 0.4; // …and never above this
+export const AI_W_PLAYER = 0.1; // weight: turn toward the nearest player
+// Everything left over goes to a uniform pick among the open directions.
+
+export const AI_LATTICE_RECONSIDER = 0.25; // P(reconsider) when a tile line is crossed
+export const AI_TIMER_MIN = 0.5; // decision timer = MIN + rand*SPAN → 0.5..2.0 s
+export const AI_TIMER_SPAN = 1.5;
+
+export const AI_FIRE_ALIGNED_PS = 0.9; // shots/s while lined up on a target
+export const AI_FIRE_RANDOM_PS = 0.4; // shots/s otherwise
+export const AI_ALIGN_TOLERANCE = 6; // max lateral centre offset (u) to count as lined up

@@ -185,11 +185,20 @@ describe('movement — blocking & flush contact', () => {
 
 describe('movement — tank & eagle blocking', () => {
   it('a materialized tank blocks; a spawning tank does not', () => {
-    // Blocking case: second (materialized) tank at (96,80).
+    // Blocking case: second (materialized) tank at (96,80). It is frozen only so
+    // that it holds still — since T1.6 the AI would otherwise drive it away, and
+    // a freeze changes nothing about its hitbox.
     const s1 = createGame(emptyLevel(), OPTS);
     const mover = addPlayer(s1, { x: 60, y: 80, dir: RIGHT });
     s1.tanks.push(
-      makeTank({ id: 2, kind: 'enemy', enemyType: 'basic', x: 96, y: 80 }),
+      makeTank({
+        id: 2,
+        kind: 'enemy',
+        enemyType: 'basic',
+        x: 96,
+        y: 80,
+        frozenT: 60,
+      }),
     );
     for (let i = 0; i < 60; i++) stepDir(s1, RIGHT);
     expect(mover.x).toBe(80); // 96 - TANK_SIZE
@@ -319,25 +328,22 @@ describe('movement — disabled states', () => {
 });
 
 describe('movement — prev snapshot & hash', () => {
-  it('refreshes prevX/prevY for all tanks before movement', () => {
+  it('refreshes prevX/prevY for the tanks it drives, before moving them', () => {
     const s = createGame(emptyLevel(), OPTS);
     const mover = addPlayer(s, { x: 32, y: 80, dir: RIGHT });
-    // An idle enemy tank: movementSystem snapshots it but never moves it.
-    const idle = makeTank({
-      id: 2,
-      kind: 'enemy',
-      enemyType: 'basic',
-      x: 100,
-      y: 100,
-    });
+    // A tank this system does not drive (no playerIndex): snapshotted, unmoved.
+    const idle = makeTank({ id: 2, kind: 'player', x: 100, y: 100 });
+    idle.x = 101.5; // simulate a stale position
     s.tanks.push(idle);
 
     stepDir(s, RIGHT);
 
     expect(mover.prevX).toBe(32); // previous position captured before the move
     near(mover.x, 32.75); // new position
-    expect(idle.prevX).toBe(idle.x); // idle tank: prev tracks current
+    expect(idle.prevX).toBe(101.5); // refreshed even though it never moves
     expect(idle.prevY).toBe(idle.y);
+    // Enemy prev is owned by aiSystem (system #3), which runs first and moves
+    // them — covered by tests/core/ai.test.ts, not here.
   });
 
   it('movementSystem snapshots prev even when no player moves', () => {

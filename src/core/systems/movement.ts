@@ -50,6 +50,7 @@ export function makeTank(
     spawningT: 0,
     bulletsAirborne: 0,
     fireHeld: false,
+    aiTimerT: 0,
     prevX: init.x,
     prevY: init.y,
     ...init,
@@ -70,7 +71,7 @@ export function moveTank(
     return;
   }
 
-  const speed = speedOf(tank);
+  const speed = tankSpeed(tank);
 
   // Step 2 — facing & turn snap. A 90 deg (axis-changing) turn snaps the tank's
   // coordinate on the FORMER movement axis to the nearest subcell boundary; a
@@ -89,7 +90,7 @@ export function moveTank(
     // Step 3 — driven move. Directional input always overrides an active slide.
     tank.sliding = false;
     tank.slideV = 0;
-    const moved = sweptMove(state, tank, tank.dir, speed * dt);
+    const moved = probeMove(state, tank, tank.dir, speed * dt);
     tank.x += DIR_VECS[tank.dir][0] * moved;
     tank.y += DIR_VECS[tank.dir][1] * moved;
     tank.moving = moved > 0;
@@ -104,7 +105,7 @@ export function moveTank(
         state.events.push({ t: 'iceSkidStarted', tankId: tank.id });
       }
       const desired = tank.slideV * dt;
-      const moved = sweptMove(state, tank, tank.dir, desired);
+      const moved = probeMove(state, tank, tank.dir, desired);
       tank.x += DIR_VECS[tank.dir][0] * moved;
       tank.y += DIR_VECS[tank.dir][1] * moved;
       tank.slideV = Math.max(0, tank.slideV - ICE_DECEL * dt);
@@ -137,14 +138,20 @@ export function movementSystem(
   state: GameState,
   intents: readonly [PlayerIntent, PlayerIntent],
 ): void {
-  // Snapshot the previous position of EVERY tank first (interpolation contract),
-  // so no tank's move this tick pollutes another tank's prev reference.
+  // Snapshot the previous position of every tank this system drives, before any
+  // of them moves, so no tank's move pollutes another tank's prev reference.
+  //
+  // Enemies are deliberately excluded: since T1.6 the AI (system #3) moves them,
+  // and it runs BEFORE this one, so it takes their prev snapshot itself. Doing it
+  // again here would overwrite their start-of-tick position with the post-move
+  // one — breaking both the interpolation contract and the AI's own
+  // lattice-crossing test, which reads prev vs current to see what it crossed.
   for (const t of state.tanks) {
+    if (t.kind === 'enemy') continue;
     t.prevX = t.x;
     t.prevY = t.y;
   }
-  // Then move the player tanks from their intents (enemies move via the AI
-  // system in a later task).
+  // Then move the player tanks from their intents.
   for (const t of state.tanks) {
     if (t.kind !== 'player' || t.playerIndex === undefined) continue;
     moveTank(state, t, intents[t.playerIndex].dir, TICK_S);
@@ -153,7 +160,9 @@ export function movementSystem(
 
 // --- Internals ------------------------------------------------------------
 
-function speedOf(tank: Tank): number {
+// Movement speed in u/s: the enemy table by type, else the player speed. Exported
+// so the AI probes exactly one tick of the SAME distance the tank will travel.
+export function tankSpeed(tank: Tank): number {
   if (tank.kind === 'enemy' && tank.enemyType !== undefined) {
     return ENEMY_SPEED[tank.enemyType];
   }
@@ -199,9 +208,15 @@ function centerKind(state: GameState, x: number, y: number): number {
 }
 
 // Distance (<= dist) the tank may travel along `dir` before its 16x16 AABB would
-// strictly overlap any blocker. Movement is single-axis, so this reduces to a 1D
-// clamp against each obstacle that overlaps the tank on the perpendicular axis.
-function sweptMove(
+// strictly overlap any blocker; 0 means fully blocked. Movement is single-axis,
+// so this reduces to a 1D clamp against each obstacle that overlaps the tank on
+// the perpendicular axis.
+//
+// Purely a query — it reads the tank's CURRENT position and mutates nothing — so
+// the AI (system #3) uses it to look before it turns, and `moveTank` uses it as
+// its own clamp. One implementation, deliberately: a probe that disagreed with
+// the move would let enemies pick directions they cannot actually take.
+export function probeMove(
   state: GameState,
   tank: Tank,
   dir: Dir,

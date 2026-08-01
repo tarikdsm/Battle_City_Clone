@@ -216,4 +216,5 @@ function resetEnemyTank(
   t.spawningT = SPAWN_ANIM_S;
   t.bulletsAirborne = 0;
   t.fireHeld = false;
+  t.aiTimerT = 0; // due immediately: the new enemy decides on its first free tick
 }

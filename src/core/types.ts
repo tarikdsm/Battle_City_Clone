@@ -79,6 +79,10 @@ export interface Tank {
   // fires only on the press edge (fire && !fireHeld); the input layer's turbo
   // pulse is what produces autofire. Updated unconditionally every tick (T1.3).
   fireHeld: boolean;
+  // Seconds left on an enemy's AI decision timer (§9). 0 = due, and a decision
+  // re-arms it to 0.5..2.0 s. Player tanks keep it at 0. Hashed immediately
+  // after fireHeld — it is simulation state, not a cache (T1.6).
+  aiTimerT: number;
 }
 
 export interface Bullet {

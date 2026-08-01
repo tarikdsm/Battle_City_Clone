@@ -209,6 +209,9 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
       enemyType: 'armor',
       hp: 4,
       carrier: true,
+      frozenT: 60, // holds still as a target: since T1.6 the AI would drive it
+      // out of the bullet's lane (and shoot back). A freeze changes nothing
+      // about taking damage or dropping.
     });
 
     step(s, [FIRE, NULL_INTENT]); // press edge → one bullet
@@ -251,8 +254,9 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
   it('P-14: a second drop REPLACES the first — only ever one on the field', () => {
     const s = createGame(openField(), OPTS);
     const shooter = addPlayer(s, 0, 0, 96, 1);
-    addEnemy(s, 32, 96, { carrier: true });
-    addEnemy(s, 80, 96, { carrier: true });
+    // Frozen only so both hold their lane as targets (see the P-13 test above).
+    addEnemy(s, 32, 96, { carrier: true, frozenT: 60 });
+    addEnemy(s, 80, 96, { carrier: true, frozenT: 60 });
 
     shooter.alive = false;
     snipe(s, shooter);

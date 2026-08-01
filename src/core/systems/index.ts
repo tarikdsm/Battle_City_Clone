@@ -15,11 +15,11 @@ export { stageflowSystem } from './stageflow';
 // exported name/signature stays identical so the call site in game.ts never changes.
 export { spawnerSystem } from './spawner';
 
-// 3. AI decisions -> enemy intents
-export function aiSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 3. enemy AI: decisions, movement and fire rolls — T1.6. Delegated to ./ai; the
+// exported name/signature stays identical so the call site in game.ts never
+// changes. It moves the enemies itself (through movement.ts's moveTank), which
+// is why it also owns their prevX/prevY snapshot.
+export { aiSystem } from './ai';
 
 // 4. tank movement (players then enemies, index order; turn-snap; ice) — T1.2.
 // Delegated to ./movement; the exported name/signature stays identical so the
