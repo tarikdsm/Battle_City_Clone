@@ -10,7 +10,7 @@ Presentation layers (render/audio/UI) may **never** alter any behavior specified
 
 - Length: **1 tile = 16 u**, **1 subcell = 8 u** (NES pixels map 1:1 to u).
 - Field: **13×13 tiles = 208×208 u** playable area. Origin (0,0) at **top-left**; +x right, +y down. Tile coords `(tx, ty)` ∈ 0..12; subcell coords ∈ 0..25.
-- Time: fixed simulation timestep **1/60 s** ("frame"). All speeds in u/s, durations in seconds (converted to whole frames internally).
+- Time: fixed simulation timestep **1/60 s** ("frame"). All speeds in u/s, durations in seconds (converted to whole frames internally). Countdown timers snap to exactly 0 once within half a tick of expiry, so an effect whose duration is a whole multiple of the tick lasts exactly its nominal number of frames despite float accumulation (implementation rule, ruled 2026-07-21).
 - Entity positions are stored as the **top-left corner** of their AABB, in float u; collision boxes are axis-aligned.
 
 ## 2. Field layout constants
@@ -130,7 +130,7 @@ Levels are 13×13 tiles; each tile is one of: empty, brick, steel, water, trees,
 | **Helmet** | Shield for **10 s** `[CAL-15]`; re-collect restarts the timer. |
 | **Clock** | All enemies (including ones that spawn during it) freeze — no move, no fire — for **10 s** `[CAL-16]`. |
 | **Shovel** | Base ring becomes **steel** and any destroyed ring subcells are repaired; lasts **20 s**: 17 s solid + 3 s blinking brick/steel warning, then reverts to **fully repaired brick** `[CAL-17]`. |
-| **Grenade** | All materialized enemies on field are destroyed instantly. **No points** for these kills. Tanks mid-spawn-animation are unaffected `[CAL-18]`. |
+| **Grenade** | All materialized enemies on field are destroyed instantly. **No points** for these kills. Tanks mid-spawn-animation are unaffected `[CAL-18]`. A carrier destroyed this way **drops nothing** — the drop is a bullet-hit mechanic, and the grenade is itself the reward (ruled 2026-07-22). |
 | **Tank** | +1 life to the collector. |
 
 ## 9. Enemy AI `[FEEL]`
