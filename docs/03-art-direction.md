@@ -20,6 +20,17 @@ Reference image: [assets/style-mockup.svg](assets/style-mockup.svg) (approved by
 
 ## 3. Palette
 
+### 3.0 What a token means (policy — added 2026-07-22 after T2.2 measurements)
+
+A token is **the colour that must appear on screen** for flat graphic elements, and **albedo** for lit 3D surfaces. Two consequences, both binding on every render task:
+
+- **Flat graphic elements** — board plane, grid lattice, frame wall, and any future 2D-reading overlay drawn in the 3D scene — set `toneMapped = false` so the authored hex survives ACES unchanged. Without this the dark tokens crush: T2.2 measured the grid at **1.07×** contrast against the board (invisible); opting out restores **1.88×**.
+- **Lit 3D surfaces** — terrain, tanks, props — use the token as base colour and are modulated by lighting. The rig (§6) is calibrated so a **fully-lit horizontal surface reads within ±10% of its authored token**, so the palette still predicts what you see.
+
+When a surface's role is ambiguous, ask whether it reads as *graphic* (part of the board's diagram) or as *object* (something the light falls on). Diagram → opt out; object → light it.
+
+### 3.1 Tokens
+
 Fixed tokens (render constants; UI mirrors via CSS custom properties):
 
 | Token | Hex | Use |
@@ -70,8 +81,12 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 
 ## 6. Lighting rig
 
-- **Key:** directional, from top-left (azimuth −35°, elevation 50°), warm white (#fff2e0), intensity ~3.0, shadow map 2048 PCF-soft (High preset).
-- **Fill:** hemisphere (cool sky #2a3550 / warm ground #1a1410), intensity 0.35.
+- **Key:** directional, from top-left (azimuth −35°, elevation 50°), warm white (#fff2e0), shadow map 2048, `PCFShadowMap` (High preset). *(`PCFSoftShadowMap` is deprecated in the pinned three 0.185.1 — it silently falls back and warns every frame.)*
+- **Fill:** hemisphere (cool sky #2a3550 / warm ground #1a1410).
+- **Calibration targets replace fixed intensities** (amended 2026-07-22 — the original 3.0 / 0.35 pair measured a **1550:1** key:fill ratio and clipped every shadow to pure black, reading as holes punched in the board rather than shadow):
+  1. A fully-lit horizontal surface reads **within ±10%** of its authored token (§3.0).
+  2. Shadowed ground reads **15–35%** of lit ground luminance — dark enough to shape, light enough to keep the surface present.
+  Tune key and fill to hit both, and record the measured values in the task report so later tasks inherit calibrated numbers rather than re-deriving them.
 - **Dynamic point-light pool (max 8, priority by proximity/importance):** muzzle flash (range 40 u, 60 ms), bullet glow (tiny, attached, Low: off), explosion (range 90 u, 400 ms, quadratic decay), base explosion (range 160 u, 1.2 s), power-up idle pulse (range 24 u, 1.2 s sine), spawn star (range 30 u).
 - ACES tone mapping, exposure 1.1.
 
