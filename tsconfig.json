@@ -1,4 +1,18 @@
 {
+  // The APP program: `src`, and nothing else. `types: []` is load-bearing — it
+  // keeps every ambient @types package out of this program, so the headless,
+  // dependency-free core (arch §2) cannot reach for a Node global and have it
+  // silently typecheck. Node typings live in tsconfig.node.json, which owns
+  // `tests`, `e2e`, `scripts` and the tool configs; `npm run typecheck` runs
+  // BOTH programs, and this one is the gate: `process` under src/ fails here
+  // with TS2591 (verified by mutation, T1.8 review).
+  //
+  // `vite.config.ts` deliberately lives in the node program, not here: it
+  // imports `vitest/config`, whose .d.ts carries a `/// <reference
+  // types="node" />`, and a triple-slash reference is followed even under
+  // `types: []` — one tool config in this include list silently re-opens the
+  // whole boundary. The compilerOptions below are inherited by
+  // tsconfig.node.json, so there is exactly one copy of the language settings.
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -17,12 +31,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": [
-    "src",
-    "tests",
-    "e2e",
-    "scripts",
-    "vite.config.ts",
-    "playwright.config.ts"
-  ]
+  "include": ["src"]
 }

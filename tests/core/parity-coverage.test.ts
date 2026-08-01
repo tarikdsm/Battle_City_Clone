@@ -16,8 +16,8 @@
 // satisfy the checklist by mentioning the ids in its own titles would be circular.
 //
 // Node fs is used on purpose — tests live outside src/core, so the core's
-// headless boundary does not apply here.
-/// <reference types="node" />
+// headless boundary does not apply here (this file compiles under
+// tsconfig.node.json, the only program that carries @types/node).
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -27,10 +27,17 @@ const SELF = 'parity-coverage.test.ts';
 const FIRST_PARITY_ID = 1;
 const LAST_PARITY_ID = 26; // fidelity spec §15 ends at P-26
 
-// `describe(`, `it(`, `test(` and their `.each`/`.only`/`.skip` variants, capturing
-// the opening title literal (single, double or template quoted). Only titles are
-// scanned: a `P-nn` in a comment or an assertion message documents intent, it does
-// not claim coverage.
+// `describe(`, `it(`, `test(` and their `.only`/`.skip`/`.concurrent` variants,
+// capturing the opening title literal (single, double or template quoted). Only
+// titles are scanned: a `P-nn` in a comment or an assertion message documents
+// intent, it does not claim coverage.
+//
+// KNOWN LIMITATION — `describe.each(TABLE)('title …')` is NOT matched: the table
+// argument sits between `.each` and the title, so the title is in a second call.
+// The effect is conservative (a tag can only be missed, never invented), and the
+// one such title in the suite today — replay.test.ts's `golden replay $name
+// (P-23)` — is backed by the tagged `it`s inside it. Widen the pattern if a
+// `.each` block ever becomes the SOLE evidence for an invariant.
 const TITLE_RE =
   /\b(?:describe|it|test)(?:\.\w+)*\s*\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
 const TAG_RE = /P-(\d{2})/g;

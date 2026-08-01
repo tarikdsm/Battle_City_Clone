@@ -7,58 +7,37 @@
 //
 // The fixtures are produced by `npm run replays:record` (scripts/record-replay.ts),
 // which is committed alongside them: when a calibration pass deliberately changes
-// a constant, re-record rather than edit the numbers by hand.
+// a constant, re-record rather than edit the numbers by hand. The format, the
+// encoder and the runner all live in tests/replays/format.ts, shared with the
+// recorder, so the two sides of the serialized file cannot drift apart.
 //
-// Beyond the recorded values, every fixture is also held to a NON-TRIVIALITY floor
-// (event volume, event variety, at least one kill) plus its own scenario-specific
-// requirements — a fixture that silently stopped simulating would still hash
-// consistently, and would read as coverage while testing nothing.
+// Beyond the recorded values, every fixture is also held to a LIVE-PLAY and
+// NON-TRIVIALITY floor: it must still be in phase 'playing' at the end, and it
+// must still be killing enemies and collecting drops. A re-record whose seed now
+// reached game over at call 900 and idled for the next 900 would otherwise
+// reproduce a perfectly stable hash of a finished game — coverage in name only.
 //
 // Node fs and the timing API are used here on purpose: tests are outside
-// src/core, so the core's headless/deterministic boundary does not apply to them.
-/// <reference types="node" />
+// src/core, so the core's headless/deterministic boundary does not apply to them
+// (they compile under tsconfig.node.json, the only program that carries
+// @types/node).
 import { readFileSync, readdirSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
-import { createGame, hashState, stepGame } from '../../src/core/game';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { hashState } from '../../src/core/game';
+import {
+  IDLE,
+  encodeIntents,
+  replayIntents,
+  runReplay,
+  type IntentRow,
+  type ReplayFixture,
+  type RunResult,
+} from '../replays/format';
 import type { GameEvent } from '../../src/core/events';
-import type {
-  Dir,
-  GameState,
-  LevelData,
-  PlayerIntent,
-} from '../../src/core/types';
+import type { Dir, LevelData, PlayerIntent } from '../../src/core/types';
 
 const FIXTURES_DIR = new URL('../fixtures/', import.meta.url);
 const REPLAYS_DIR = new URL('../replays/', import.meta.url);
-
-// [tick, p0dir, p0fire, p0pause, p1dir, p1fire, p1pause] — see the fixture format
-// in the T1.8 brief. Sparse: a row appears only on a tick where something changed,
-// and the runner holds the last value until the next row.
-type IntentRow = [
-  number,
-  Dir | null,
-  boolean,
-  boolean,
-  Dir | null,
-  boolean,
-  boolean,
-];
-
-interface ReplayFixture {
-  version: number;
-  levelId: string;
-  seed: number;
-  players: 1 | 2;
-  stageNumber: number;
-  ticks: number;
-  intents: IntentRow[];
-  expected: { hash: number; eventCount: number; firstEvents: string[] };
-}
-
-interface RunResult {
-  state: GameState;
-  events: GameEvent[];
-}
 
 // --- Loading ---------------------------------------------------------------
 
@@ -92,43 +71,6 @@ function levelOf(fixture: ReplayFixture): LevelData {
   return level;
 }
 
-// --- The runner ------------------------------------------------------------
-
-// One `stepGame` call per `tick` of the fixture — NOT one advance of state.tick.
-// A paused call advances nothing (T1.7), so a fixture that scripts a pause ends
-// with state.tick < ticks, and that gap is asserted rather than smoothed over.
-function runReplay(
-  level: LevelData,
-  opts: { players: 1 | 2; seed: number; stageNumber: number },
-  ticks: number,
-  rows: readonly IntentRow[],
-): RunResult {
-  const state = createGame(level, opts);
-  const held: [PlayerIntent, PlayerIntent] = [
-    { dir: null, fire: false, pause: false },
-    { dir: null, fire: false, pause: false },
-  ];
-  const events: GameEvent[] = [];
-
-  let next = 0;
-  for (let call = 1; call <= ticks; call++) {
-    while (next < rows.length && rows[next][0] === call) {
-      const row = rows[next];
-      held[0].dir = row[1];
-      held[0].fire = row[2];
-      held[0].pause = row[3];
-      held[1].dir = row[4];
-      held[1].fire = row[5];
-      held[1].pause = row[6];
-      next++;
-    }
-    stepGame(state, held);
-    for (const e of state.events) events.push(e);
-  }
-
-  return { state, events };
-}
-
 function replay(fixture: ReplayFixture): RunResult {
   return runReplay(
     levelOf(fixture),
@@ -156,30 +98,53 @@ function countOf(events: readonly GameEvent[], t: GameEvent['t']): number {
   return n;
 }
 
+// `tankDestroyed` alone does not mean the player is fighting: a fixture in which
+// only the PLAYER dies satisfies it. Enemy kills are the honest measure.
+function enemyKills(events: readonly GameEvent[]): number {
+  let n = 0;
+  for (const e of events) {
+    if (e.t === 'tankDestroyed' && e.kind === 'enemy') n += 1;
+  }
+  return n;
+}
+
 // --- The fixture table -----------------------------------------------------
 
 // `pausedCalls` is the number of `stepGame` calls the fixture spends frozen — the
-// exact stall its scripted pause costs the tick counter (P-26 / T1.7). `requires`
-// is the scenario's REASON to exist: replay2 exists to cover 2P friendly fire, so
-// a re-record that quietly stopped producing `playerStunned` must fail, not pass.
+// exact stall its scripted pause costs the tick counter (P-26 / T1.7).
+// `minEnemyKills` / `minPowerupsCollected` are FLOORS with headroom under what the
+// recordings actually produce (6/10/9 kills and 1/1/2 collections as recorded),
+// deliberately not the exact values: a legitimate re-record may move the numbers,
+// but one that stops fighting or stops collecting has to fail.
+// `requires` is the scenario's REASON to exist — replay2 exists to cover 2P
+// friendly fire, so a re-record that quietly stopped producing `playerStunned`
+// must fail, not pass.
 const FIXTURES: readonly {
   name: string;
   pausedCalls: number;
+  minEnemyKills: number;
+  minPowerupsCollected: number;
   requires: readonly GameEvent['t'][];
 }[] = [
   {
     name: 'replay1',
     pausedCalls: 0,
-    requires: ['brickHit', 'tankDestroyed', 'enemySpawned'],
+    minEnemyKills: 3,
+    minPowerupsCollected: 1,
+    requires: ['brickHit', 'tankDestroyed', 'enemySpawned', 'powerupCollected'],
   },
   {
     name: 'replay2',
     pausedCalls: 61,
+    minEnemyKills: 3,
+    minPowerupsCollected: 1,
     requires: ['pauseToggled', 'playerStunned', 'tankDestroyed', 'brickHit'],
   },
   {
     name: 'replay3',
     pausedCalls: 0,
+    minEnemyKills: 3,
+    minPowerupsCollected: 1,
     requires: [
       'tankDestroyed',
       'powerupSpawned',
@@ -191,9 +156,15 @@ const FIXTURES: readonly {
 
 describe.each(FIXTURES)(
   'golden replay $name (P-23)',
-  ({ name, pausedCalls, requires }) => {
+  ({ name, pausedCalls, minEnemyKills, minPowerupsCollected, requires }) => {
     const fixture = loadFixture(name);
-    const result = replay(fixture);
+    // Stepped once, in the test lifecycle rather than at collection time, so a
+    // throw out of the simulation is reported as a failing hook on this named
+    // suite instead of a bare collection error.
+    let result: RunResult;
+    beforeAll(() => {
+      result = replay(fixture);
+    });
 
     it('P-23: reproduces the recorded final state hash', () => {
       expect(hashState(result.state)).toBe(fixture.expected.hash);
@@ -201,6 +172,9 @@ describe.each(FIXTURES)(
 
     it('P-23: reproduces the recorded event count and first 50 event kinds', () => {
       expect(result.events.length).toBe(fixture.expected.eventCount);
+      // Discriminators only — see the note on ReplayFixture.expected.firstEvents:
+      // a payload regression inside those 50 events is invisible here unless it
+      // also moves hashed state.
       expect(result.events.slice(0, 50).map((e) => e.t)).toEqual(
         fixture.expected.firstEvents,
       );
@@ -210,12 +184,23 @@ describe.each(FIXTURES)(
       expect(result.state.tick).toBe(fixture.ticks - pausedCalls);
     });
 
-    it('is a non-trivial run (volume, variety, at least one kill)', () => {
+    // The guard against the failure mode this whole file exists to prevent. A
+    // fixture that reached a terminal phase early would keep hashing
+    // deterministically while simulating a finished game, and every cumulative
+    // assertion below would still pass on the events it emitted before it died.
+    it('is still inside live play at the last recorded tick', () => {
+      expect(result.state.phase).toBe('playing');
+    });
+
+    it('is a non-trivial run (volume, variety, kills, collections)', () => {
       expect(result.events.length).toBeGreaterThanOrEqual(200);
       const kinds = typesOf(result.events);
       kinds.delete('shotFired');
       expect(kinds.size).toBeGreaterThanOrEqual(3);
-      expect(countOf(result.events, 'tankDestroyed')).toBeGreaterThanOrEqual(1);
+      expect(enemyKills(result.events)).toBeGreaterThanOrEqual(minEnemyKills);
+      expect(countOf(result.events, 'powerupCollected')).toBeGreaterThanOrEqual(
+        minPowerupsCollected,
+      );
     });
 
     it('exercises the behaviour it was recorded for', () => {
@@ -227,6 +212,47 @@ describe.each(FIXTURES)(
     });
   },
 );
+
+// --- The fixture format itself ---------------------------------------------
+
+// The recorder writes the sparse rows; this file reads them back. Both sides call
+// the same two functions in tests/replays/format.ts, and these pin them as
+// inverse: encode a script, decode the rows, and every call must hold exactly
+// what the script said on it.
+describe('replay fixture format', () => {
+  it('the sparse intent encoding round-trips exactly', () => {
+    const dirs: readonly (Dir | null)[] = [null, 0, 1, 2, 3];
+    const script = (call: number): readonly [PlayerIntent, PlayerIntent] => [
+      {
+        dir: dirs[Math.floor(call / 37) % dirs.length],
+        fire: call % 8 === 0,
+        pause: call === 200 || call === 260,
+      },
+      {
+        dir: dirs[Math.floor(call / 23) % dirs.length],
+        fire: call % 11 === 0,
+        pause: false,
+      },
+    ];
+
+    const rows = encodeIntents(script, 400);
+    const decoded = replayIntents(rows, 400);
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(400); // sparse, not one row per call
+    for (let call = 1; call <= 400; call++) {
+      expect(decoded[call - 1]).toEqual(script(call));
+    }
+  });
+
+  it('writes no leading row while a script is still idle', () => {
+    const rows = encodeIntents(
+      (call) => (call < 50 ? [IDLE, IDLE] : [{ ...IDLE, dir: 0 }, IDLE]),
+      100,
+    );
+    expect(rows[0][0]).toBe(50);
+  });
+});
 
 // --- Determinism, independent of the fixtures ------------------------------
 

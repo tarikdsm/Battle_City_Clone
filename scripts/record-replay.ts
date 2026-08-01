@@ -25,12 +25,18 @@
 //
 // Node fs and Prettier are used here on purpose: scripts live outside src/core,
 // so the core's dependency-free/headless boundary does not apply to them.
-/// <reference types="node" />
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { format, resolveConfig } from 'prettier';
-import { createGame, hashState, stepGame } from '../src/core/game';
-import type { GameEvent } from '../src/core/events';
+import { hashState } from '../src/core/game';
+import {
+  IDLE,
+  encodeIntents,
+  runReplay,
+  type Intents,
+  type IntentRow,
+  type ReplayFixture,
+} from '../tests/replays/format';
 import type { Dir, LevelData, PlayerIntent } from '../src/core/types';
 
 // The first tick on which the pad is live: the intro curtain lasts STAGE_INTRO_S
@@ -45,7 +51,6 @@ const DOWN: Dir = 2;
 const LEFT: Dir = 3;
 
 type Segment = readonly [Dir | null, number];
-type Intents = readonly [PlayerIntent, PlayerIntent];
 
 interface Scenario {
   name: string;
@@ -59,8 +64,6 @@ interface Scenario {
 }
 
 // --- Script helpers --------------------------------------------------------
-
-const IDLE: PlayerIntent = { dir: null, fire: false, pause: false };
 
 function pad(dir: Dir | null, fire = false, pause = false): PlayerIntent {
   return { dir, fire, pause };
@@ -252,16 +255,6 @@ const SCENARIOS: readonly Scenario[] = [
 
 // --- Recording -------------------------------------------------------------
 
-type IntentRow = [
-  number,
-  Dir | null,
-  boolean,
-  boolean,
-  Dir | null,
-  boolean,
-  boolean,
-];
-
 interface Recording {
   rows: IntentRow[];
   hash: number;
@@ -286,40 +279,23 @@ function loadLevel(file: string): LevelData {
   return JSON.parse(readFileSync(url, 'utf8')) as LevelData;
 }
 
-function sameIntent(a: PlayerIntent, b: PlayerIntent): boolean {
-  return a.dir === b.dir && a.fire === b.fire && a.pause === b.pause;
-}
-
+// Encode the scenario's script to the sparse row list, then record by REPLAYING
+// those rows through the shared runner — never by stepping the script directly.
+// The `expected` block a fixture carries therefore describes what the decoder
+// does with the rows that were written, which is exactly what replay.test.ts will
+// do with them; an encoder/decoder mismatch cannot hide inside a recording.
 function record(scenario: Scenario, level: LevelData): Recording {
-  const state = createGame(level, {
-    players: scenario.players,
-    seed: scenario.seed,
-    stageNumber: scenario.stageNumber,
-  });
-
-  // The runner's starting value, and therefore the diff baseline: a row is written
-  // only where the scripted pad differs from the tick before it.
-  let prev: Intents = [IDLE, IDLE];
-  const rows: IntentRow[] = [];
-  const events: GameEvent[] = [];
-
-  for (let call = 1; call <= scenario.ticks; call++) {
-    const intents = scenario.script(call);
-    if (!sameIntent(intents[0], prev[0]) || !sameIntent(intents[1], prev[1])) {
-      rows.push([
-        call,
-        intents[0].dir,
-        intents[0].fire,
-        intents[0].pause,
-        intents[1].dir,
-        intents[1].fire,
-        intents[1].pause,
-      ]);
-    }
-    prev = intents;
-    stepGame(state, intents);
-    for (const e of state.events) events.push(e);
-  }
+  const rows = encodeIntents(scenario.script, scenario.ticks);
+  const { state, events } = runReplay(
+    level,
+    {
+      players: scenario.players,
+      seed: scenario.seed,
+      stageNumber: scenario.stageNumber,
+    },
+    scenario.ticks,
+    rows,
+  );
 
   const kinds = new Set<string>();
   let enemiesDestroyed = 0;
@@ -356,7 +332,9 @@ async function writeFixture(
 ): Promise<void> {
   const url = new URL(`${scenario.name}.json`, REPLAYS_DIR);
   const path = fileURLToPath(url);
-  const fixture = {
+  // Typed as the shared ReplayFixture so the writer and the runner cannot drift:
+  // a field renamed in tests/replays/format.ts breaks compilation here.
+  const fixture: ReplayFixture = {
     version: 1,
     levelId: level.id,
     seed: scenario.seed,
