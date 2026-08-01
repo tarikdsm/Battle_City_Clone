@@ -146,6 +146,16 @@ export function movementSystem(
   // again here would overwrite their start-of-tick position with the post-move
   // one — breaking both the interpolation contract and the AI's own
   // lattice-crossing test, which reads prev vs current to see what it crossed.
+  //
+  // The rule is "whoever moves a tank snapshots it first", and it cannot be
+  // hoisted to a single pass at the top of the tick: the AI READS prev to detect
+  // the crossing that happened during the previous tick, so a pass that ran
+  // before system #3 would hand it prev === x and the §9 lattice rule would go
+  // permanently dead (measured: lattice-triggered decisions drop to exactly 0).
+  // The partition is asserted end-to-end — player and enemy moving in one tick —
+  // by 'captures prev at the START of the tick for BOTH movers' in
+  // tests/core/movement.test.ts, so a future third mover that forgets its
+  // snapshot fails there rather than silently.
   for (const t of state.tanks) {
     if (t.kind === 'enemy') continue;
     t.prevX = t.x;

@@ -209,9 +209,10 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
       enemyType: 'armor',
       hp: 4,
       carrier: true,
-      frozenT: 60, // holds still as a target: since T1.6 the AI would drive it
-      // out of the bullet's lane (and shoot back). A freeze changes nothing
-      // about taking damage or dropping.
+      // 5 SECONDS of freeze, so it holds still as a target: since T1.6 the AI
+      // would otherwise drive it out of the bullet's lane (and shoot back). A
+      // freeze changes nothing about taking damage or dropping.
+      frozenT: 5,
     });
 
     step(s, [FIRE, NULL_INTENT]); // press edge → one bullet
@@ -255,8 +256,8 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
     const s = createGame(openField(), OPTS);
     const shooter = addPlayer(s, 0, 0, 96, 1);
     // Frozen only so both hold their lane as targets (see the P-13 test above).
-    addEnemy(s, 32, 96, { carrier: true, frozenT: 60 });
-    addEnemy(s, 80, 96, { carrier: true, frozenT: 60 });
+    addEnemy(s, 32, 96, { carrier: true, frozenT: 5 });
+    addEnemy(s, 80, 96, { carrier: true, frozenT: 5 });
 
     shooter.alive = false;
     snipe(s, shooter);

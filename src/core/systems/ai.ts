@@ -74,6 +74,13 @@ export function aiSystem(state: GameState, intents: Intents): void {
     // take this tick's prev snapshot (this system owns enemy prev — see
     // movementSystem). Both happen for every enemy, frozen or not, so a thawing
     // tank never sees a stale crossing from before the freeze.
+    //
+    // The read must stay HERE, ahead of the write: prev is this rule's only
+    // memory of the last move, so anything that re-stamps it before system #3 —
+    // a shared pass at the top of the tick, for instance — makes every crossing
+    // invisible and the §9 lattice rule silently dead. T1.7: if this system ever
+    // early-returns on pause/phase, keep these two lines running, or enemy
+    // interpolation stalls where no replay test can see it (prev is not hashed).
     const crossed = crossedTileLine(tank);
     tank.prevX = tank.x;
     tank.prevY = tank.y;
@@ -141,10 +148,10 @@ export function decide(state: GameState, tank: Tank): Dir {
   const cx = tank.x + HALF_TANK;
   const cy = tank.y + HALF_TANK;
 
-  const wKeep = isOpen(tank.dir) ? AI_W_KEEP : 0;
+  const wKeep = isOpenInCurrentDecision(tank.dir) ? AI_W_KEEP : 0;
 
   const dirBase = towardDir(cx, cy, EAGLE_CX, EAGLE_CY);
-  const wBase = isOpen(dirBase)
+  const wBase = isOpenInCurrentDecision(dirBase)
     ? Math.min(
         AI_W_BASE_MAX,
         AI_W_BASE_BASE +
@@ -157,7 +164,7 @@ export function decide(state: GameState, tank: Tank): Dir {
   let wPlayer = 0;
   if (target !== undefined) {
     dirPlayer = towardDir(cx, cy, target.x + HALF_TANK, target.y + HALF_TANK);
-    if (isOpen(dirPlayer)) wPlayer = AI_W_PLAYER;
+    if (isOpenInCurrentDecision(dirPlayer)) wPlayer = AI_W_PLAYER;
   }
 
   const r = nextFloat(state.rng);
@@ -183,11 +190,25 @@ export function towardDir(
 
 // --- Internals -------------------------------------------------------------
 
-function isOpen(dir: Dir): boolean {
+// Reads the `openDirs` scratch, which only `decide` fills — meaningless (and
+// silently stale) anywhere else, hence the name.
+function isOpenInCurrentDecision(dir: Dir): boolean {
   for (let i = 0; i < openCount; i++) {
     if (openDirs[i] === dir) return true;
   }
   return false;
+}
+
+// One definition of "a player worth reasoning about", shared by the target
+// search and the alignment check: on the field, materialized, and actually
+// bound to a player slot.
+function isLivePlayer(t: Tank): boolean {
+  return (
+    t.kind === 'player' &&
+    t.alive &&
+    t.spawningT === 0 &&
+    t.playerIndex !== undefined
+  );
 }
 
 function opposite(dir: Dir): Dir {
@@ -214,8 +235,7 @@ function nearestPlayer(
   let bestD = Infinity;
   let bestIndex = Infinity;
   for (const t of state.tanks) {
-    if (t.kind !== 'player' || !t.alive || t.spawningT > 0) continue;
-    if (t.playerIndex === undefined) continue;
+    if (!isLivePlayer(t) || t.playerIndex === undefined) continue;
     const d = Math.abs(t.x + HALF_TANK - cx) + Math.abs(t.y + HALF_TANK - cy);
     if (d < bestD || (d === bestD && t.playerIndex < bestIndex)) {
       best = t;
@@ -236,7 +256,7 @@ function isAligned(state: GameState, tank: Tank): boolean {
   const sign = horizontal ? vx : DIR_VECS[tank.dir][1];
 
   for (const t of state.tanks) {
-    if (t.kind !== 'player' || !t.alive || t.spawningT > 0) continue;
+    if (!isLivePlayer(t)) continue;
     if (aimsAt(cx, cy, t.x + HALF_TANK, t.y + HALF_TANK, horizontal, sign)) {
       return true;
     }

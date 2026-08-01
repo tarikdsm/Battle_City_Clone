@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createGame, hashState, stepGame } from '../../src/core/game';
-import {
-  makeTank,
-  movementSystem,
-  moveTank,
-} from '../../src/core/systems/movement';
+import { makeTank, moveTank } from '../../src/core/systems/movement';
 import { NULL_INTENT } from '../../src/core/types';
 import type {
   Dir,
@@ -197,7 +193,7 @@ describe('movement — tank & eagle blocking', () => {
         enemyType: 'basic',
         x: 96,
         y: 80,
-        frozenT: 60,
+        frozenT: 5, // seconds
       }),
     );
     for (let i = 0; i < 60; i++) stepDir(s1, RIGHT);
@@ -327,31 +323,60 @@ describe('movement — disabled states', () => {
   });
 });
 
+// The interpolation contract, asserted at TICK level rather than per system:
+// whatever moved a tank during a tick, its prevX/prevY must hold where it stood
+// when that tick began. Two systems move tanks (the AI moves enemies in #3,
+// movementSystem moves players in #4), so the invariant is only meaningful as a
+// statement about the whole partition — which is what the first test pins.
 describe('movement — prev snapshot & hash', () => {
-  it('refreshes prevX/prevY for the tanks it drives, before moving them', () => {
+  it('captures prev at the START of the tick for BOTH movers (player + enemy)', () => {
     const s = createGame(emptyLevel(), OPTS);
-    const mover = addPlayer(s, { x: 32, y: 80, dir: RIGHT });
-    // A tank this system does not drive (no playerIndex): snapshotted, unmoved.
-    const idle = makeTank({ id: 2, kind: 'player', x: 100, y: 100 });
-    idle.x = 101.5; // simulate a stale position
-    s.tanks.push(idle);
+    const player = addPlayer(s, { x: 32, y: 80, dir: RIGHT });
+    const enemy = makeTank({
+      id: 2,
+      kind: 'enemy',
+      enemyType: 'basic',
+      x: 100,
+      y: 100,
+      dir: DOWN,
+    });
+    s.tanks.push(enemy);
 
-    stepDir(s, RIGHT);
+    stepDir(s, RIGHT); // tick 1 — the player drives, the AI drives the enemy
+    expect(player.prevX).toBe(32);
+    near(player.x, 32.75);
+    const afterTick1 = {
+      px: player.x,
+      py: player.y,
+      ex: enemy.x,
+      ey: enemy.y,
+    };
+    expect(afterTick1.ex !== 100 || afterTick1.ey !== 100).toBe(true); // it moved
 
-    expect(mover.prevX).toBe(32); // previous position captured before the move
-    near(mover.x, 32.75); // new position
-    expect(idle.prevX).toBe(101.5); // refreshed even though it never moves
-    expect(idle.prevY).toBe(idle.y);
-    // Enemy prev is owned by aiSystem (system #3), which runs first and moves
-    // them — covered by tests/core/ai.test.ts, not here.
+    stepDir(s, RIGHT); // tick 2
+    // Both prevs are the END of tick 1 — i.e. the start of tick 2 — and NOT the
+    // positions they hold now. A snapshot taken after either mover ran would
+    // collapse one of these pairs.
+    expect(player.prevX).toBe(afterTick1.px);
+    expect(player.prevY).toBe(afterTick1.py);
+    expect(enemy.prevX).toBe(afterTick1.ex);
+    expect(enemy.prevY).toBe(afterTick1.ey);
+    expect(player.x).not.toBe(player.prevX);
+    expect(enemy.x !== enemy.prevX || enemy.y !== enemy.prevY).toBe(true);
   });
 
-  it('movementSystem snapshots prev even when no player moves', () => {
+  it('captures prev over a whole tick even for a tank nothing drives', () => {
     const s = createGame(emptyLevel(), OPTS);
-    const t = addPlayer(s, { x: 40, y: 40 });
-    t.x = 41.5; // simulate a stale position
-    movementSystem(s, [NULL_INTENT, NULL_INTENT]);
-    expect(t.prevX).toBe(41.5);
+    // No playerIndex → no intent reaches it, so nothing moves it all tick.
+    const idle = makeTank({ id: 1, kind: 'player', x: 40, y: 40 });
+    s.tanks.push(idle);
+    idle.x = 41.5; // simulate a stale position
+
+    stepDir(s, null);
+
+    expect(idle.prevX).toBe(41.5); // refreshed anyway
+    expect(idle.prevY).toBe(40);
+    expect(idle.x).toBe(41.5); // and still not moved
   });
 
   it('P-23: slideV participates in the state hash', () => {
