@@ -175,7 +175,7 @@ export interface InputSystem { poll(): [PlayerIntent, PlayerIntent]; dispose(): 
 `spawnIntervalTicks(stage, players) = clamp(190 - 4*min(stage,35) - 20*(players-1), 30, 192)` (CAL-11),
 spawn points `[(0,0),(6,0),(12,0)]` cycle order L→C→R (CAL-10), `P1_SPAWN=(4,12)` `P2_SPAWN=(8,12)` `EAGLE_TILE=(6,12)`.
 
-**npm scripts (fixed names):** `dev` `build` `preview` `test` `test:watch` `e2e` `lint` `typecheck` `format` `check` (typecheck+lint+test) `levels:preview`.
+**npm scripts (fixed names):** `dev` `build` `preview` `test` `test:watch` `e2e` `lint` `typecheck` `format` `check` (typecheck+lint+**format**+test — format folded in 2026-07-22 after drift was found) `levels:preview`.
 
 ## 3. File structure
 
