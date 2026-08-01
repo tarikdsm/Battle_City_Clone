@@ -84,8 +84,11 @@ export interface Tank {
   aiTileX: number; aiTileY: number; // AI lattice memory: tile coords as of the previous tick (T1.6; hashed after aiTimerT)
 }
 // prevX/prevY are RENDER-ONLY (never hashed): snapshotted for every tank in one unconditional pass at the
-// top of stepGame, before any system runs. T1.7's pause early-out must sit ABOVE that loop. The AI's
-// look-back lives in aiTileX/aiTileY precisely so gating a system breaks replays instead of degrading silently.
+// top of stepGame, before any system runs. Invariant: any tick that advances state.tick must leave every
+// tank's prev equal to its position at the START of that tick — including a tick that runs no systems.
+// (A paused tick advances nothing, so its early-out returns before both tick++ and the loop; the app loop
+// pins the interpolation alpha while paused — arch §3.4.) The AI's look-back lives in aiTileX/aiTileY
+// precisely so gating a system breaks replays instead of degrading silently.
 
 export interface Bullet {
   id: number; alive: boolean;
@@ -292,7 +295,7 @@ e2e/smoke.spec.ts             · Playwright
 **Files:** create `src/app/{loop,screens,session,storage,debug}.ts`; tests `tests/app/{loop,storage,debug}.test.ts`.
 **Spec:** arch §3.4, §4.2, §8, §12; GDD §5.
 **Tests:** loop (injected clock): 100ms elapsed ⇒ 6 steps + alpha∈[0,1); 400ms spike clamps to 250ms (15 steps max); pause stops stepping; storage: versioned get/set roundtrip, corrupt JSON ⇒ defaults (no throw), unknown fields preserved-then-dropped per key policy; debug: URL params `?stage=n&seed=n&quality=low&overlay=1` parsed in dev builds only (prod build ignores them).
-**Build notes:** screens = typed registry `show(name)` swapping DOM roots + enter/leave hooks; play screen owns loop. Global error handler → friendly error screen (reload + copy details) per arch §12; WebGL context-loss listener rebuilds renderer from state.
+**Build notes:** screens = typed registry `show(name)` swapping DOM roots + enter/leave hooks; play screen owns loop. Global error handler → friendly error screen (reload + copy details) per arch §12; WebGL context-loss listener rebuilds renderer from state. **Pause + interpolation (contract from T1.6/T1.7):** a paused tick advances nothing in the core, so the loop must pin the interpolation alpha (to 1) while paused — a cycling alpha would visibly jitter every tank between `prevX/prevY` and `x/y`. Cover it with a loop test.
 **Commit:** `feat(app): fixed-timestep loop, screen machine, storage, error/debug rails`
 
 ### - [ ] T2.2 Scene root: board, camera, lights, quality plumbing
