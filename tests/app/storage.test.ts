@@ -174,20 +174,41 @@ describe('storage (arch §4.2)', () => {
     expect(loadSave()).toEqual({ highestStage: 1, highestNeoStage: 1 });
   });
 
-  it('keeps the top 10 scores sorted descending', () => {
+  it('saveScores writes only the top 10, already sorted descending', () => {
     const entries: ScoreEntry[] = [];
     for (let i = 1; i <= 12; i++) {
       entries.push({ score: i * 100, initials: `P${i}`, stage: i });
     }
     saveScores(entries);
 
+    // Asserted on the RAW payload, not through loadScores: the loader sorts and
+    // truncates too, so reading it back would stay green even if saveScores
+    // degraded to a bare write.
+    const payload = JSON.parse(
+      store.get(KEYS.scores) ?? 'null',
+    ) as ScoreEntry[];
+    expect(payload).toHaveLength(10);
+    expect(payload[0]).toEqual({ score: 1200, initials: 'P12', stage: 12 });
+    expect(payload.at(-1)).toEqual({ score: 300, initials: 'P3', stage: 3 });
+    expect(payload.map((e) => e.score)).toEqual([
+      1200, 1100, 1000, 900, 800, 700, 600, 500, 400, 300,
+    ]);
+  });
+
+  it('loadScores re-sorts and truncates a hand-edited table', () => {
+    // The load side has to stand on its own: nothing guarantees the stored
+    // payload came from saveScores.
+    const rows: ScoreEntry[] = [];
+    for (let i = 1; i <= 11; i++) {
+      rows.push({ score: i * 100, initials: 'AAA', stage: 1 }); // ascending
+    }
+    store.set(KEYS.scores, JSON.stringify(rows));
+
     const loaded = loadScores();
     expect(loaded).toHaveLength(10);
-    expect(loaded[0]).toEqual({ score: 1200, initials: 'P12', stage: 12 });
-    expect(loaded.at(-1)?.score).toBe(300);
-    expect(loaded.map((e) => e.score)).toEqual(
-      [...loaded.map((e) => e.score)].sort((a, b) => b - a),
-    );
+    expect(loaded.map((e) => e.score)).toEqual([
+      1100, 1000, 900, 800, 700, 600, 500, 400, 300, 200,
+    ]);
   });
 
   it('drops malformed score entries and non-array payloads', () => {
@@ -212,6 +233,24 @@ describe('storage (arch §4.2)', () => {
       JSON.stringify([fixtureLevel, { version: 1, id: 'broken' }, 42]),
     );
     expect(loadCustomLevels()).toEqual([fixtureLevel]);
+  });
+
+  it('survives storage being absent altogether', () => {
+    // Not the same branch as a throwing store: this is the `globalThis
+    // .localStorage?.` short-circuit — no Web Storage at all (a sandboxed
+    // iframe, a non-DOM host, or a browser with storage switched off).
+    Reflect.deleteProperty(globalThis, 'localStorage');
+
+    expect(loadSave()).toEqual({ highestStage: 1, highestNeoStage: 1 });
+    expect(loadScores()).toEqual([]);
+    expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+    expect(loadCustomLevels()).toEqual([]);
+    expect(() => {
+      saveSave({ highestStage: 4, highestNeoStage: 1 });
+    }).not.toThrow();
+    expect(() => {
+      saveScores([{ score: 1, initials: 'AAA', stage: 1 }]);
+    }).not.toThrow();
   });
 
   it('survives a localStorage that throws on every access', () => {

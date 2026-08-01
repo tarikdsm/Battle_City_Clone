@@ -63,7 +63,8 @@ describe('createLoop — fixed timestep (arch §3.4)', () => {
 
     loop.tickOnce(400);
 
-    // 250 ms of budget is worth 15 ticks at most; the runaway guard trims it to 10.
+    // 250 ms of budget is worth 14 whole ticks (250 / 16.666… = 14.999…, NOT the
+    // 15 the brief assumed), and the runaway guard trims that to 10 regardless.
     expect(p.steps).toBeLessThanOrEqual(15);
     expect(p.steps).toBe(10);
     // render sees the CLAMPED dt — nothing downstream should ever animate a
@@ -130,6 +131,34 @@ describe('createLoop — fixed timestep (arch §3.4)', () => {
     // paused was never accumulated, so this frame is worth its own 100 ms only.
     p.paused = false;
     loop.tickOnce(400);
+    expect(p.steps).toBe(6);
+  });
+
+  it('shrugs off a backwards or NaN timestamp and keeps running after it', () => {
+    const p = probe();
+    const loop = createLoop(p.cb);
+
+    loop.tickOnce(100);
+    expect(p.steps).toBe(6);
+
+    // The clock went backwards (a non-monotonic source, or a stop/start race).
+    p.steps = 0;
+    loop.tickOnce(50);
+    expect(p.steps).toBe(0);
+    expect(lastRender(p).dtMs).toBe(0);
+
+    // A garbage timestamp must contribute nothing AND must not become the new
+    // baseline — if it did, every later frame would measure `now - NaN` and the
+    // loop would never step again.
+    loop.tickOnce(Number.NaN);
+    expect(p.steps).toBe(0);
+    expect(lastRender(p).dtMs).toBe(0);
+    expect(Number.isFinite(lastRender(p).alpha)).toBe(true);
+
+    // Recovery: the baseline is the last *finite* timestamp (50 — a backwards
+    // clock does re-baseline, otherwise the next frame would see a huge dt), so
+    // this frame is worth 100 ms.
+    loop.tickOnce(150);
     expect(p.steps).toBe(6);
   });
 
