@@ -81,7 +81,11 @@ export interface Tank {
   bulletsAirborne: number;
   fireHeld: boolean;           // previous-tick fire level (core fires on press edge; hashed after bulletsAirborne)
   aiTimerT: number;            // enemy decision-timer seconds (added by T1.6; hashed after fireHeld)
+  aiTileX: number; aiTileY: number; // AI lattice memory: tile coords as of the previous tick (T1.6; hashed after aiTimerT)
 }
+// prevX/prevY are RENDER-ONLY (never hashed): snapshotted for every tank in one unconditional pass at the
+// top of stepGame, before any system runs. T1.7's pause early-out must sit ABOVE that loop. The AI's
+// look-back lives in aiTileX/aiTileY precisely so gating a system breaks replays instead of degrading silently.
 
 export interface Bullet {
   id: number; alive: boolean;
