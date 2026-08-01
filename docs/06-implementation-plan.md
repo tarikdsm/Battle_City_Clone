@@ -24,12 +24,13 @@ Every task inherits these. Violations fail review.
 
 ---
 
-## Execution status (last updated 2026-07-21)
+## Execution status (last updated 2026-07-22)
 
-Sequential subagent execution in progress on branch `dev`. Live ledger: `.superpowers/sdd/progress.md` (git-ignored, local); committed snapshot + resume protocol: [07-execution-status.md](07-execution-status.md).
+Sequential subagent execution on branch `dev`. Live ledger: `.superpowers/sdd/progress.md` (git-ignored, local); committed snapshot + resume protocol: [07-execution-status.md](07-execution-status.md).
 
-- **Done + task-reviewed:** T0.1, T0.2, T1.1, T1.2, T1.3, T1.4 (checked below). 113 unit tests green.
-- **Next on resume:** T1.5 (power-ups) → T1.6 (AI) → T1.7 (players/flow) → T1.8 (integration + golden replays) → Gate G1 (owner review of the complete core). Briefs for T1.5/T1.6 are already written (local, regenerable from this plan).
+- **Phases 0 and 1 COMPLETE** — T0.1…T1.8 all implemented and task-reviewed (checked below). **211 tests green**, parity P-01…P-26 covered and enforced by a meta-test, three golden replays locked, sim at **2.11 µs/step** against a 2 ms budget.
+- **⛔ Gate G1 — awaiting owner review.** Evidence: parity coverage table + fixture stats + perf in `.superpowers/sdd/task-T1.8-report.md`.
+- **Next after G1:** Phase 2 (render foundation), starting T2.1. Read the residual-risk list in [07-execution-status.md](07-execution-status.md) §6 before writing the T2.x briefs — notably that event payloads are unpinned at integration level and seven `GameEvent` variants never occur in any fixture.
 
 ## 1. Orchestration protocol
 
@@ -264,25 +265,25 @@ e2e/smoke.spec.ts             · Playwright
 **Tests:** first spawn at tick 0 at left point; subsequent at `spawnIntervalTicks` cadence cycling L→C→R (P-12); icons semantics: `enemySpawnStarted` events count == spawned (HUD consumes); cap 4 enforced (P-11); blocked point (tank parked) ⇒ hold + retry 0.5s without advancing cycle (P-12); materialize after `SPAWN_ANIM_S` with `enemySpawned`, no collision while spawning; ordinals 4/11/18 flagged `carrier:true` (P-13 half); queue exhausts at 20; stage>35 uses capped formula (P-25); 2P interval term.
 **Commit:** `feat(core): enemy spawner with cadence formula and carriers (P-11, P-12, P-25)`
 
-### - [ ] T1.5 Power-ups & timed effects
+### - [x] T1.5 Power-ups & timed effects
 **Files:** create `src/core/systems/powerups.ts`; test `tests/core/powerups.test.ts`.
 **Spec:** fidelity §8; parity P-13–P-18.
 **Tests:** first hit on carrier spawns powerup + unflags (P-13), position subcell-aligned inside field excluding eagle-ring tiles; single powerup — new replaces (P-14); pickup awards 500 + `powerupCollected`; star: tier up, capped at 3 (P-15); helmet: `shieldT` 10s, re-pickup resets; clock: all enemies `frozenT` — no move/fire, spawn-during-clock frozen with remaining duration (P-17); shovel: ring subcells become steel + damage repaired, after 17s `shovelPhase blink`, after +3s revert to full brick repaired (P-16); grenade: all materialized enemies destroyed, zero points, spawning stars unaffected (P-18); tank: +1 life `extraLife`.
 **Commit:** `feat(core): six power-ups with timed effects (P-13..P-18)`
 
-### - [ ] T1.6 Enemy AI
+### - [x] T1.6 Enemy AI
 **Files:** create `src/core/systems/ai.ts`; test `tests/core/ai.test.ts`.
 **Spec:** fidelity §9 (weights, timers, fire probabilities — implement exactly; tuning happens only via constants).
 **Tests:** determinism: same seed ⇒ identical decision sequence over 600 ticks (positions hash equal); blocked tank picks an open direction (never rams wall >1 tick); alignment fire: enemy facing player same column within 6u fires within 2s at p=0.9/s (statistical: over 20 seeded runs ≥16 fire); frozen enemies make no decisions and resume timers; direction weights sampled over 5k decisions within ±3% of spec (seeded).
 **Commit:** `feat(core): deterministic enemy AI per fidelity §9`
 
-### - [ ] T1.7 Players, scoring, stage flow, 2P
+### - [x] T1.7 Players, scoring, stage flow, 2P
 **Files:** create `src/core/systems/{players,stageflow}.ts`; test `tests/core/{players,stageflow}.test.ts`.
 **Spec:** fidelity §3.1, §10–13; parity P-03, P-19, P-20, P-21, P-26.
 **Tests:** death ⇒ tier reset 0, respawn after 1s with 3s shield (P-03), lives decrement; scoring per type + killer attribution (P-19); bonus life exactly once at ≥20000 (P-20, cross 19900→20100 by 300-kill); 2P: shared queue, separate scores, out-player stays out, game continues; game over when both out or base lost (P-21); stage cleared when 20th destroyed ⇒ phase `cleared` + `stageCleared`; `destroyedByType` tallies; pause: `pause` intent edge toggles `paused`, stepGame early-outs (timers frozen) + `pauseToggled` (P-26); intro phase 2s before first control.
 **Commit:** `feat(core): players, scoring, stage flow, 2P rules (P-03, P-19..P-21, P-26)`
 
-### - [ ] T1.8 Integration: system order, golden replays, perf
+### - [x] T1.8 Integration: system order, golden replays, perf
 **Files:** modify `src/core/game.ts` (final wiring per arch §3.2); create `tests/core/replay.test.ts`, `tests/replays/{replay1,replay2,replay3}.json` (generated fixtures: stage-1-like level; seeds 1/2/3; 1800 scripted ticks each — scripted intents defined in the test generator, committed as JSON).
 **Spec:** arch §3.2–3.5; parity P-23.
 **Tests:** replaying each fixture yields recorded `hashState` (P-23); event-order regression: fixture 1's event log first 50 events match snapshot; perf: 1800 ticks complete < 500 ms in CI-ish conditions (soft assert with generous 3× margin); full parity suite P-01…P-26 green (meta-test asserting all tagged tests exist: grep test titles for `P-\d\d`).

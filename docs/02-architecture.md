@@ -44,20 +44,30 @@ Everything in `core` runs headless under Vitest/Node — that is what makes agen
 
 Data-oriented and allocation-free in steady state:
 
+As built (the authoritative declaration is `src/core/types.ts`):
+
 ```ts
 interface GameState {
   tick: number;
-  rng: RngState;                    // mulberry32 state
-  stage: StageState;                // number, phase, timers
-  terrain: TerrainGrid;             // 26×26 subcell typed array + tile metadata
-  tanks: Tank[];                    // fixed-capacity pool (2 players + 4 enemies)
-  bullets: Bullet[];                // fixed-capacity pool
-  powerup: Powerup | null;
-  players: PlayerMeta[2];           // lives, score, tier, counters
-  spawner: SpawnerState;            // queue index, cycle pos, timers
-  effectsQueue: GameEvent[];        // drained by presentation each frame
+  rng: { s: number };                       // mulberry32 state
+  stageNumber: number;                      // phase/timing below
+  phase: StagePhase; phaseT: number; paused: boolean;
+  pauseHeld: [boolean, boolean];            // pause edge detection
+  terrain: Uint8Array;                      // 26×26 subcell kinds, index sy*26+sx
+  eagleAlive: boolean;
+  shovel: { phase: 'off' | 'steel' | 'blink'; t: number };
+  clockT: number;
+  tanks: Tank[];                            // pooled: slots 0/1 are players, enemies reuse dead enemy slots
+  bullets: Bullet[];                        // pooled, id === slot index
+  powerup: { type: PowerupType; x: number; y: number } | null;
+  players: [PlayerMeta, PlayerMeta];        // lives, score, nextBonusAt, tally, active
+  respawnT: [number, number];               // seconds until each player respawns
+  spawner: { queue; nextOrdinal; cyclePos; timerT; retryT };
+  events: GameEvent[];                      // ← the presentation handoff; cleared at the top of every tick
 }
 ```
+
+**Presentation reads `state.events`** — there is no separate effects queue. Events accumulate as systems run and must be consumed within the same frame, because `stepGame` clears the array at the start of the next tick. `prevX/prevY` on each tank are render-only interpolation anchors and are never hashed; per-tank AI look-back lives in `aiTileX/aiTileY`, which are.
 
 - `GameState` is a plain serializable object (structured-clone safe) → trivial save/replay/test snapshots.
 - `step(state, intents: [PlayerIntent, PlayerIntent]) -> void` advances exactly one tick, mutating in place. `PlayerIntent = { dir: Dir | null, fire: boolean, pause: boolean }`.
