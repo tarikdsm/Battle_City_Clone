@@ -64,16 +64,21 @@ interface GameState {
 
 ### 3.2 System order (per tick — fixed, part of the spec)
 
-1. stage phase & timers (intro/clear/gameover, shovel, clock, shields, stun)
+Each tick, `stepGame` clears `events`, handles the pause edge (a paused tick returns before `tick++` and before the prev-snapshot, advancing nothing), increments `tick`, snapshots `prevX/prevY` for every tank (render-only, never hashed), gates intents to `NULL_INTENT` unless the phase is `'playing'`, then runs:
+
+1. stage phase & timers (intro/clear/gameover, shovel, clock, shields, stun, player respawn)
 2. spawner (enemy spawn starts/materializations)
-3. AI decisions → enemy intents
-4. tank movement (players then enemies, index order; turn-snap; ice)
-5. firing (spawn bullets)
+3. AI decisions **and enemy movement** — the AI drives its own tanks via `moveTank`, because its lattice rule reads the pre-move position (see note below)
+4. tank movement — **players only** (turn-snap; ice)
+5. firing (spawn bullets; press-edge triggered)
 6. bullet advance (swept) → collisions in order: bullet-vs-bullet, bullet-vs-tank, bullet-vs-terrain/eagle/border
 7. power-up spawn/pickup
 8. score/lives/bonus-life bookkeeping
 9. win/lose evaluation
-10. emit accumulated `GameEvent`s
+
+`GameEvent`s accumulate in `state.events` as systems run and are drained by presentation after the tick.
+
+**Why the AI moves its own tanks (amended 2026-07-22, T1.6):** the §9 lattice rule reconsiders direction when a tank crosses a tile line *during the previous tick*, so it must read the pre-move position before moving. Enemy look-back therefore lives in dedicated hashed fields (`aiTileX/aiTileY`) written by the AI itself, while `prevX/prevY` stay render-only with a single unconditional snapshot per tick. Splitting the two concerns is what makes a future gating of `aiSystem` break golden replays instead of silently degrading enemy behavior.
 
 ### 3.3 Events (core → presentation)
 
