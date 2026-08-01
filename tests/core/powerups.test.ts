@@ -492,7 +492,7 @@ describe('power-ups — star, helmet, extra life (P-15)', () => {
     expect(p.shieldT).toBe(0);
   });
 
-  it('tank: +1 life to the collector and an extraLife event', () => {
+  it('P-15 tank: +1 life to the collector and an extraLife event', () => {
     const s = createGame(openField(), OPTS);
     const p = addPlayer(s, 0, 0, 0);
     expect(s.players[0].lives).toBe(START_LIVES);

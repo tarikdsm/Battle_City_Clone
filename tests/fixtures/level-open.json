@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "test-open",
+  "name": "Test Open",
+  "terrain": [
+    ".............",
+    "....B...B....",
+    ".............",
+    ".B.........B.",
+    ".............",
+    "..B.......B..",
+    "......S......",
+    "..B.......B..",
+    ".............",
+    ".B.........B.",
+    ".............",
+    "....B...B....",
+    "............."
+  ],
+  "enemies": [
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast",
+    "basic",
+    "fast"
+  ]
+}

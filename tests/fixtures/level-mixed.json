@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "id": "test-mixed",
+  "name": "Test Mixed",
+  "terrain": [
+    "...B.....B...",
+    "..SS.....SS..",
+    ".BBB.....BBB.",
+    ".B.........B.",
+    ".B..WWWWW..B.",
+    "....W...W....",
+    "TTT.WW.WW.TTT",
+    "....W...W....",
+    "IIII.....IIII",
+    ".S.........S.",
+    ".S...BBB...S.",
+    ".....B.B.....",
+    "............."
+  ],
+  "partials": [
+    { "tx": 2, "ty": 2, "mask": 9 },
+    { "tx": 10, "ty": 2, "mask": 6 },
+    { "tx": 3, "ty": 1, "mask": 12 },
+    { "tx": 9, "ty": 1, "mask": 3 },
+    { "tx": 6, "ty": 10, "mask": 3 }
+  ],
+  "enemies": [
+    "basic",
+    "fast",
+    "power",
+    "armor",
+    "basic",
+    "fast",
+    "basic",
+    "power",
+    "armor",
+    "fast",
+    "basic",
+    "power",
+    "armor",
+    "basic",
+    "fast",
+    "power",
+    "basic",
+    "armor",
+    "fast",
+    "basic"
+  ]
+}
