@@ -22,13 +22,7 @@ import {
 } from '../constants';
 import { aabbOverlap, type Aabb } from '../grid';
 import { makeTank } from './movement';
-import type {
-  Dir,
-  EnemyType,
-  GameState,
-  PlayerIntent,
-  Tank,
-} from '../types';
+import type { Dir, EnemyType, GameState, PlayerIntent, Tank } from '../types';
 
 type Intents = readonly [PlayerIntent, PlayerIntent];
 
@@ -115,7 +109,8 @@ function attemptSpawn(state: GameState): void {
 
   sp.nextOrdinal += 1;
   sp.cyclePos = (sp.cyclePos + 1) % ENEMY_SPAWN_TILES.length;
-  sp.timerT = spawnIntervalTicks(state.stageNumber, activePlayers(state)) * TICK_S;
+  sp.timerT =
+    spawnIntervalTicks(state.stageNumber, activePlayers(state)) * TICK_S;
   sp.retryT = 0;
 }
 

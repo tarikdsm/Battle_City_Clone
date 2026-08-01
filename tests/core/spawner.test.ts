@@ -66,9 +66,7 @@ function aliveEnemies(s: GameState): Tank[] {
 }
 
 function spawnStarts(s: GameState): SpawnStarted[] {
-  return s.events.filter(
-    (e): e is SpawnStarted => e.t === 'enemySpawnStarted',
-  );
+  return s.events.filter((e): e is SpawnStarted => e.t === 'enemySpawnStarted');
 }
 
 // Interval, in whole ticks, between one spawn start and the next attempt.
@@ -114,7 +112,11 @@ describe('spawner — first spawn & cadence (P-12, P-25)', () => {
   });
 
   it('P-25: stage number caps at 35 in the interval (stage 99 → 50 ticks)', () => {
-    const s = createGame(basicLevel(), { players: 1, seed: 42, stageNumber: 99 });
+    const s = createGame(basicLevel(), {
+      players: 1,
+      seed: 42,
+      stageNumber: 99,
+    });
     stepN(s, 50); // spawnIntervalTicks(99,1) === 50 → second spawn is at tick 51
     expect(aliveEnemies(s)).toHaveLength(1);
     step(s); // tick 51
@@ -122,7 +124,11 @@ describe('spawner — first spawn & cadence (P-12, P-25)', () => {
   });
 
   it('P-25: two active players widen the interval to 166 ticks', () => {
-    const s = createGame(basicLevel(), { players: 2, seed: 42, stageNumber: 1 });
+    const s = createGame(basicLevel(), {
+      players: 2,
+      seed: 42,
+      stageNumber: 1,
+    });
     stepN(s, 166); // second spawn at tick 167
     expect(aliveEnemies(s)).toHaveLength(1);
     step(s); // tick 167
@@ -135,7 +141,8 @@ describe('spawner — active cap & HUD semantics (P-11)', () => {
   // so the four distinct-cycle spawns succeed and the CAP — not a blocked point —
   // is the only limiter under test.
   function vacate(s: GameState): void {
-    for (const t of aliveEnemies(s)) if (t.spawningT === 0 && t.y === 0) t.y = 96;
+    for (const t of aliveEnemies(s))
+      if (t.spawningT === 0 && t.y === 0) t.y = 96;
   }
 
   it('P-11: never more than ENEMY_CAP enemies active; a kill frees a slot', () => {
@@ -172,7 +179,9 @@ describe('spawner — blocked point retry (P-12)', () => {
   it('P-12: a blocked point retries after 0.5 s without advancing the cycle', () => {
     const s = createGame(basicLevel(), OPTS);
     // Park a player exactly on the LEFT spawn point before tick 1.
-    s.tanks.push(makeTank({ id: 0, kind: 'player', playerIndex: 0, x: 0, y: 0 }));
+    s.tanks.push(
+      makeTank({ id: 0, kind: 'player', playerIndex: 0, x: 0, y: 0 }),
+    );
 
     step(s); // tick 1: attempt at LEFT is blocked
     expect(aliveEnemies(s)).toHaveLength(0);
@@ -201,7 +210,8 @@ describe('spawner — carriers & stats (P-13 first half)', () => {
     // (dead tanks never block), so all 20 ordinals start.
     for (let i = 0; i < 4000 && carrierByOrdinal.size < 20; i++) {
       step(s);
-      for (const e of spawnStarts(s)) carrierByOrdinal.set(e.spawnOrdinal, e.carrier);
+      for (const e of spawnStarts(s))
+        carrierByOrdinal.set(e.spawnOrdinal, e.carrier);
       for (const t of aliveEnemies(s)) if (t.spawningT === 0) t.alive = false;
     }
 
@@ -291,7 +301,8 @@ describe('spawner — materialization & slot reuse', () => {
     let maxLen = 0;
     for (let i = 0; i < 1500; i++) {
       step(s);
-      for (const t of aliveEnemies(s)) if (t.spawningT === 0 && t.y === 0) t.y = 96;
+      for (const t of aliveEnemies(s))
+        if (t.spawningT === 0 && t.y === 0) t.y = 96;
       const alive = aliveEnemies(s);
       if (alive.length === ENEMY_CAP && i % 200 === 199) alive[0].alive = false;
       maxLen = Math.max(maxLen, s.tanks.length);

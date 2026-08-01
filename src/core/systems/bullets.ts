@@ -108,8 +108,14 @@ export function bulletsSystem(state: GameState, intents: Intents): void {
       fillSweptBox(boxA, a);
       fillSweptBox(boxB, c);
       if (!aabbOverlap(boxA, boxB)) continue;
-      const mx = (Math.max(boxA.x, boxB.x) + Math.min(boxA.x + boxA.w, boxB.x + boxB.w)) / 2;
-      const my = (Math.max(boxA.y, boxB.y) + Math.min(boxA.y + boxA.h, boxB.y + boxB.h)) / 2;
+      const mx =
+        (Math.max(boxA.x, boxB.x) +
+          Math.min(boxA.x + boxA.w, boxB.x + boxB.w)) /
+        2;
+      const my =
+        (Math.max(boxA.y, boxB.y) +
+          Math.min(boxA.y + boxA.h, boxB.y + boxB.h)) /
+        2;
       killBullet(state, a);
       killBullet(state, c);
       state.events.push({ t: 'bulletsCanceled', x: mx, y: my });
@@ -165,7 +171,14 @@ function spawnBullet(state: GameState, tank: Tank): void {
   b.canHurtSteel = byPlayer && tank.tier === 3;
 
   tank.bulletsAirborne++;
-  state.events.push({ t: 'shotFired', tankId: tank.id, x: bx, y: by, dir, byPlayer });
+  state.events.push({
+    t: 'shotFired',
+    tankId: tank.id,
+    x: bx,
+    y: by,
+    dir,
+    byPlayer,
+  });
 }
 
 // Reuse the first dead slot, else append. `id` == slot index and is stable for
@@ -271,7 +284,12 @@ function resolveBulletVsTanks(state: GameState, b: Bullet): void {
     if (tank.kind === 'player') {
       if (tank.shieldT > 0) {
         killBullet(state, b);
-        state.events.push({ t: 'bulletDespawned', x: b.x, y: b.y, reason: 'hit' });
+        state.events.push({
+          t: 'bulletDespawned',
+          x: b.x,
+          y: b.y,
+          reason: 'hit',
+        });
         return;
       }
       tank.hp -= 1;
@@ -307,8 +325,14 @@ function resolveBulletVsTerrain(state: GameState, b: Bullet): void {
   // Terrain subcells strictly overlapping the swept box.
   const sxMin = Math.max(0, Math.floor(boxA.x / SUBCELL));
   const syMin = Math.max(0, Math.floor(boxA.y / SUBCELL));
-  const sxMax = Math.min(FIELD_SUBCELLS - 1, Math.ceil((boxA.x + boxA.w) / SUBCELL) - 1);
-  const syMax = Math.min(FIELD_SUBCELLS - 1, Math.ceil((boxA.y + boxA.h) / SUBCELL) - 1);
+  const sxMax = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.ceil((boxA.x + boxA.w) / SUBCELL) - 1,
+  );
+  const syMax = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.ceil((boxA.y + boxA.h) / SUBCELL) - 1,
+  );
   for (let sy = syMin; sy <= syMax; sy++) {
     for (let sx = sxMin; sx <= sxMax; sx++) {
       const kind = state.terrain[subcellIndex(sx, sy)];
@@ -373,7 +397,12 @@ function resolveBulletVsTerrain(state: GameState, b: Bullet): void {
 
   if (bestKind === BORDER) {
     killBullet(state, b);
-    state.events.push({ t: 'bulletDespawned', x: b.x, y: b.y, reason: 'border' });
+    state.events.push({
+      t: 'bulletDespawned',
+      x: b.x,
+      y: b.y,
+      reason: 'border',
+    });
     return;
   }
   if (bestKind === EAGLE) {
@@ -396,7 +425,9 @@ function resolveBulletVsTerrain(state: GameState, b: Bullet): void {
   const ty = Math.floor(bestSy / 2);
 
   if (bestKind === STEEL) {
-    const removedMask = b.canHurtSteel ? damageTile(state, tx, ty, Terrain.Steel, b) : 0;
+    const removedMask = b.canHurtSteel
+      ? damageTile(state, tx, ty, Terrain.Steel, b)
+      : 0;
     killBullet(state, b);
     state.events.push({
       t: 'steelHit',
@@ -414,7 +445,15 @@ function resolveBulletVsTerrain(state: GameState, b: Bullet): void {
   // Brick.
   const removedMask = damageTile(state, tx, ty, Terrain.Brick, b);
   killBullet(state, b);
-  state.events.push({ t: 'brickHit', tx, ty, removedMask, x: b.x, y: b.y, dir });
+  state.events.push({
+    t: 'brickHit',
+    tx,
+    ty,
+    removedMask,
+    x: b.x,
+    y: b.y,
+    dir,
+  });
 }
 
 // The bullet's leading-edge coordinate along its travel axis (post-advance).
@@ -445,7 +484,12 @@ function damageTile(
   return removed;
 }
 
-function tileKindMask(state: GameState, tx: number, ty: number, kind: number): number {
+function tileKindMask(
+  state: GameState,
+  tx: number,
+  ty: number,
+  kind: number,
+): number {
   const sx = tx * 2;
   const sy = ty * 2;
   let m = 0;
@@ -456,7 +500,12 @@ function tileKindMask(state: GameState, tx: number, ty: number, kind: number): n
   return m;
 }
 
-function clearTileSubcells(state: GameState, tx: number, ty: number, mask: number): void {
+function clearTileSubcells(
+  state: GameState,
+  tx: number,
+  ty: number,
+  mask: number,
+): void {
   const sx = tx * 2;
   const sy = ty * 2;
   if (mask & 1) state.terrain[subcellIndex(sx, sy)] = Terrain.Empty;

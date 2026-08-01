@@ -52,7 +52,14 @@ function stepDir(s: GameState, dir: Dir | null): void {
 }
 
 function addPlayer(s: GameState, over: Partial<Tank>): Tank {
-  const t = makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 0, y: 0, ...over });
+  const t = makeTank({
+    id: 1,
+    kind: 'player',
+    playerIndex: 0,
+    x: 0,
+    y: 0,
+    ...over,
+  });
   s.tanks.push(t);
   return t;
 }
@@ -316,7 +323,13 @@ describe('movement — prev snapshot & hash', () => {
     const s = createGame(emptyLevel(), OPTS);
     const mover = addPlayer(s, { x: 32, y: 80, dir: RIGHT });
     // An idle enemy tank: movementSystem snapshots it but never moves it.
-    const idle = makeTank({ id: 2, kind: 'enemy', enemyType: 'basic', x: 100, y: 100 });
+    const idle = makeTank({
+      id: 2,
+      kind: 'enemy',
+      enemyType: 'basic',
+      x: 100,
+      y: 100,
+    });
     s.tanks.push(idle);
 
     stepDir(s, RIGHT);
@@ -338,8 +351,12 @@ describe('movement — prev snapshot & hash', () => {
   it('P-23: slideV participates in the state hash', () => {
     const a = createGame(emptyLevel(), OPTS);
     const b = createGame(emptyLevel(), OPTS);
-    a.tanks.push(makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }));
-    b.tanks.push(makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }));
+    a.tanks.push(
+      makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }),
+    );
+    b.tanks.push(
+      makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }),
+    );
     expect(hashState(a)).toBe(hashState(b)); // identical to start
 
     b.tanks[0].slideV = 3;
@@ -350,7 +367,14 @@ describe('movement — prev snapshot & hash', () => {
 describe('movement — moveTank helper (reused by AI later)', () => {
   it('moves an enemy tank at its type speed', () => {
     const s = createGame(emptyLevel(), OPTS);
-    const e = makeTank({ id: 5, kind: 'enemy', enemyType: 'fast', x: 32, y: 80, dir: RIGHT });
+    const e = makeTank({
+      id: 5,
+      kind: 'enemy',
+      enemyType: 'fast',
+      x: 32,
+      y: 80,
+      dir: RIGHT,
+    });
     s.tanks.push(e);
     e.prevX = e.x;
     e.prevY = e.y;

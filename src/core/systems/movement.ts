@@ -65,12 +65,7 @@ export function moveTank(
   dt: number,
 ): void {
   // Disabled tanks hold still (and are not "moving" for interpolation/anim).
-  if (
-    !tank.alive ||
-    tank.spawningT > 0 ||
-    tank.stunT > 0 ||
-    tank.frozenT > 0
-  ) {
+  if (!tank.alive || tank.spawningT > 0 || tank.stunT > 0 || tank.frozenT > 0) {
     tank.moving = false;
     return;
   }
@@ -172,8 +167,14 @@ function onIce(state: GameState, tank: Tank): boolean {
   const ay = tank.y + off;
   const sxMin = Math.max(0, Math.floor(ax / SUBCELL));
   const syMin = Math.max(0, Math.floor(ay / SUBCELL));
-  const sxMax = Math.min(FIELD_SUBCELLS - 1, Math.ceil((ax + SUBCELL) / SUBCELL) - 1);
-  const syMax = Math.min(FIELD_SUBCELLS - 1, Math.ceil((ay + SUBCELL) / SUBCELL) - 1);
+  const sxMax = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.ceil((ax + SUBCELL) / SUBCELL) - 1,
+  );
+  const syMax = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.ceil((ay + SUBCELL) / SUBCELL) - 1,
+  );
   for (let sy = syMin; sy <= syMax; sy++) {
     for (let sx = sxMin; sx <= sxMax; sx++) {
       if (state.terrain[subcellIndex(sx, sy)] === Terrain.Ice) return true;
@@ -186,8 +187,14 @@ function onIce(state: GameState, tank: Tank): boolean {
 function centerKind(state: GameState, x: number, y: number): number {
   const cx = x + TANK_SIZE / 2;
   const cy = y + TANK_SIZE / 2;
-  const sx = Math.min(FIELD_SUBCELLS - 1, Math.max(0, Math.floor(cx / SUBCELL)));
-  const sy = Math.min(FIELD_SUBCELLS - 1, Math.max(0, Math.floor(cy / SUBCELL)));
+  const sx = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.max(0, Math.floor(cx / SUBCELL)),
+  );
+  const sy = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.max(0, Math.floor(cy / SUBCELL)),
+  );
   return state.terrain[subcellIndex(sx, sy)];
 }
 
@@ -230,15 +237,33 @@ function sweptMove(
   const regionH = TANK_SIZE + Math.abs(dy);
   const sxMin = Math.max(0, Math.floor(regionX / SUBCELL));
   const syMin = Math.max(0, Math.floor(regionY / SUBCELL));
-  const sxMax = Math.min(FIELD_SUBCELLS - 1, Math.ceil((regionX + regionW) / SUBCELL) - 1);
-  const syMax = Math.min(FIELD_SUBCELLS - 1, Math.ceil((regionY + regionH) / SUBCELL) - 1);
+  const sxMax = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.ceil((regionX + regionW) / SUBCELL) - 1,
+  );
+  const syMax = Math.min(
+    FIELD_SUBCELLS - 1,
+    Math.ceil((regionY + regionH) / SUBCELL) - 1,
+  );
   for (let sy = syMin; sy <= syMax; sy++) {
     for (let sx = sxMin; sx <= sxMax; sx++) {
       const kind = state.terrain[subcellIndex(sx, sy)];
-      if (kind === Terrain.Brick || kind === Terrain.Steel || kind === Terrain.Water) {
+      if (
+        kind === Terrain.Brick ||
+        kind === Terrain.Steel ||
+        kind === Terrain.Water
+      ) {
         allowed = clampToObstacle(
-          horizontal, sign, p, qLo, qHi,
-          sx * SUBCELL, sy * SUBCELL, SUBCELL, SUBCELL, allowed,
+          horizontal,
+          sign,
+          p,
+          qLo,
+          qHi,
+          sx * SUBCELL,
+          sy * SUBCELL,
+          SUBCELL,
+          SUBCELL,
+          allowed,
         );
       }
     }
@@ -247,8 +272,16 @@ function sweptMove(
   // Eagle (a static 16x16 tile-sized blocker) while it is alive.
   if (state.eagleAlive) {
     allowed = clampToObstacle(
-      horizontal, sign, p, qLo, qHi,
-      EAGLE_TILE[0] * TILE, EAGLE_TILE[1] * TILE, TILE, TILE, allowed,
+      horizontal,
+      sign,
+      p,
+      qLo,
+      qHi,
+      EAGLE_TILE[0] * TILE,
+      EAGLE_TILE[1] * TILE,
+      TILE,
+      TILE,
+      allowed,
     );
   }
 
@@ -256,8 +289,16 @@ function sweptMove(
   for (const other of state.tanks) {
     if (other === tank || !other.alive || other.spawningT > 0) continue;
     allowed = clampToObstacle(
-      horizontal, sign, p, qLo, qHi,
-      other.x, other.y, TANK_SIZE, TANK_SIZE, allowed,
+      horizontal,
+      sign,
+      p,
+      qLo,
+      qHi,
+      other.x,
+      other.y,
+      TANK_SIZE,
+      TANK_SIZE,
+      allowed,
     );
   }
 
