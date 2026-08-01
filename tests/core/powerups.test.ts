@@ -18,6 +18,7 @@ import {
   CLOCK_S,
   FIELD_U,
   HELMET_S,
+  POWERUP_TYPES,
   SHOVEL_BLINK_S,
   SHOVEL_SOLID_S,
   SPAWN_ANIM_S,
@@ -54,11 +55,14 @@ const WALK_RIGHT: PlayerIntent = { dir: 1, fire: false, pause: false };
 // derivation of it.
 const BASE_ZONE: Aabb = { x: 80, y: 176, w: 48, h: 32 };
 
+const SUBCELLS_PER_TILE = TILE / SUBCELL; // 2
 const ANIM_TICKS = Math.round(SPAWN_ANIM_S / TICK_S); // 78
 const CLOCK_TICKS = Math.round(CLOCK_S / TICK_S); // 600
+const HELMET_TICKS = Math.round(HELMET_S / TICK_S); // 600
+const STUN_TICKS = Math.round(STUN_S / TICK_S); // 180
 const SOLID_TICKS = Math.round(SHOVEL_SOLID_S / TICK_S); // 1020
 const BLINK_TICKS = Math.round(SHOVEL_BLINK_S / TICK_S); // 180
-const RING_SUBCELLS = BASE_RING_TILES.length * 4; // 20
+const RING_SUBCELLS = BASE_RING_TILES.length * SUBCELLS_PER_TILE ** 2; // 20
 
 // --- Fixtures --------------------------------------------------------------
 
@@ -179,8 +183,8 @@ function near(actual: number, expected: number): void {
 function ringSubcells(s: GameState): number[] {
   const out: number[] = [];
   for (const [tx, ty] of BASE_RING_TILES) {
-    const sx = tx * 2;
-    const sy = ty * 2;
+    const sx = tx * SUBCELLS_PER_TILE;
+    const sy = ty * SUBCELLS_PER_TILE;
     out.push(
       s.terrain[subcellIndex(sx, sy)],
       s.terrain[subcellIndex(sx + 1, sy)],
@@ -270,6 +274,88 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
       x: secondSpawn[0].x,
       y: secondSpawn[0].y,
     });
+  });
+
+  // Golden values for seed 42, computed from the DOCUMENTED draw order — type
+  // first, then a (x, y) pair per placement attempt with BOTH coordinates
+  // redrawn on a reject. Drop 1 rejects its first pair (it lands on the base),
+  // so this pair of triples also pins the reroll shape, not just the order.
+  // T1.8's golden replays inherit this stream: swapping x/y, hoisting the type
+  // roll, dropping a coordinate on reject, or reordering POWERUP_TYPES must all
+  // fail here rather than silently rewrite every recorded run.
+  // The triples below can only pin the table slots they happen to draw, so pin
+  // the whole canonical order here too. game.ts's state hash indexes this same
+  // array, so one reorder would shift both the RNG roll and every hash.
+  it('pins the canonical power-up order shared by the roll and the state hash', () => {
+    expect(POWERUP_TYPES).toEqual([
+      'star',
+      'helmet',
+      'clock',
+      'shovel',
+      'grenade',
+      'tank',
+    ]);
+  });
+
+  it('pins the RNG draw order: type, then x, then y, both redrawn per attempt', () => {
+    const s = createGame(openField(), OPTS); // seed 42, nothing has drawn yet
+    const carrier = addEnemy(s, 0, 0, { carrier: true });
+
+    const drops: { type: PowerupType; x: number; y: number }[] = [];
+    for (let i = 0; i < 2; i++) {
+      carrier.carrier = true;
+      s.events.length = 0;
+      s.events.push({ t: 'tankHit', tankId: carrier.id, hpLeft: 1 });
+      powerupsSystem(s, NO_INTENTS);
+      const spawned = only(s.events, 'powerupSpawned');
+      expect(spawned).toHaveLength(1);
+      drops.push({ type: spawned[0].type, x: spawned[0].x, y: spawned[0].y });
+      expect(s.powerup).toEqual(drops[i]); // state and event always agree
+    }
+
+    expect(drops).toEqual([
+      { type: 'shovel', x: 128, y: 32 },
+      { type: 'shovel', x: 48, y: 120 },
+    ]);
+  });
+
+  it('P-13: a carrier hit twice in ONE tick still drops exactly one power-up', () => {
+    const s = createGame(openField(), OPTS);
+    const carrier = addEnemy(s, 0, 0, { carrier: true });
+
+    s.events.length = 0;
+    s.events.push({ t: 'tankHit', tankId: carrier.id, hpLeft: 3 });
+    s.events.push({
+      t: 'tankDestroyed',
+      tankId: carrier.id,
+      kind: 'enemy',
+      points: 0,
+      x: 0,
+      y: 0,
+    });
+    powerupsSystem(s, NO_INTENTS);
+
+    expect(only(s.events, 'powerupSpawned')).toHaveLength(1);
+    expect(carrier.carrier).toBe(false);
+  });
+
+  it('a carrier wiped by a grenade drops nothing (ruling: the drop needs a hit)', () => {
+    const s = createGame(openField(), OPTS);
+    const p = addPlayer(s, 0, 0, 0);
+    const carrier = addEnemy(s, 96, 96, { carrier: true });
+
+    giveTo(s, p, 'grenade');
+
+    expect(only(s.events, 'grenadeUsed')).toEqual([
+      { t: 'grenadeUsed', kills: 1 },
+    ]);
+    expect(only(s.events, 'powerupSpawned')).toHaveLength(0);
+    expect(s.powerup).toBeNull();
+    expect(carrier.alive).toBe(false);
+
+    // And the grenade's own tankDestroyed must not drop one on the NEXT tick
+    // either — events are per-tick, and the carrier is gone regardless.
+    expect(only(stepCollect(s, 5), 'powerupSpawned')).toHaveLength(0);
   });
 
   it('every drop lands subcell-aligned, in-field and clear of the base', () => {
@@ -377,7 +463,11 @@ describe('power-ups — star, helmet, extra life (P-15)', () => {
     giveTo(s, p, 'helmet'); // restart, never stack
     expect(p.shieldT).toBe(HELMET_S);
 
-    stepN(s, Math.round(HELMET_S / TICK_S));
+    // The snap must never SHORTEN the effect: still shielded one tick out,
+    // exactly zero on the 600th — so HELMET_S is pinned at 600 whole ticks.
+    stepN(s, HELMET_TICKS - 1);
+    expect(p.shieldT).toBeGreaterThan(0);
+    stepN(s, 1);
     expect(p.shieldT).toBe(0);
   });
 
@@ -418,7 +508,14 @@ describe('power-ups — clock (P-15, P-17)', () => {
     expect(slider.slideV).toBe(0);
     expect(only(s.events, 'clockStarted')).toHaveLength(1);
 
-    const evs = stepCollect(s, CLOCK_TICKS);
+    // One tick short of the window: still frozen, still counting, no event yet —
+    // the half-tick snap must not shorten the freeze by even one tick.
+    const almost = stepCollect(s, CLOCK_TICKS - 1);
+    expect(s.clockT).toBeGreaterThan(0);
+    expect(still.frozenT).toBeGreaterThan(0);
+    expect(only(almost, 'clockEnded')).toHaveLength(0);
+
+    const evs = stepCollect(s, 1);
 
     expect(s.clockT).toBe(0);
     expect(still.frozenT).toBe(0);
@@ -459,8 +556,10 @@ describe('power-ups — clock (P-15, P-17)', () => {
     stepN(s, 60);
 
     near(p.stunT, STUN_S - 1); // 2.0
-    stepN(s, Math.round((STUN_S - 1) / TICK_S));
-    expect(p.stunT).toBe(0);
+    stepN(s, STUN_TICKS - 60 - 1);
+    expect(p.stunT).toBeGreaterThan(0); // 179 ticks in — still stunned
+    stepN(s, 1);
+    expect(p.stunT).toBe(0); // exactly 180
   });
 });
 
@@ -484,7 +583,13 @@ describe('power-ups — shovel (P-16)', () => {
       { t: 'shovelPhase', phase: 'steel' },
     ]);
 
-    const solid = stepCollect(s, SOLID_TICKS);
+    // One tick short of 17 s the ring is still solid — the snap never shortens it.
+    const nearlySolid = stepCollect(s, SOLID_TICKS - 1);
+    expect(only(nearlySolid, 'shovelPhase')).toHaveLength(0);
+    expect(s.shovel.phase).toBe('steel');
+    expect(s.shovel.t).toBeGreaterThan(0);
+
+    const solid = stepCollect(s, 1);
     expect(only(solid, 'shovelPhase')).toEqual([
       { t: 'shovelPhase', phase: 'blink' },
     ]);
@@ -492,7 +597,14 @@ describe('power-ups — shovel (P-16)', () => {
     expect(s.shovel.t).toBe(SHOVEL_BLINK_S);
     expect(ringSubcells(s)).toEqual(allRing(Terrain.Steel)); // still steel while blinking
 
-    const blink = stepCollect(s, BLINK_TICKS);
+    // Likewise for the 3 s warning: still blinking (and still steel) at tick 179.
+    const nearlyDone = stepCollect(s, BLINK_TICKS - 1);
+    expect(only(nearlyDone, 'shovelPhase')).toHaveLength(0);
+    expect(s.shovel.phase).toBe('blink');
+    expect(s.shovel.t).toBeGreaterThan(0);
+    expect(ringSubcells(s)).toEqual(allRing(Terrain.Steel));
+
+    const blink = stepCollect(s, 1);
     expect(only(blink, 'shovelPhase')).toEqual([
       { t: 'shovelPhase', phase: 'revert' },
     ]);

@@ -13,6 +13,7 @@ import {
   CARRIER_ORDINALS,
   ENEMY_CAP,
   ENEMY_SPAWN_TILES,
+  HALF_TICK,
   SPAWN_ANIM_S,
   SPAWN_RETRY_S,
   TICK_S,
@@ -32,12 +33,10 @@ import type {
 type Intents = readonly [PlayerIntent, PlayerIntent];
 
 // `timerT`/`retryT` are countdowns stored in SECONDS but stepped one TICK_S at a
-// time, so repeated subtraction drifts by a few ULPs. Treating "the timer has
-// reached zero" as "within half a tick of zero" makes the cadence land on EXACT
-// tick counts (a 186-tick interval fires the next start exactly 186 ticks later,
-// not 187) and stays deterministic: a still-running timer is always ≳ TICK_S
-// away, a fired one ≲ 0. Derived from TICK_S — not a magic number.
-const HALF_TICK = TICK_S / 2;
+// time, so repeated subtraction drifts by a few ULPs. Comparing against the shared
+// HALF_TICK threshold (constants.ts) makes the cadence land on EXACT tick counts —
+// a 186-tick interval fires the next start exactly 186 ticks later, not 187. The
+// effect timers in stageflow.ts snap onto the same threshold via `stepDown`.
 
 // Enemies always face the base as they appear (types.ts Dir: 0 Up,1 Right,2 Down,3 Left).
 const DIR_DOWN: Dir = 2;

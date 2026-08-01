@@ -7,6 +7,7 @@ import {
   EAGLE_TILE,
   FIELD_SUBCELLS,
   FIELD_TILES,
+  POWERUP_TYPES,
   START_LIVES,
 } from './constants';
 import { subcellIndex } from './grid';
@@ -29,7 +30,6 @@ import {
   type LevelData,
   type PlayerIntent,
   type PlayerMeta,
-  type PowerupType,
   type StagePhase,
   type TerrainKind,
 } from './types';
@@ -53,14 +53,8 @@ const ENEMY_TYPE_ORDER: readonly EnemyType[] = [
   'power',
   'armor',
 ];
-const POWERUP_TYPE_ORDER: readonly PowerupType[] = [
-  'star',
-  'helmet',
-  'clock',
-  'shovel',
-  'grenade',
-  'tank',
-];
+// Power-up index order is the shared POWERUP_TYPES from constants.ts: the hash and
+// the RNG roll must agree on it, so there is only one copy to keep in step.
 
 export function createGame(
   level: LevelData,
@@ -183,7 +177,7 @@ export function hashState(state: GameState): number {
   if (state.powerup === null) {
     feed(-1);
   } else {
-    feed(POWERUP_TYPE_ORDER.indexOf(state.powerup.type));
+    feed(POWERUP_TYPES.indexOf(state.powerup.type));
     feed(state.powerup.x);
     feed(state.powerup.y);
   }

@@ -13,31 +13,22 @@
 //
 // Stage phases (intro/cleared/baseLost/gameOver) and pause are T1.7's slice and
 // extend this same module: they become additional steps around `tickTimers`.
-import { SHOVEL_BLINK_S, TICK_S } from '../constants';
+// Every countdown below is stepped with the shared `stepDown` helper from
+// constants.ts — the same HALF_TICK zero-threshold the spawner's cadence compares
+// against — so an effect armed with a whole multiple of TICK_S lasts exactly that
+// many ticks (SHOVEL_BLINK_S is 180 ticks, never 181) and no effect is ever
+// shortened by the snap.
+import { SHOVEL_BLINK_S, stepDown } from '../constants';
 import { stampBaseRing } from './powerups';
 import { Terrain, type GameState, type PlayerIntent } from '../types';
 
 type Intents = readonly [PlayerIntent, PlayerIntent];
-
-// Countdowns are stored in SECONDS but stepped one TICK_S at a time, so repeated
-// subtraction drifts by a few ULPs — 3 s minus 180 ticks lands on 5.7e-15, not 0.
-// Treating "within half a tick of zero" as zero makes every effect last an EXACT
-// number of ticks (SHOVEL_BLINK_S is 180 ticks, never 181) and stays fully
-// deterministic: a still-running timer is always ≳ TICK_S away. Same rule the
-// spawner uses for its cadence. Derived from TICK_S — not a magic number.
-const HALF_TICK = TICK_S / 2;
 
 export function stageflowSystem(state: GameState, intents: Intents): void {
   void intents; // phases and pause (which do read intents) arrive with T1.7
   tickTankTimers(state);
   tickClock(state);
   tickShovel(state);
-}
-
-// One tick off a countdown, snapped to a hard 0 at the end (see HALF_TICK).
-function stepDown(t: number): number {
-  const next = t - TICK_S;
-  return next <= HALF_TICK ? 0 : next;
 }
 
 function tickTankTimers(state: GameState): void {

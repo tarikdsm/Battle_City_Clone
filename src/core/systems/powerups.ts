@@ -18,6 +18,7 @@ import {
   CLOCK_S,
   FIELD_U,
   HELMET_S,
+  POWERUP_TYPES,
   SHOVEL_SOLID_S,
   SUBCELL,
   TANK_SIZE,
@@ -36,19 +37,11 @@ import {
 
 type Intents = readonly [PlayerIntent, PlayerIntent];
 
-// Roll order for `nextInt(rng, 6)`. Fixed and canonical — changing it changes
-// every seeded replay (fidelity §8/§14).
-const POWERUP_TYPES: readonly PowerupType[] = [
-  'star',
-  'helmet',
-  'clock',
-  'shovel',
-  'grenade',
-  'tank',
-];
-
 // Star tier progression, indexed by current tier: 3 is the cap (§3.1).
 const NEXT_TIER: readonly (0 | 1 | 2 | 3)[] = [1, 2, 3, 3];
+
+// Two subcells to a tile, on each axis.
+const SUBCELLS_PER_TILE = TILE / SUBCELL;
 
 // A power-up occupies one tile (16×16) and is placed on the subcell lattice, so
 // its top-left may be any of 25 slots per axis: 0, 8, … 192 (192 + 16 = 208).
@@ -64,8 +57,12 @@ const MAX_PLACEMENT_TRIES = 32;
 // never drift apart.
 const BASE_ZONE: Aabb = baseRingBounds();
 
-// Module-level scratch — reused every tick so the hot path never allocates.
+// Module-level scratch — reused every tick so the hot path never allocates. The
+// two power-up boxes are kept separate on purpose: `candidateBox` belongs to
+// placement (pass A) and `itemBox` to the on-field item (pass B), so neither pass
+// can ever be made correct-only-by-call-ordering.
 const tankBox: Aabb = { x: 0, y: 0, w: TANK_SIZE, h: TANK_SIZE };
+const candidateBox: Aabb = { x: 0, y: 0, w: TILE, h: TILE };
 const itemBox: Aabb = { x: 0, y: 0, w: TILE, h: TILE };
 
 // --- System ----------------------------------------------------------------
@@ -81,8 +78,8 @@ export function powerupsSystem(state: GameState, intents: Intents): void {
 // when the effect reverts (→ a FULLY repaired Brick ring, fidelity §8).
 export function stampBaseRing(state: GameState, kind: TerrainKind): void {
   for (const [tx, ty] of BASE_RING_TILES) {
-    const sx = tx * 2; // two subcells per tile
-    const sy = ty * 2;
+    const sx = tx * SUBCELLS_PER_TILE;
+    const sy = ty * SUBCELLS_PER_TILE;
     state.terrain[subcellIndex(sx, sy)] = kind;
     state.terrain[subcellIndex(sx + 1, sy)] = kind;
     state.terrain[subcellIndex(sx, sy + 1)] = kind;
@@ -102,7 +99,9 @@ function dropFromStruckCarriers(state: GameState): void {
     const e = state.events[i];
     if (e.t !== 'tankHit' && e.t !== 'tankDestroyed') continue;
     const tank = findTank(state, e.tankId);
-    if (tank === undefined || tank.carrier !== true) continue;
+    if (tank === undefined || tank.kind !== 'enemy' || tank.carrier !== true) {
+      continue; // only enemies carry — asserted here, not merely assumed
+    }
     tank.carrier = false;
     spawnPowerup(state);
   }
@@ -137,9 +136,9 @@ function spawnPowerup(state: GameState): void {
 }
 
 function overlapsBaseZone(x: number, y: number): boolean {
-  itemBox.x = x;
-  itemBox.y = y;
-  return aabbOverlap(itemBox, BASE_ZONE);
+  candidateBox.x = x;
+  candidateBox.y = y;
+  return aabbOverlap(candidateBox, BASE_ZONE);
 }
 
 function baseRingBounds(): Aabb {

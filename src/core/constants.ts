@@ -2,7 +2,7 @@
 // (1 tile = 16 u, 1 subcell = 8 u), times in seconds. Values tagged `CAL-nn` are
 // calibration placeholders (fidelity spec §16): each keeps its tag so the calibration
 // pass can locate and adjust it without changing structure.
-import type { EnemyType } from './types';
+import type { EnemyType, PowerupType } from './types';
 
 // --- Grid / geometry ---
 export const TILE = 16;
@@ -15,6 +15,23 @@ export const BULLET_SIZE = 4;
 
 // --- Time ---
 export const TICK_S = 1 / 60;
+
+// Countdowns are stored in SECONDS but stepped one TICK_S at a time, so repeated
+// subtraction drifts by a few ULPs — 3 s minus 180 ticks lands on 5.7e-15, not 0.
+// HALF_TICK is the ONE shared "this countdown has reached zero" threshold: a still
+// running timer is always ≳ TICK_S away from it, a finished one ≲ 0. It is
+// determinism-critical (`<=` vs `<` here shifts exact tick counts, and therefore
+// every golden replay), so it is defined exactly once and imported by both the
+// spawner's cadence comparison and the effect timers below.
+export const HALF_TICK = TICK_S / 2;
+
+// One tick off a countdown, snapped to a hard 0 at the end (see HALF_TICK). A
+// timer armed with a whole multiple of TICK_S therefore lasts EXACTLY that many
+// ticks — never one more because of accumulated float error, and never one fewer.
+export function stepDown(t: number): number {
+  const next = t - TICK_S;
+  return next <= HALF_TICK ? 0 : next;
+}
 
 // --- Speeds (u/s) ---
 export const PLAYER_SPEED = 45; // CAL-01
@@ -45,6 +62,20 @@ export const ICE_DECEL = 240; // CAL-05
 export const ENEMY_CAP = 4; // CAL-09
 export const ENEMY_TOTAL = 20;
 export const CARRIER_ORDINALS: readonly number[] = [4, 11, 18]; // 1-based spawn ordinals
+
+// --- Power-ups ---
+// The canonical order of the six types. Replay-canonical in two ways: it is the
+// order `nextInt(rng, 6)` indexes when a carrier drops one (fidelity §8), and it
+// is the index order the state hash writes. Reordering it changes every seeded
+// run, so it lives here once rather than in each consumer.
+export const POWERUP_TYPES: readonly PowerupType[] = [
+  'star',
+  'helmet',
+  'clock',
+  'shovel',
+  'grenade',
+  'tank',
+];
 
 // --- Scoring ---
 export const SCORE: Record<EnemyType, number> & { powerup: number } = {
