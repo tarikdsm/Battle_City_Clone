@@ -92,6 +92,22 @@ export function stepGame(
 ): void {
   state.events.length = 0;
   state.tick++;
+
+  // Render-interpolation contract (arch §3.4): every tank's prevX/prevY is the
+  // position it held when this tick began, so the renderer can lerp prev → current
+  // by the frame's alpha. One unconditional pass here, before any system runs, is
+  // what makes that true no matter WHICH system moves a tank — the AI moves
+  // enemies in #3, movementSystem moves players in #4, and anything added later
+  // (respawn placement, a teleport effect) is covered for free. It is deliberately
+  // NOT a simulation input: prev is excluded from hashState, and the AI keeps its
+  // own hashed lattice memory (Tank.aiTileX/Y) rather than reading back from here.
+  // A pause early-out, when T1.7 adds one, belongs ABOVE this loop: a paused tick
+  // runs no systems, so re-snapshotting would flatten the interpolation.
+  for (const t of state.tanks) {
+    t.prevX = t.x;
+    t.prevY = t.y;
+  }
+
   stageflowSystem(state, intents);
   spawnerSystem(state, intents);
   aiSystem(state, intents);
@@ -160,6 +176,8 @@ export function hashState(state: GameState): number {
     feed(t.bulletsAirborne);
     feed(t.fireHeld ? 1 : 0);
     feed(t.aiTimerT);
+    feed(t.aiTileX);
+    feed(t.aiTileY);
   }
 
   for (const b of state.bullets) {

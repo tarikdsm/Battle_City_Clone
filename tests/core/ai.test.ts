@@ -208,11 +208,15 @@ describe('ai — determinism (P-23)', () => {
       stageNumber: 5,
     });
     stepN(s, 300);
-    // Recorded from the first green run of this implementation. It is a
-    // regression guard on the whole stream — any change to the AI's draw order
+    // A regression guard on the whole stream — any change to the AI's draw order
     // (or to any earlier system's) moves it, so a diff here is a decision, not a
     // nuisance: re-record it only with the reason written down.
-    expect(hashState(s)).toBe(0x6ad8e8b2);
+    //
+    // Re-recorded once, 0x6ad8e8b2 → 0xd58fb38e, when Tank.aiTileX/aiTileY joined
+    // the hash stream (the AI's lattice memory was split out of prevX/prevY). The
+    // simulation itself did not move: same rng state, same tank positions, dirs
+    // and timers at tick 300, same lattice statistics — only the field count.
+    expect(hashState(s)).toBe(0xd58fb38e);
   });
 
   it('P-23: pins the rng draw order lattice → weight → uniform → timer → fire', () => {
@@ -234,7 +238,7 @@ describe('ai — determinism (P-23)', () => {
       stageNumber: 1,
     });
     const e = addEnemy(s, { x: 96, y: 160, dir: DOWN, aiTimerT: 0 });
-    e.prevY = 160 - TILE; // crossed a tile line during the previous tick
+    e.aiTileY = 160 / TILE - 1; // arrived from the tile above: a crossing
 
     const r = streamOf(seed, 5);
     aiSystem(s, NO_INTENTS);
@@ -598,13 +602,17 @@ describe('ai — direction weights (fidelity §9)', () => {
     }
   });
 
-  it('the lattice roll fires through the REAL pipeline, not only staged prev', () => {
-    // The unit test below stages prevX/prevY by hand and calls aiSystem
-    // directly, so it cannot see whether the pipeline actually delivers a usable
-    // prev to system #3. This one drives whole `stepGame` ticks: an enemy runs
-    // up a clear lane with its timer pinned far from expiry, so a decision can
-    // ONLY come from a lattice roll. Crossings are counted exactly as the AI
-    // defines them, read at the tick boundary.
+  it('the lattice roll fires through the REAL pipeline, not only staged memory', () => {
+    // The unit test below stages the lattice memory by hand and calls aiSystem
+    // directly, so it cannot see whether a whole tick actually leaves system #3
+    // a usable memory of the previous move. This one drives `stepGame`: an enemy
+    // runs up a clear lane with its timer pinned far from expiry, so a decision
+    // can ONLY come from a lattice roll, and crossings are observed from the
+    // tank's own position rather than from the field under test.
+    //
+    // This is the guard that was missing when the memory lived in prevX/prevY:
+    // re-stamping those before system #3 silently drove `decisions` to zero
+    // while every hand-staged test kept passing.
     const s = createGame(openField(), {
       players: 1,
       seed: 31337,
@@ -617,12 +625,13 @@ describe('ai — direction weights (fidelity §9)', () => {
       e.aiTimerT = 10;
       e.dir = UP;
       e.x = 96;
-      if (Math.floor(e.prevY / TILE) !== Math.floor(e.y / TILE)) crossings++;
+      const yBefore = e.y; // observed from the tank, not from its memory
       stepGame(s, NO_INTENTS);
+      if (Math.floor(yBefore / TILE) !== Math.floor(e.y / TILE)) crossings++;
       if (e.aiTimerT !== 10 - TICK_S) decisions++;
       if (e.y < 24) {
         e.y = 176; // another lap up the lane
-        e.prevY = 176;
+        e.aiTileY = 176 / TILE;
       }
     }
     expect(crossings).toBeGreaterThan(50);
@@ -642,11 +651,11 @@ describe('ai — direction weights (fidelity §9)', () => {
     for (let i = 0; i < 26000; i++) {
       e.x = 96;
       e.y = 8 + (i % 26) * 0.5; // sweeps across tile lines
-      e.prevX = e.x;
-      e.prevY = e.y + BASIC_STEP; // moved Up by one tick's worth
+      e.aiTileX = Math.floor(e.x / TILE);
+      e.aiTileY = Math.floor((e.y + BASIC_STEP) / TILE); // came from one tick below
       e.dir = UP;
       e.aiTimerT = 10;
-      if (Math.floor(e.prevY / TILE) !== Math.floor(e.y / TILE)) crossings++;
+      if (e.aiTileY !== Math.floor(e.y / TILE)) crossings++;
       aiSystem(s, NO_INTENTS);
       if (e.aiTimerT !== 10 - TICK_S) decisions++;
     }

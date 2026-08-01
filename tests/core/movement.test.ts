@@ -326,8 +326,9 @@ describe('movement — disabled states', () => {
 // The interpolation contract, asserted at TICK level rather than per system:
 // whatever moved a tank during a tick, its prevX/prevY must hold where it stood
 // when that tick began. Two systems move tanks (the AI moves enemies in #3,
-// movementSystem moves players in #4), so the invariant is only meaningful as a
-// statement about the whole partition — which is what the first test pins.
+// movementSystem moves players in #4) and stepGame's single snapshot pass covers
+// both, so the invariant is only meaningful as a statement about the whole
+// partition — which is what the first test pins, for one mover of each kind.
 describe('movement — prev snapshot & hash', () => {
   it('captures prev at the START of the tick for BOTH movers (player + enemy)', () => {
     const s = createGame(emptyLevel(), OPTS);

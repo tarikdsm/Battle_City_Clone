@@ -70,20 +70,17 @@ export function aiSystem(state: GameState, intents: Intents): void {
   for (const tank of state.tanks) {
     if (tank.kind !== 'enemy') continue;
 
-    // Read the tile-lattice crossing from the PREVIOUS tick's movement, then
-    // take this tick's prev snapshot (this system owns enemy prev — see
-    // movementSystem). Both happen for every enemy, frozen or not, so a thawing
-    // tank never sees a stale crossing from before the freeze.
+    // Read the tile-lattice crossing the PREVIOUS tick's movement produced, then
+    // re-arm the memory for the next one. Both happen for every enemy, frozen or
+    // not, so a thawing tank never sees a stale crossing from before the freeze.
     //
-    // The read must stay HERE, ahead of the write: prev is this rule's only
-    // memory of the last move, so anything that re-stamps it before system #3 —
-    // a shared pass at the top of the tick, for instance — makes every crossing
-    // invisible and the §9 lattice rule silently dead. T1.7: if this system ever
-    // early-returns on pause/phase, keep these two lines running, or enemy
-    // interpolation stalls where no replay test can see it (prev is not hashed).
+    // The read must stay ahead of the write, and the memory must stay this
+    // system's own: it is the only record of where the tank came from, and it is
+    // hashed (unlike prevX/prevY), so if a later task ever gates this system the
+    // golden replays fail loudly instead of the rule going quietly dead.
     const crossed = crossedTileLine(tank);
-    tank.prevX = tank.x;
-    tank.prevY = tank.y;
+    tank.aiTileX = Math.floor(tank.x / TILE);
+    tank.aiTileY = Math.floor(tank.y / TILE);
 
     // Frozen (Clock, §9): no decision, no timer, no draw, no move, no shot.
     if (!tank.alive || tank.spawningT > 0 || tank.frozenT > 0) continue;
@@ -216,12 +213,14 @@ function opposite(dir: Dir): Dir {
 }
 
 // Did the tank's movement axis cross a tile line during the previous tick? Read
-// before this tick's prev snapshot, so it describes the move that just finished.
+// before the memory is re-armed, so it describes the move that just finished.
+// Only the movement axis counts: a 90-degree turn snaps the OTHER axis by up to
+// 4 u, which can shift its tile without the tank having crossed anything.
 function crossedTileLine(tank: Tank): boolean {
   const horizontal = DIR_VECS[tank.dir][0] !== 0;
-  const from = horizontal ? tank.prevX : tank.prevY;
-  const to = horizontal ? tank.x : tank.y;
-  return Math.floor(from / TILE) !== Math.floor(to / TILE);
+  const from = horizontal ? tank.aiTileX : tank.aiTileY;
+  const to = Math.floor((horizontal ? tank.x : tank.y) / TILE);
+  return from !== to;
 }
 
 // The alive, materialized player nearest by Manhattan distance between centres;

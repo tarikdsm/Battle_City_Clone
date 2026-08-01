@@ -83,6 +83,15 @@ export interface Tank {
   // re-arms it to 0.5..2.0 s. Player tanks keep it at 0. Hashed immediately
   // after fireHeld — it is simulation state, not a cache (T1.6).
   aiTimerT: number;
+  // The AI's lattice memory: the tile the tank occupied when the PREVIOUS tick
+  // began, per axis. §9 reconsiders when the tank crosses a tile line, and this
+  // is the only record of where it came from — prevX/prevY cannot serve, since
+  // they are re-stamped for rendering before system #3 ever reads them. Written
+  // by aiSystem for every enemy (frozen included) and hashed immediately after
+  // aiTimerT, so a future task that stops the AI running breaks a golden replay
+  // instead of silently deadening the rule (T1.6).
+  aiTileX: number;
+  aiTileY: number;
 }
 
 export interface Bullet {
