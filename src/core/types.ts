@@ -127,6 +127,12 @@ export interface GameState {
   phase: StagePhase;
   phaseT: number;
   paused: boolean;
+  // The pause-intent value observed last tick, per player — the edge-detect state
+  // that makes pause a PRESS, not a level (a held button toggles once). Updated
+  // unconditionally every tick, including frozen ones, so releasing the button
+  // while paused is registered and the next press can unpause. Hashed immediately
+  // after `paused` (T1.7).
+  pauseHeld: [boolean, boolean];
   terrain: Uint8Array;
   eagleAlive: boolean;
   shovel: { phase: 'off' | 'steel' | 'blink'; t: number };
@@ -135,6 +141,11 @@ export interface GameState {
   bullets: Bullet[];
   powerup: { type: PowerupType; x: number; y: number } | null;
   players: [PlayerMeta, PlayerMeta];
+  // Seconds until each player's tank returns to the field; 0 = not waiting. Armed
+  // by playersSystem on death and counted down by stageflowSystem, which does the
+  // respawn itself when it reaches 0 and the player still has lives. Hashed
+  // immediately after the `players` block, both entries in index order (T1.7).
+  respawnT: [number, number];
   spawner: {
     queue: EnemyType[];
     nextOrdinal: number;

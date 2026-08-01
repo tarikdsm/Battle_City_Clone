@@ -87,6 +87,9 @@ function baseField(): LevelData {
   return level([], false);
 }
 
+// Configure one of the two player tanks createGame keeps in slots 0/1 (T1.7).
+// Pushing a second tank with the same playerIndex would have it act on the same
+// intents and race the subject.
 function addPlayer(
   s: GameState,
   playerIndex: 0 | 1,
@@ -94,16 +97,26 @@ function addPlayer(
   y: number,
   dir: Dir = 0,
 ): Tank {
-  const t = makeTank({
-    id: s.tanks.length,
-    kind: 'player',
-    playerIndex,
-    x,
-    y,
-    dir,
-  });
-  s.tanks.push(t);
+  const t = s.tanks[playerIndex];
+  t.alive = true;
+  t.x = x;
+  t.y = y;
+  t.prevX = x;
+  t.prevY = y;
+  t.dir = dir;
+  t.shieldT = 0;
   return t;
+}
+
+// Hand control to the players: createGame opens in the 'intro' phase, where
+// stepGame swaps the real intents for NULL_INTENT (T1.7). The queued enemy and
+// the parked spawner keep winloseSystem from clearing this deliberately
+// enemy-less stage — and wiping the power-up under test — the moment play starts.
+function startPlaying(s: GameState): GameState {
+  s.phase = 'playing';
+  s.spawner.queue.push('basic');
+  s.spawner.timerT = 1e9;
+  return s;
 }
 
 function addEnemy(
@@ -203,7 +216,7 @@ function allRing(kind: number): number[] {
 
 describe('power-ups — carrier drops (P-13, P-14)', () => {
   it('P-13: an armor carrier drops on the FIRST hit and never again', () => {
-    const s = createGame(openField(), OPTS);
+    const s = startPlaying(createGame(openField(), OPTS));
     const shooter = addPlayer(s, 0, 0, 96, 1); // facing Right
     const carrier = addEnemy(s, 32, 96, {
       enemyType: 'armor',
@@ -237,7 +250,7 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
   });
 
   it('P-13: a carrier killed outright by one hit still drops', () => {
-    const s = createGame(openField(), OPTS);
+    const s = startPlaying(createGame(openField(), OPTS));
     const shooter = addPlayer(s, 0, 0, 96, 1);
     const carrier = addEnemy(s, 32, 96, { carrier: true }); // basic, hp 1
 
@@ -253,7 +266,7 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
   });
 
   it('P-14: a second drop REPLACES the first — only ever one on the field', () => {
-    const s = createGame(openField(), OPTS);
+    const s = startPlaying(createGame(openField(), OPTS));
     const shooter = addPlayer(s, 0, 0, 96, 1);
     // Frozen only so both hold their lane as targets (see the P-13 test above).
     addEnemy(s, 32, 96, { carrier: true, frozenT: 5 });
@@ -367,7 +380,10 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
     let drops = 0;
     for (const seed of [1, 42, 1337]) {
       const s = createGame(openField(), { players: 1, seed, stageNumber: 1 });
-      const carrier = addEnemy(s, 0, 0, { carrier: true }); // no player: nothing collects
+      // Nobody on the field to collect: the two player tanks createGame stages
+      // (T1.7) are taken off, so every drop stays where it landed.
+      for (const t of s.tanks) t.alive = false;
+      const carrier = addEnemy(s, 0, 0, { carrier: true });
 
       for (let i = 0; i < 100; i++) {
         carrier.carrier = true;
@@ -398,7 +414,7 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
 
 describe('power-ups — pickup', () => {
   it('a player who walks onto a power-up consumes it', () => {
-    const s = createGame(openField(), OPTS);
+    const s = startPlaying(createGame(openField(), OPTS));
     addPlayer(s, 0, 0, 0, 1);
     s.powerup = { type: 'helmet', x: 24, y: 0 };
 
@@ -418,7 +434,7 @@ describe('power-ups — pickup', () => {
   });
 
   it('with both players overlapping, P1 collects and P2 gets nothing', () => {
-    const s = createGame(openField(), OPTS_2P);
+    const s = startPlaying(createGame(openField(), OPTS_2P));
     const p1 = addPlayer(s, 0, 0, 0);
     const p2 = addPlayer(s, 1, 8, 0);
     s.powerup = { type: 'helmet', x: 0, y: 0 };

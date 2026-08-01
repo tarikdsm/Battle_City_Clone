@@ -55,6 +55,19 @@ export const SPAWN_ANIM_S = 1.3; // CAL-12
 export const PLAYER_RESPAWN_S = 1;
 export const SPAWN_RETRY_S = 0.5;
 
+// --- Stage-flow beats (seconds) ---
+// Presentation timing, not calibration: these are the design's own beats (GDD §5
+// / fidelity §11), not measurements of the NES build, so they carry no CAL tag.
+// They are still simulation state — the phase machine counts them in whole ticks
+// and a golden replay records the tick a phase flips — so they live here rather
+// than in the app layer.
+export const STAGE_INTRO_S = 2; // "STAGE N" curtain before control is handed over
+// Beat between the last enemy dying and the tally. The core only counts `phaseT`
+// through it — 'cleared' is terminal down here, and the app layer is what reads
+// this constant to know when to raise the tally and load the next stage.
+export const STAGE_CLEAR_S = 2;
+export const GAME_OVER_DELAY_S = 3; // eagle explosion → game-over sequence
+
 // --- Physics ---
 export const ICE_DECEL = 240; // CAL-05
 

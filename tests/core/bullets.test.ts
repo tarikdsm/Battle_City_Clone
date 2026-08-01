@@ -59,11 +59,12 @@ function gameWithTile(tx: number, ty: number, ch: string): GameState {
   return createGame(l, OPTS);
 }
 
-function addTank(
-  s: GameState,
-  over: Partial<Tank> & Pick<Tank, 'id' | 'kind'>,
-): Tank {
-  const t = makeTank({ x: 100, y: 100, ...over });
+// Push an extra tank into the pool. `id` is always the slot index — createGame
+// keeps the two player tanks in slots 0/1 (T1.7), so a hand-picked id would
+// silently collide with one of them and misdirect every id lookup (bullet
+// ownership refunds above all).
+function addTank(s: GameState, over: Partial<Tank> & Pick<Tank, 'kind'>): Tank {
+  const t = makeTank({ x: 100, y: 100, ...over, id: s.tanks.length });
   s.tanks.push(t);
   return t;
 }
@@ -150,7 +151,7 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
     ];
     for (const [dir, ex, ey] of cases) {
       const s = createGame(emptyLevel(), OPTS);
-      const t = addTank(s, { id: 1, kind: 'player', playerIndex: 0, dir });
+      const t = addTank(s, { kind: 'player', playerIndex: 0, dir });
       expect(tryFire(s, t)).toBe(true);
       const b = s.bullets[0];
       expect(b.speed).toBe(120);
@@ -163,7 +164,7 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
       const shot = findEvent(s, 'shotFired');
       expect(shot.x).toBe(ex);
       expect(shot.y).toBe(ey);
-      expect(shot.tankId).toBe(1);
+      expect(shot.tankId).toBe(t.id);
       expect(shot.byPlayer).toBe(true);
     }
   });
@@ -177,7 +178,6 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
     ] as const) {
       const s = createGame(emptyLevel(), OPTS);
       const t = addTank(s, {
-        id: 1,
         kind: 'player',
         playerIndex: 0,
         dir: UP,
@@ -192,7 +192,6 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
   it('P-22: tier-0 cap — refused while airborne, allowed once freed', () => {
     const s = createGame(emptyLevel(), OPTS);
     const t = addTank(s, {
-      id: 1,
       kind: 'player',
       playerIndex: 0,
       x: 100,
@@ -211,7 +210,6 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
   it('P-22: tier-2 allows two airborne, refuses the third', () => {
     const s = createGame(emptyLevel(), OPTS);
     const t = addTank(s, {
-      id: 1,
       kind: 'player',
       playerIndex: 0,
       dir: UP,
@@ -226,7 +224,6 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
   it('P-24: enemy cap is one; basic fires slow, power fires fast', () => {
     const s = createGame(emptyLevel(), OPTS);
     const basic = addTank(s, {
-      id: 5,
       kind: 'enemy',
       enemyType: 'basic',
       dir: DOWN,
@@ -239,7 +236,6 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
 
     const s2 = createGame(emptyLevel(), OPTS);
     const power = addTank(s2, {
-      id: 5,
       kind: 'enemy',
       enemyType: 'power',
       dir: DOWN,
@@ -271,15 +267,16 @@ describe('bullets — firing & tier table (P-02, P-22, P-24)', () => {
 
 describe('bullets — firingSystem press edge', () => {
   it('holding fire yields exactly one shot; release+press yields a second', () => {
+    // firingSystem walks player tanks by playerIndex, so the subject has to be
+    // THE P1 tank createGame put in slot 0 — a second tank claiming playerIndex 0
+    // would fire on the same intent and double every count below.
     // tier 2 (cap 2) isolates edge behaviour from the fire cap.
     const s = createGame(emptyLevel(), OPTS);
-    const t = addTank(s, {
-      id: 1,
-      kind: 'player',
-      playerIndex: 0,
-      dir: UP,
-      tier: 2,
-    });
+    const t = s.tanks[0];
+    t.x = 100;
+    t.y = 100;
+    t.dir = UP;
+    t.tier = 2;
     for (let i = 0; i < 10; i++) firingSystem(s, [fireIntent(), NULL_INTENT]);
     expect(countAlive(s.bullets)).toBe(1); // edge, not per-tick
     expect(t.fireHeld).toBe(true);
@@ -291,7 +288,8 @@ describe('bullets — firingSystem press edge', () => {
 
   it('firingSystem updates fireHeld unconditionally even when the tank cannot fire', () => {
     const s = createGame(emptyLevel(), OPTS);
-    const t = addTank(s, { id: 1, kind: 'player', playerIndex: 0, stunT: 1 });
+    const t = s.tanks[0]; // the P1 slot, for the same reason as above
+    t.stunT = 1;
     firingSystem(s, [fireIntent(), NULL_INTENT]);
     expect(t.fireHeld).toBe(true); // level tracking is unconditional
     expect(countAlive(s.bullets)).toBe(0); // stunned -> no shot
@@ -384,7 +382,7 @@ describe('bullets — damaged tile from struck subcell (no dud hits)', () => {
     s: GameState,
     over: Partial<Tank> & Pick<Tank, 'x' | 'y' | 'dir'>,
   ): Bullet {
-    const t = addTank(s, { id: 1, kind: 'player', playerIndex: 0, ...over });
+    const t = addTank(s, { kind: 'player', playerIndex: 0, ...over });
     expect(tryFire(s, t)).toBe(true);
     return s.bullets[s.bullets.length - 1];
   }
@@ -441,7 +439,6 @@ describe('bullets — bullet vs bullet (P-06, P-07)', () => {
   it('P-07: a player and an enemy bullet annihilate head-on', () => {
     const s = createGame(emptyLevel(), OPTS);
     const p = addTank(s, {
-      id: 1,
       kind: 'player',
       playerIndex: 0,
       x: 40,
@@ -449,7 +446,6 @@ describe('bullets — bullet vs bullet (P-06, P-07)', () => {
       dir: RIGHT,
     });
     const e = addTank(s, {
-      id: 5,
       kind: 'enemy',
       enemyType: 'basic',
       x: 120,
@@ -472,7 +468,6 @@ describe('bullets — bullet vs bullet (P-06, P-07)', () => {
   it('P-06: an enemy bullet passes through an enemy tank (no damage)', () => {
     const s = createGame(emptyLevel(), OPTS);
     const target = addTank(s, {
-      id: 6,
       kind: 'enemy',
       enemyType: 'basic',
       x: 100,
@@ -520,7 +515,6 @@ describe('bullets — bullet vs tank (P-08, P-19, shield)', () => {
   it('P-08: a player bullet stuns (not kills) the other player and cancels its slide', () => {
     const s = createGame(emptyLevel(), OPTS);
     const p0 = addTank(s, {
-      id: 1,
       kind: 'player',
       playerIndex: 0,
       x: 40,
@@ -528,7 +522,6 @@ describe('bullets — bullet vs tank (P-08, P-19, shield)', () => {
       dir: RIGHT,
     });
     const p1 = addTank(s, {
-      id: 2,
       kind: 'player',
       playerIndex: 1,
       x: 80,
@@ -560,7 +553,6 @@ describe('bullets — bullet vs tank (P-08, P-19, shield)', () => {
   it('P-19: an armor enemy takes four hits (three tankHit, then tankDestroyed 400)', () => {
     const s = createGame(emptyLevel(), OPTS);
     const armor = addTank(s, {
-      id: 6,
       kind: 'enemy',
       enemyType: 'armor',
       hp: 4,
@@ -607,7 +599,6 @@ describe('bullets — bullet vs tank (P-08, P-19, shield)', () => {
   it('a shield consumes an enemy bullet with no damage', () => {
     const s = createGame(emptyLevel(), OPTS);
     const p = addTank(s, {
-      id: 1,
       kind: 'player',
       playerIndex: 0,
       x: 100,
@@ -631,7 +622,6 @@ describe('bullets — bullet vs tank (P-08, P-19, shield)', () => {
   it('an enemy bullet destroys an unshielded player (points 0, no byPlayerIndex)', () => {
     const s = createGame(emptyLevel(), OPTS);
     const p = addTank(s, {
-      id: 1,
       kind: 'player',
       playerIndex: 0,
       x: 100,
@@ -656,7 +646,6 @@ describe('bullets — bullet vs tank (P-08, P-19, shield)', () => {
   it('a spawning enemy has no hitbox — a player bullet passes through', () => {
     const s = createGame(emptyLevel(), OPTS);
     const e = addTank(s, {
-      id: 6,
       kind: 'enemy',
       enemyType: 'basic',
       x: 100,
@@ -736,7 +725,6 @@ describe('bullets — border, pool reuse, pass-through terrain', () => {
   it('the bullet pool reuses dead slots (length stays 1, id 0)', () => {
     const s = createGame(emptyLevel(), OPTS);
     const t = addTank(s, {
-      id: 1,
       kind: 'player',
       playerIndex: 0,
       x: 100,
@@ -775,14 +763,10 @@ describe('bullets — border, pool reuse, pass-through terrain', () => {
 
 describe('bullets — determinism (P-23)', () => {
   it('P-23: fireHeld participates in the state hash', () => {
+    // createGame already puts a player tank in slot 0 (T1.7), so the subject is
+    // right there — no staging needed.
     const a = createGame(emptyLevel(), OPTS);
     const b = createGame(emptyLevel(), OPTS);
-    a.tanks.push(
-      makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }),
-    );
-    b.tanks.push(
-      makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }),
-    );
     expect(hashState(a)).toBe(hashState(b));
     b.tanks[0].fireHeld = true;
     expect(hashState(a)).not.toBe(hashState(b));

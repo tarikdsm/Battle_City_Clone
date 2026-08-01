@@ -216,7 +216,14 @@ describe('ai — determinism (P-23)', () => {
     // the hash stream (the AI's lattice memory was split out of prevX/prevY). The
     // simulation itself did not move: same rng state, same tank positions, dirs
     // and timers at tick 300, same lattice statistics — only the field count.
-    expect(hashState(s)).toBe(0xd58fb38e);
+    //
+    // Re-recorded again, 0xd58fb38e → 0x36277e8f, when T1.7 gave createGame the
+    // two player tanks. This one IS a change of simulation: a live P1 stands on
+    // the field from tick 0, so the AI's "toward the nearest player" weight and
+    // its aligned fire rate finally have a target, and the whole draw stream
+    // diverges from there. The two new hashed fields (pauseHeld, respawnT) move
+    // it too. Both are intended; nothing about the AI's own rules changed.
+    expect(hashState(s)).toBe(0x36277e8f);
   });
 
   it('P-23: pins the rng draw order lattice → weight → uniform → timer → fire', () => {

@@ -1,10 +1,6 @@
 // src/core/systems/index.ts — the nine per-tick systems, invoked by stepGame in
-// this exact fixed order (arch §3.2). They are no-ops for now; tasks T1.2–T1.8
-// fill in the bodies. Every system shares one signature so the call sites in
-// game.ts never change as the logic lands.
-import type { GameState, PlayerIntent } from '../types';
-
-type Intents = readonly [PlayerIntent, PlayerIntent];
+// this exact fixed order (arch §3.2). Every system shares one signature so the
+// call sites in game.ts never change as the logic lands.
 
 // 1. stage phase & timers (intro/clear/gameover, shovel, clock, shields, stun).
 // Delegated to ./stageflow — T1.5 landed the effect timers; T1.7 extends the same
@@ -35,14 +31,10 @@ export { firingSystem, bulletsSystem } from './bullets';
 // name/signature stays identical so the call site in game.ts never changes.
 export { powerupsSystem } from './powerups';
 
-// 8. score / lives / bonus-life bookkeeping
-export function playersSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 8. score / lives / bonus-life bookkeeping — T1.7. Delegated to ./players, which
+// also owns the shape of a player tank (createGame and the respawn share it).
+export { playersSystem } from './players';
 
-// 9. win / lose evaluation
-export function winloseSystem(state: GameState, intents: Intents): void {
-  void state;
-  void intents;
-}
+// 9. win / lose evaluation — T1.7. Delegated to ./winlose; the exported name/
+// signature stays identical so the call site in game.ts never changes.
+export { winloseSystem } from './winlose';

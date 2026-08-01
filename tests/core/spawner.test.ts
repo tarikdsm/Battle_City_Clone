@@ -178,10 +178,10 @@ describe('spawner — active cap & HUD semantics (P-11)', () => {
 describe('spawner — blocked point retry (P-12)', () => {
   it('P-12: a blocked point retries after 0.5 s without advancing the cycle', () => {
     const s = createGame(basicLevel(), OPTS);
-    // Park a player exactly on the LEFT spawn point before tick 1.
-    s.tanks.push(
-      makeTank({ id: 0, kind: 'player', playerIndex: 0, x: 0, y: 0 }),
-    );
+    // Park the P1 tank (createGame owns slot 0 since T1.7) exactly on the LEFT
+    // spawn point before tick 1.
+    s.tanks[0].x = 0;
+    s.tanks[0].y = 0;
 
     step(s); // tick 1: attempt at LEFT is blocked
     expect(aliveEnemies(s)).toHaveLength(0);
@@ -296,7 +296,7 @@ describe('spawner — materialization & slot reuse', () => {
     expect(s.spawner.queue).toHaveLength(0);
   });
 
-  it('slot reuse keeps the enemy array bounded at ENEMY_CAP (no players here)', () => {
+  it('slot reuse keeps the enemy array bounded at ENEMY_CAP', () => {
     const s = createGame(basicLevel(), OPTS);
     let maxLen = 0;
     for (let i = 0; i < 1500; i++) {
@@ -305,8 +305,11 @@ describe('spawner — materialization & slot reuse', () => {
         if (t.spawningT === 0 && t.y === 0) t.y = 96;
       const alive = aliveEnemies(s);
       if (alive.length === ENEMY_CAP && i % 200 === 199) alive[0].alive = false;
-      maxLen = Math.max(maxLen, s.tanks.length);
-      expect(s.tanks.length).toBeLessThanOrEqual(ENEMY_CAP);
+      // The two player slots (0 and 1) are permanent and never recycled, so the
+      // bound is on the ENEMY slots the spawner adds behind them.
+      const enemySlots = s.tanks.filter((t) => t.kind === 'enemy').length;
+      maxLen = Math.max(maxLen, enemySlots);
+      expect(enemySlots).toBeLessThanOrEqual(ENEMY_CAP);
     }
     expect(maxLen).toBe(ENEMY_CAP); // grew to 4, then plateaued via reuse
   });

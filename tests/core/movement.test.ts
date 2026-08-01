@@ -47,16 +47,24 @@ function stepDir(s: GameState, dir: Dir | null): void {
   stepGame(s, [intent(dir), NULL_INTENT]);
 }
 
+// A game ready to take input: createGame opens in the 'intro' phase, where
+// stepGame swaps the real intents for NULL_INTENT (T1.7), so a movement test has
+// to be past the curtain. The spawner is parked as well — these tests are about
+// one mover on a known field, not about whatever the AI does with the enemies the
+// stage would otherwise pour in.
+function playingGame(level: LevelData): GameState {
+  const s = createGame(level, OPTS);
+  s.phase = 'playing';
+  s.spawner.timerT = 1e9;
+  return s;
+}
+
+// Configure the P1 tank createGame put in slot 0. A pushed second tank claiming
+// playerIndex 0 would move on the same intent and race this one.
 function addPlayer(s: GameState, over: Partial<Tank>): Tank {
-  const t = makeTank({
-    id: 1,
-    kind: 'player',
-    playerIndex: 0,
-    x: 0,
-    y: 0,
-    ...over,
-  });
-  s.tanks.push(t);
+  const t = Object.assign(s.tanks[0], { shieldT: 0 }, over);
+  t.prevX = t.x;
+  t.prevY = t.y;
   return t;
 }
 
@@ -71,7 +79,7 @@ function countEvents(s: GameState, t: string): number {
 
 describe('movement — straight run & facing (P-01)', () => {
   it('P-01: straight run advances 45 u/s and keeps dir/axis', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 32, y: 80, dir: RIGHT });
     for (let i = 0; i < 60; i++) {
       stepDir(s, RIGHT);
@@ -83,7 +91,7 @@ describe('movement — straight run & facing (P-01)', () => {
   });
 
   it('P-01: 90 deg turn (Right->Up) snaps former axis x to nearest 8u', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 37.3, y: 80, dir: RIGHT });
     stepDir(s, UP);
     expect(t.x).toBe(40); // snap8(37.3)
@@ -92,7 +100,7 @@ describe('movement — straight run & facing (P-01)', () => {
   });
 
   it('P-01: 90 deg turn snaps x half-up (x=36 -> 40)', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 36, y: 80, dir: RIGHT });
     stepDir(s, UP);
     expect(t.x).toBe(40); // snap8(36) rounds half-up to 40
@@ -100,7 +108,7 @@ describe('movement — straight run & facing (P-01)', () => {
   });
 
   it('P-01: 90 deg turn (Up->Left) snaps former axis y', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 80, y: 41.2, dir: UP });
     stepDir(s, LEFT);
     expect(t.y).toBe(40); // snap8(41.2)
@@ -108,7 +116,7 @@ describe('movement — straight run & facing (P-01)', () => {
   });
 
   it('P-01: 180 deg reversal does NOT snap', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 37.3, y: 80, dir: RIGHT });
     stepDir(s, LEFT);
     near(t.x, 37.3 - 0.75); // no snap, just moves left
@@ -120,7 +128,7 @@ describe('movement — blocking & flush contact', () => {
   it('brick stops the tank flush (never overlaps)', () => {
     const level = emptyLevel();
     setTileChar(level, 5, 5, 'B'); // tile (5,5) -> x 80..96, y 80..96
-    const s = createGame(level, OPTS);
+    const s = playingGame(level);
     const t = addPlayer(s, { x: 60, y: 80, dir: RIGHT });
     for (let i = 0; i < 40; i++) stepDir(s, RIGHT);
     expect(t.x).toBe(64); // 80 - TANK_SIZE
@@ -130,7 +138,7 @@ describe('movement — blocking & flush contact', () => {
   it('P-09: steel blocks tanks identically to brick', () => {
     const level = emptyLevel();
     setTileChar(level, 5, 5, 'S');
-    const s = createGame(level, OPTS);
+    const s = playingGame(level);
     const t = addPlayer(s, { x: 60, y: 80, dir: RIGHT });
     for (let i = 0; i < 40; i++) stepDir(s, RIGHT);
     expect(t.x).toBe(64);
@@ -139,7 +147,7 @@ describe('movement — blocking & flush contact', () => {
   it('P-09: water blocks tanks identically to brick', () => {
     const level = emptyLevel();
     setTileChar(level, 5, 5, 'W');
-    const s = createGame(level, OPTS);
+    const s = playingGame(level);
     const t = addPlayer(s, { x: 60, y: 80, dir: RIGHT });
     for (let i = 0; i < 40; i++) stepDir(s, RIGHT);
     expect(t.x).toBe(64);
@@ -148,7 +156,7 @@ describe('movement — blocking & flush contact', () => {
   it('P-09: trees never block and emit treeEntered exactly once per crossing', () => {
     const level = emptyLevel();
     setTileChar(level, 5, 5, 'T'); // trees at x 80..96
-    const s = createGame(level, OPTS);
+    const s = playingGame(level);
     const t = addPlayer(s, { x: 60, y: 80, dir: RIGHT });
     let treeEvents = 0;
     for (let i = 0; i < 60; i++) {
@@ -162,14 +170,14 @@ describe('movement — blocking & flush contact', () => {
   it('P-09: ice never blocks a tank driven straight through', () => {
     const level = emptyLevel();
     setTileChar(level, 5, 5, 'I');
-    const s = createGame(level, OPTS);
+    const s = playingGame(level);
     const t = addPlayer(s, { x: 60, y: 80, dir: RIGHT });
     for (let i = 0; i < 300; i++) stepDir(s, RIGHT);
     expect(t.x).toBe(192); // reached the far border, never stopped by ice
   });
 
   it('border clamps: left at x=0 stays, right ends flush at 192', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 0, y: 80, dir: LEFT });
     stepDir(s, LEFT);
     expect(t.x).toBe(0);
@@ -184,7 +192,7 @@ describe('movement — tank & eagle blocking', () => {
     // Blocking case: second (materialized) tank at (96,80). It is frozen only so
     // that it holds still — since T1.6 the AI would otherwise drive it away, and
     // a freeze changes nothing about its hitbox.
-    const s1 = createGame(emptyLevel(), OPTS);
+    const s1 = playingGame(emptyLevel());
     const mover = addPlayer(s1, { x: 60, y: 80, dir: RIGHT });
     s1.tanks.push(
       makeTank({
@@ -200,7 +208,7 @@ describe('movement — tank & eagle blocking', () => {
     expect(mover.x).toBe(80); // 96 - TANK_SIZE
 
     // Pass-through case: the blocker is still spawning (no hitbox).
-    const s2 = createGame(emptyLevel(), OPTS);
+    const s2 = playingGame(emptyLevel());
     const mover2 = addPlayer(s2, { x: 60, y: 80, dir: RIGHT });
     s2.tanks.push(
       makeTank({
@@ -217,13 +225,18 @@ describe('movement — tank & eagle blocking', () => {
   });
 
   it('the eagle blocks while alive, and stops blocking once destroyed', () => {
-    const s = createGame(emptyLevel(), OPTS); // eagle at tile (6,12) -> (96,192)
+    const s = playingGame(emptyLevel()); // eagle at tile (6,12) -> (96,192)
     const t = addPlayer(s, { x: 60, y: 192, dir: RIGHT });
     for (let i = 0; i < 60; i++) stepDir(s, RIGHT);
     expect(t.x).toBe(80); // 96 - TANK_SIZE
 
     s.eagleAlive = false;
-    for (let i = 0; i < 300; i++) stepDir(s, RIGHT);
+    for (let i = 0; i < 300; i++) {
+      // Losing the eagle ends the stage and locks the controls (T1.7); this test
+      // is about the blocker disappearing, so hold the phase open.
+      s.phase = 'playing';
+      stepDir(s, RIGHT);
+    }
     expect(t.x).toBe(192);
   });
 });
@@ -236,7 +249,7 @@ describe('movement — ice slide (P-09)', () => {
   }
 
   it('P-09: releasing input on ice slides further then stops at rest', () => {
-    const s = createGame(iceRowLevel(), OPTS);
+    const s = playingGame(iceRowLevel());
     const t = addPlayer(s, { x: 48, y: 80, dir: RIGHT });
     for (let i = 0; i < 4; i++) stepDir(s, RIGHT); // drive up to speed on ice
     expect(t.moving).toBe(true);
@@ -261,7 +274,7 @@ describe('movement — ice slide (P-09)', () => {
   });
 
   it('P-09: directional input overrides an active slide immediately', () => {
-    const s = createGame(iceRowLevel(), OPTS);
+    const s = playingGame(iceRowLevel());
     const t = addPlayer(s, { x: 48, y: 80, dir: RIGHT });
     for (let i = 0; i < 4; i++) stepDir(s, RIGHT);
     stepDir(s, null); // begin sliding
@@ -279,7 +292,7 @@ describe('movement — ice slide (P-09)', () => {
     // would cut the slide short (~3u to x=60); momentum yields the full ~4.6u.
     const level = emptyLevel();
     setTileChar(level, 3, 5, 'I'); // x 48..64; center leaves ice at x >= 60
-    const s = createGame(level, OPTS);
+    const s = playingGame(level);
     const t = addPlayer(s, { x: 48, y: 80, dir: RIGHT });
     for (let i = 0; i < 12; i++) stepDir(s, RIGHT); // drive to ~x=57 (still on ice)
     const xRelease = t.x;
@@ -299,7 +312,7 @@ describe('movement — ice slide (P-09)', () => {
 
 describe('movement — disabled states', () => {
   it('does not move while spawningT > 0', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 32, y: 80, dir: RIGHT, spawningT: 1 });
     stepDir(s, RIGHT);
     expect(t.x).toBe(32);
@@ -307,7 +320,7 @@ describe('movement — disabled states', () => {
   });
 
   it('does not move while stunT > 0', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 32, y: 80, dir: RIGHT, stunT: 1 });
     stepDir(s, RIGHT);
     expect(t.x).toBe(32);
@@ -315,7 +328,7 @@ describe('movement — disabled states', () => {
   });
 
   it('does not move while frozenT > 0', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const t = addPlayer(s, { x: 32, y: 80, dir: RIGHT, frozenT: 1 });
     stepDir(s, RIGHT);
     expect(t.x).toBe(32);
@@ -331,7 +344,7 @@ describe('movement — disabled states', () => {
 // partition — which is what the first test pins, for one mover of each kind.
 describe('movement — prev snapshot & hash', () => {
   it('captures prev at the START of the tick for BOTH movers (player + enemy)', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const player = addPlayer(s, { x: 32, y: 80, dir: RIGHT });
     const enemy = makeTank({
       id: 2,
@@ -374,9 +387,9 @@ describe('movement — prev snapshot & hash', () => {
   });
 
   it('captures prev over a whole tick even for a tank nothing drives', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     // No playerIndex → no intent reaches it, so nothing moves it all tick.
-    const idle = makeTank({ id: 1, kind: 'player', x: 40, y: 40 });
+    const idle = makeTank({ id: s.tanks.length, kind: 'player', x: 40, y: 40 });
     s.tanks.push(idle);
     idle.x = 41.5; // simulate a stale position
 
@@ -388,14 +401,9 @@ describe('movement — prev snapshot & hash', () => {
   });
 
   it('P-23: slideV participates in the state hash', () => {
-    const a = createGame(emptyLevel(), OPTS);
-    const b = createGame(emptyLevel(), OPTS);
-    a.tanks.push(
-      makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }),
-    );
-    b.tanks.push(
-      makeTank({ id: 1, kind: 'player', playerIndex: 0, x: 32, y: 80 }),
-    );
+    // createGame already puts a player tank in slot 0 (T1.7) — no staging needed.
+    const a = playingGame(emptyLevel());
+    const b = playingGame(emptyLevel());
     expect(hashState(a)).toBe(hashState(b)); // identical to start
 
     b.tanks[0].slideV = 3;
@@ -405,7 +413,7 @@ describe('movement — prev snapshot & hash', () => {
 
 describe('movement — moveTank helper (reused by AI later)', () => {
   it('moves an enemy tank at its type speed', () => {
-    const s = createGame(emptyLevel(), OPTS);
+    const s = playingGame(emptyLevel());
     const e = makeTank({
       id: 5,
       kind: 'enemy',

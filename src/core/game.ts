@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { subcellIndex } from './grid';
 import { createRng } from './rng';
+import { createPlayerTank } from './systems/players';
 import {
   aiSystem,
   bulletsSystem,
@@ -24,6 +25,7 @@ import {
   winloseSystem,
 } from './systems/index';
 import {
+  NULL_INTENT,
   Terrain,
   type EnemyType,
   type GameState,
@@ -56,6 +58,15 @@ const ENEMY_TYPE_ORDER: readonly EnemyType[] = [
 // Power-up index order is the shared POWERUP_TYPES from constants.ts: the hash and
 // the RNG roll must agree on it, so there is only one copy to keep in step.
 
+// What the systems get instead of the real intents outside 'playing' (intro, the
+// clear beat, the base-lost slow-mo, game over): the controls are dead, but every
+// system still runs. A frozen module-level tuple of the frozen NULL_INTENT, so
+// gating a tick costs nothing and can never be mutated into meaning something.
+const LOCKED_INTENTS: readonly [PlayerIntent, PlayerIntent] = Object.freeze([
+  NULL_INTENT,
+  NULL_INTENT,
+] as [PlayerIntent, PlayerIntent]);
+
 export function createGame(
   level: LevelData,
   opts: { players: 1 | 2; seed: number; stageNumber: number },
@@ -67,14 +78,22 @@ export function createGame(
     phase: 'intro',
     phaseT: 0,
     paused: false,
+    pauseHeld: [false, false],
     terrain: buildTerrain(level),
     eagleAlive: true,
     shovel: { phase: 'off', t: 0 },
     clockT: 0,
-    tanks: [],
+    // Slots 0 and 1 are the players, for the whole life of the run: slot index ===
+    // tank id === playerIndex. The spawner only ever recycles a dead slot whose
+    // `kind` is 'enemy', so these two can never be taken over by an enemy, and the
+    // renderer/HUD can address a player by a number that never moves. In a
+    // 1-player game the second slot exists but is dead and its meta inactive — it
+    // is never respawned and never scores.
+    tanks: [createPlayerTank(0, true), createPlayerTank(1, opts.players === 2)],
     bullets: [],
     powerup: null,
     players: [makePlayer(true), makePlayer(opts.players === 2)],
+    respawnT: [0, 0],
     spawner: {
       queue: [...level.enemies], // copy — never mutate the input level
       nextOrdinal: 1,
@@ -91,7 +110,40 @@ export function stepGame(
   intents: readonly [PlayerIntent, PlayerIntent],
 ): void {
   state.events.length = 0;
+
+  // Pause (P-26, fidelity §11.6) is resolved before anything else, from the REAL
+  // intents — the pad has to work when nothing else does, or a paused game could
+  // never be unpaused. It is a press EDGE, not a level: a held button toggles once.
+  // Either player may toggle, and if both press on the same tick it is still one
+  // toggle, not two that cancel.
+  let toggled = false;
+  for (let i = 0; i < state.pauseHeld.length; i++) {
+    if (intents[i].pause && !state.pauseHeld[i]) toggled = true;
+    state.pauseHeld[i] = intents[i].pause;
+  }
+  if (toggled) {
+    state.paused = !state.paused;
+    state.events.push({ t: 'pauseToggled', paused: state.paused });
+  }
+
+  // A paused tick freezes the simulation ENTIRELY, timers included: no system
+  // runs, `tick` does not advance, and the prev-snapshot below is never taken —
+  // so prev/x stay exactly as the last real tick left them and the render
+  // invariant holds vacuously. (The app loop must pin its interpolation alpha
+  // while paused; a cycling alpha would jitter tanks between prev and x.) The
+  // toggle event above is the one thing a frozen tick may still emit.
+  if (state.paused) return;
+
   state.tick++;
+
+  // Outside 'playing' the controls are dead (intro curtain, stage-clear beat,
+  // base-lost slow-mo, game over) — the systems get NULL_INTENT instead of the
+  // pad. Decided ONCE here, from the phase the tick began in, so a whole tick
+  // runs under a single gating decision: the tick on which stageflowSystem opens
+  // the curtain is still locked, and control resumes on the next one. Gating the
+  // intents rather than the systems is what keeps enemies spawning and moving
+  // during the intro (fidelity §11.1: the first spawn is at t = 0).
+  const active = state.phase === 'playing' ? intents : LOCKED_INTENTS;
 
   // Render-interpolation contract (arch §3.4): every tank's prevX/prevY is the
   // position it held when this tick began, so the renderer can lerp prev → current
@@ -105,23 +157,26 @@ export function stepGame(
   // The invariant, for whoever extends this function: any tick that advances
   // state.tick must leave every tank's prev equal to its position at the start of
   // that tick — including a tick that runs no systems. T1.7's pause advances
-  // nothing and runs nothing, so its early-out returns before both `tick++` and
-  // this loop, and prev/x stay exactly as the last real tick left them. Pinning
-  // the interpolation alpha while paused is the app loop's job, not the core's.
+  // nothing and runs nothing, so its early-out above returns before both `tick++`
+  // and this loop, and prev/x stay exactly as the last real tick left them.
+  // Pinning the interpolation alpha while paused is the app loop's job, not the
+  // core's. The one deliberate exception is a TELEPORT — a player respawn, an
+  // enemy slot reuse — which re-anchors its own prev to the destination so the
+  // renderer does not lerp a tank across the whole field for one frame.
   for (const t of state.tanks) {
     t.prevX = t.x;
     t.prevY = t.y;
   }
 
-  stageflowSystem(state, intents);
-  spawnerSystem(state, intents);
-  aiSystem(state, intents);
-  movementSystem(state, intents);
-  firingSystem(state, intents);
-  bulletsSystem(state, intents);
-  powerupsSystem(state, intents);
-  playersSystem(state, intents);
-  winloseSystem(state, intents);
+  stageflowSystem(state, active);
+  spawnerSystem(state, active);
+  aiSystem(state, active);
+  movementSystem(state, active);
+  firingSystem(state, active);
+  bulletsSystem(state, active);
+  powerupsSystem(state, active);
+  playersSystem(state, active);
+  winloseSystem(state, active);
 }
 
 // FNV-1a 32-bit over a canonical byte stream. Every number is written as its
@@ -146,6 +201,8 @@ export function hashState(state: GameState): number {
   feed(PHASE_ORDER.indexOf(state.phase));
   feed(state.phaseT);
   feed(state.paused ? 1 : 0);
+  feed(state.pauseHeld[0] ? 1 : 0);
+  feed(state.pauseHeld[1] ? 1 : 0);
 
   for (let i = 0; i < state.terrain.length; i++) {
     feed(state.terrain[i]);
@@ -216,6 +273,9 @@ export function hashState(state: GameState): number {
     feed(p.destroyedByType.power);
     feed(p.destroyedByType.armor);
   }
+
+  feed(state.respawnT[0]);
+  feed(state.respawnT[1]);
 
   feed(state.spawner.queue.length);
   feed(state.spawner.nextOrdinal);
