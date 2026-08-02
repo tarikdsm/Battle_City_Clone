@@ -1,0 +1,157 @@
+{
+  "capturedAt": "2026-08-02T13:46:42.973Z",
+  "url": "http://localhost:5173/",
+  "sampleRate": 48000,
+  "thresholds": {
+    "silenceDbfs": -60,
+    "clipDbfs": -0.1,
+    "duckToleranceDb": 2
+  },
+  "sounds": {
+    "engine-idle": {
+      "durationS": 2,
+      "peakDbfs": -21.67,
+      "rmsDbfs": -32.38,
+      "centroidHz": 1057,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 engineIdle: pulse12 alternating a semitone at 8 Hz, stationary player"
+    },
+    "engine-move": {
+      "durationS": 2,
+      "peakDbfs": -16.33,
+      "rmsDbfs": -26.92,
+      "centroidHz": 1150,
+      "dcOffset": 0.00003,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 engineMove: the same hum at full speed, +3 semitones"
+    },
+    "helmet-loop": {
+      "durationS": 2,
+      "peakDbfs": -19.23,
+      "rmsDbfs": -30.33,
+      "centroidHz": 1007,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 helmetLoop: the shield hum over the engine hum, as it is heard in game"
+    },
+    "player-shot": {
+      "durationS": 0.6,
+      "peakDbfs": -14.74,
+      "rmsDbfs": -31.41,
+      "centroidHz": 6047,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 playerShot: pulse blip 880→440 Hz over 40 ms + noise tick"
+    },
+    "enemy-shot": {
+      "durationS": 0.6,
+      "peakDbfs": -19.94,
+      "rmsDbfs": -36.94,
+      "centroidHz": 5930,
+      "dcOffset": 0,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 enemyShot: the same −6 dB, 660→330"
+    },
+    "brick-hit": {
+      "durationS": 0.8,
+      "peakDbfs": -13.58,
+      "rmsDbfs": -32.94,
+      "centroidHz": 3252,
+      "dcOffset": 0,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 brickHit: noise burst bandpassed at 800 Hz + low crunch"
+    },
+    "steel-break": {
+      "durationS": 1.2,
+      "peakDbfs": -11.49,
+      "rmsDbfs": -30.4,
+      "centroidHz": 11499,
+      "dcOffset": 0.00002,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 steelBreak: clink + metal shard shimmer"
+    },
+    "tank-explode": {
+      "durationS": 1.4,
+      "peakDbfs": -5.8,
+      "rmsDbfs": -20.98,
+      "centroidHz": 1155,
+      "dcOffset": -0.00053,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 tankExplode: noise boom + 90→40 Hz sub drop + debris"
+    },
+    "base-explode": {
+      "durationS": 3,
+      "peakDbfs": -2.73,
+      "rmsDbfs": -15.5,
+      "centroidHz": 996,
+      "dcOffset": -0.0004,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 baseExplode over a music tone, so the −12 dB duck is audible"
+    },
+    "powerup-pickup": {
+      "durationS": 1.4,
+      "peakDbfs": -5.05,
+      "rmsDbfs": -23.7,
+      "centroidHz": 8305,
+      "dcOffset": 0.00005,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 powerupPickup: major-triad bell arp + shimmer tail"
+    },
+    "extra-life": {
+      "durationS": 1.6,
+      "peakDbfs": -6.6,
+      "rmsDbfs": -22.73,
+      "centroidHz": 4428,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 extraLife: the rising jingle"
+    },
+    "duck-probe": {
+      "durationS": 3,
+      "peakDbfs": -22.4,
+      "rmsDbfs": -31.16,
+      "centroidHz": 253,
+      "dcOffset": 0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "a steady music tone with the baseExplode duck fired at 0.8 s and NO boom — the duck depth, measurable"
+    },
+    "skirmish": {
+      "durationS": 6,
+      "peakDbfs": -4.49,
+      "rmsDbfs": -21.26,
+      "centroidHz": 3509,
+      "dcOffset": -0.00018,
+      "silent": false,
+      "clipped": false,
+      "note": "a scripted 6 s of play over the engine hum: the only clip where the mix is audible"
+    }
+  },
+  "duck": {
+    "beforeRmsDbfs": -28.14,
+    "duringRmsDbfs": -40.13,
+    "afterRmsDbfs": -28.27,
+    "measuredDb": -11.99,
+    "specDb": -12,
+    "recoveredDb": -0.13,
+    "passes": true
+  },
+  "verdict": {
+    "clips": 13,
+    "allAudible": true,
+    "noneClipped": true,
+    "duckWithinTolerance": true
+  }
+}

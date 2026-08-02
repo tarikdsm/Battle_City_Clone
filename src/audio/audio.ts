@@ -39,6 +39,7 @@
 import type { GameEvent } from '../core/events';
 import type { GameState } from '../core/types';
 import { createSequencer, type Sequencer } from './sequencer';
+import { createSfxPlayer, type SfxId, type SfxPlayer } from './sfx';
 import {
   createSynthRuntime,
   createVoiceSlot,
@@ -415,12 +416,18 @@ export function createAudioGraph(
 
   const sfxReverbSend = ctx.createGain();
   sfxReverbSend.gain.value = REVERB.sfxWet;
-  sfxBus.connect(sfxReverbSend);
+  // **Post-duck**, not post-bus. A send taken before the duck leaves a wet
+  // ghost of everything the duck just removed, ringing on at −18 dB under a
+  // signal that is supposed to have got out of the way — which is audible on
+  // the base explosion, the one place the whole mechanism exists for.
+  sfxDuck.connect(sfxReverbSend);
   sfxReverbSend.connect(reverb);
 
   const stingBus = ctx.createGain();
   stingBus.gain.value = clamp01(volumes.sfx);
   stingBus.connect(compressor);
+  // The stings share the SFX plate but join it after the duck node, so their
+  // own tails are the one thing in the mix that does not get out of their way.
   stingBus.connect(sfxReverbSend);
 
   // --- music ---------------------------------------------------------------
@@ -439,11 +446,13 @@ export function createAudioGraph(
 
   const musicReverbSend = ctx.createGain();
   musicReverbSend.gain.value = REVERB.musicWet;
-  musicBus.connect(musicReverbSend);
+  musicDuck.connect(musicReverbSend); // post-duck, for the reason above
   musicReverbSend.connect(reverb);
 
-  // Music only, per audio §3. The delay's output rejoins BEFORE the duck, so
-  // the tail ducks and freezes with everything else it belongs to.
+  // Music only, per audio §3. The send is taken BEFORE the duck and the tail
+  // rejoins before it too, which is what makes the echoes duck and freeze with
+  // the notes that produced them — and is also the only routing that does not
+  // put the duck node inside the feedback loop.
   const delay = ctx.createDelay(DELAY.maxS);
   const delaySend = ctx.createGain();
   delaySend.gain.value = DELAY.sendGain;
@@ -576,6 +585,7 @@ export interface AudioStats {
   voices: number;
   state: string;
   running: boolean;
+  oneShots: number;
 }
 
 export interface AudioSystem {
@@ -585,10 +595,21 @@ export interface AudioSystem {
   resume(): void;
   suspend(): void;
   // --- beyond Contract Zero, and deliberately -----------------------------
+  /**
+   * Fires one §5 sound directly.
+   *
+   * Four of audio §5's rows — `uiMove`, `uiSelect`, `uiBack` and `tallyTick` —
+   * are **menu and tally sounds with no core event behind them**, because the
+   * simulation does not know that menus exist. Contract Zero's five methods
+   * cannot reach them, so this is the sixth. It is also what a settings screen
+   * needs to preview a volume slider.
+   */
+  play(id: SfxId, pan?: number, intensity?: number): void;
   /** The live graph, or `null` when no context could be built. Read by the
    *  offline capture harness and the tests; never written. */
   readonly graph: AudioGraph | null;
   readonly sequencer: Sequencer | null;
+  readonly sfx: SfxPlayer | null;
   stats(): AudioStats;
   /** Releases the listeners, the voices and the context. */
   dispose(): void;
@@ -637,6 +658,8 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
           destination: graph.musicBus,
           synth: graph.synth,
         });
+  const sfx: SfxPlayer | null =
+    graph === null ? null : createSfxPlayer(graph, pool);
 
   const muteOnBlur = opts.muteOnBlur ?? true;
   const target =
@@ -657,6 +680,25 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
       // to every key down rather than to a one-shot listener.
       unlocked = false;
     });
+  }
+
+  /**
+   * Is the context actually running? **Nothing is scheduled when it is not.**
+   *
+   * This is not an optimisation. A suspended context's `currentTime` does not
+   * advance, so every voice built before the first gesture is scheduled at
+   * time 0 and would all fire **at once** the moment the player presses a key —
+   * and Chrome logs "The AudioContext was not allowed to start" for each one on
+   * the way there (measured: ten warnings over the two-second stage-intro
+   * curtain, which is a spawn bell per enemy plus the engine hum).
+   *
+   * Deliberately checked here rather than inside `sfx.ts`: an
+   * `OfflineAudioContext` also reports `'suspended'` until `startRendering()`,
+   * so a gate down there would make `scripts/capture-audio.ts` render silence.
+   * This is the one layer that knows it owns a real-time context.
+   */
+  function audible(): boolean {
+    return ctx !== null && ctx.state === 'running';
   }
 
   function suspend(): void {
@@ -692,11 +734,19 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
     get sequencer(): Sequencer | null {
       return sequencer;
     },
+    get sfx(): SfxPlayer | null {
+      return sfx;
+    },
 
     onEvent(e: GameEvent): void {
-      if (graph === null) {
+      if (graph === null || !audible()) {
         return;
       }
+      // The sound first, then the hole it digs: `duck` anchors its ramp at the
+      // gain's value *now*, and firing it before the voice exists would be the
+      // same automation either way — but a reader should see the cause before
+      // the consequence.
+      sfx?.onEvent(e);
       const now = graph.ctx.currentTime;
       switch (e.t) {
         case 'baseDestroyed':
@@ -719,7 +769,7 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
     },
 
     update(state: GameState, dtMs: number): void {
-      if (graph === null) {
+      if (graph === null || !audible()) {
         return;
       }
       sinceReclaimMs += dtMs;
@@ -727,6 +777,10 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
         sinceReclaimMs = 0;
         pool.reclaim(graph.ctx.currentTime);
       }
+      // The engine hums, the shield hum, the ice whoosh, the power-up sparkle
+      // and the clock's tick-tock — everything that is a *state* rather than
+      // an event.
+      sfx?.update(state, dtMs);
       // Audio §4: "music halts while paused". The sequencer is the thing that
       // halts; the SFX voices already in flight are left to finish, because
       // cutting a tail on the pause frame is a click.
@@ -739,6 +793,13 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
       graph?.setVolumes(v);
     },
 
+    play(id: SfxId, pan = 0, intensity = 1): void {
+      if (!audible()) {
+        return;
+      }
+      sfx?.trigger(id, pan, intensity);
+    },
+
     resume,
     suspend,
 
@@ -747,6 +808,7 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
         voices: pool.activeCount(),
         state: ctx?.state ?? 'none',
         running: ctx?.state === 'running',
+        oneShots: sfx?.stats().oneShots ?? 0,
       };
     },
 
@@ -755,6 +817,7 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
         target.removeEventListener('blur', onBlur);
         target.removeEventListener('focus', onFocus);
       }
+      sfx?.dispose();
       sequencer?.dispose();
       if (graph !== null) {
         pool.releaseAll(graph.ctx.currentTime);

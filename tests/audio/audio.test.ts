@@ -28,6 +28,8 @@ import {
   type AudioGraph,
 } from '../../src/audio/audio';
 import { dbToGain } from '../../src/audio/synth';
+import { createGame } from '../../src/core/game';
+import type { LevelData } from '../../src/core/types';
 
 import {
   FakeAudioContext,
@@ -37,6 +39,10 @@ import {
   fakeGain,
   fakeNode,
 } from './fakeContext';
+
+import open from '../fixtures/level-open.json' with { type: 'json' };
+
+const OPEN = open as LevelData;
 
 function graphRig(): { fake: FakeAudioContext; graph: AudioGraph } {
   const fake = new FakeAudioContext();
@@ -396,6 +402,35 @@ describe('createAudio — the Contract Zero facade', () => {
     }
     expect(fakeGain(graph.musicBus).gain.value).toBeCloseTo(0.25, 9);
     expect(fakeGain(graph.sfxBus).gain.value).toBeCloseTo(0.5, 9);
+    audio.dispose();
+  });
+
+  it('schedules absolutely nothing while the context is suspended', () => {
+    const fake = new FakeAudioContext();
+    const audio = createAudio({
+      createContext: () => asAudioContext(fake),
+      blurTarget: null,
+    });
+    const state = createGame(OPEN, { players: 1, seed: 1, stageNumber: 1 });
+    const built = fake.created.length;
+
+    // A suspended context's clock does not advance, so a voice built now is a
+    // voice scheduled at t = 0 — and every one of them would fire at once the
+    // moment the player presses a key. Measured in real Chromium before this
+    // gate existed: ten "AudioContext was not allowed to start" warnings over
+    // the stage-intro curtain, and a burst of stale spawn bells on the first
+    // keypress.
+    audio.onEvent({ t: 'baseDestroyed' });
+    audio.onEvent({ t: 'brickHit', tx: 1, ty: 1, removedMask: 3, x: 16, y: 16, dir: 0 }); // prettier-ignore
+    audio.update(state, 16);
+    audio.play('uiSelect');
+    expect(fake.created.length).toBe(built);
+    expect(audio.stats().oneShots).toBe(0);
+
+    audio.resume();
+    audio.onEvent({ t: 'brickHit', tx: 1, ty: 1, removedMask: 3, x: 16, y: 16, dir: 0 }); // prettier-ignore
+    expect(fake.created.length).toBeGreaterThan(built);
+    expect(audio.stats().oneShots).toBeGreaterThan(0);
     audio.dispose();
   });
 

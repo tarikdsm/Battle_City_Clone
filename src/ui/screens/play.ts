@@ -17,6 +17,7 @@
 import { createGame, stepGame } from '../../core/game';
 import type { GameEvent } from '../../core/events';
 import type { LevelData } from '../../core/types';
+import { createAudio, type AudioSystem } from '../../audio/audio';
 import { createLoop, type Loop } from '../../app/loop';
 import type { Screen } from '../../app/screens';
 import type { Session } from '../../app/session';
@@ -56,6 +57,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
   let renderer: Renderer | null = null;
   let input: InputSystem | null = null;
   let hud: Hud | null = null;
+  let audio: AudioSystem | null = null;
   let loop: Loop | null = null;
   let observer: ResizeObserver | null = null;
   let quality: Quality = opts.quality;
@@ -65,6 +67,9 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     observer?.disconnect();
     input?.dispose();
     hud?.dispose();
+    // The audio context is a scarce, process-wide resource (browsers cap the
+    // number of live ones), so it is closed here rather than left to the GC.
+    audio?.dispose();
     // The renderer goes last: it owns the GL context, and `dispose()` forces a
     // context loss, so nothing that touches the scene may run after it.
     renderer?.dispose();
@@ -72,6 +77,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     observer = null;
     input = null;
     hud = null;
+    audio = null;
     renderer = null;
     delete opts.canvas.dataset.bcMounted;
   }
@@ -113,14 +119,24 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
       // preference is a browser query — so the screen that owns both hands them
       // down. The settings menu (T6.1) and the camera FX (T4.3) extend this
       // call rather than adding a second path.
+      const settings = loadSettings();
       const reducedMotion =
         globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ===
         true;
       view.setFxFlags({
         reducedMotion,
-        reducedFlash: loadSettings().reducedFlash,
+        reducedFlash: settings.reducedFlash,
       });
-      const pad = createInput(opts.bindings);
+
+      // Audio §2: the context is built **suspended** and only ever resumed
+      // from a real user gesture. The input layer is where the game's gestures
+      // already land, so `resume` rides in on the existing `keydown` listener
+      // rather than on a second one of its own (see `createInput`).
+      const sound = createAudio();
+      sound.setVolumes({ music: settings.music, sfx: settings.sfx });
+      const pad = createInput(opts.bindings, undefined, () => {
+        sound.resume();
+      });
       const panel = createHud(root);
       panel.sync(game);
 
@@ -171,6 +187,9 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
           }
           for (let i = 0; i < events.length; i++) {
             view.onEvent(events[i]);
+            // The audio layer is a peer of the renderer, not a client of it:
+            // same event stream, same read-only contract, same frame.
+            sound.onEvent(events[i]);
           }
           // The HUD is synced from the state, not from the events, but only on
           // a tick that produced some: that is what makes it event-driven
@@ -179,6 +198,12 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
         },
         render(alpha: number, dtMs: number): void {
           view.render(game, alpha, dtMs);
+          // The sustained sounds — engine hums, shield hum, ice whoosh, the
+          // power-up sparkle, the clock's tick-tock — are *state*, not events,
+          // so they are driven from the frame like the renderer is. `dtMs` is
+          // the loop's real frame time, deliberately unscaled: art §2's slow-mo
+          // dilates the picture, not the pitch of the sound.
+          sound.update(game, dtMs);
         },
         isPaused(): boolean {
           return game.paused;
@@ -188,6 +213,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
       renderer = view;
       input = pad;
       hud = panel;
+      audio = sound;
       loop = driver;
       observer = ro;
 
