@@ -37,7 +37,7 @@ Send FX: tempo-synced delay (3/16, feedback 0.25, music only), small plate-style
 | Piece | Basis | Notes |
 |---|---|---|
 | Title theme | **new**, quotes stage-fanfare motif | ~92 BPM, A minor, pulse lead over pad + triBass; loops 32 bars |
-| Stage intro fanfare | **faithful re-arrangement** of the iconic opening riff | ~4 s, plays over curtain/fly-in, ends on downbeat of Layer 0 |
+| Stage intro fanfare | **motif-shaped** (see §7's honesty note) | **2.0 s** — fidelity §11.1's curtain is 2 s and the piece must end on L0's downbeat; the earlier "~4 s" contradicted its own mechanism and loses |
 | Gameplay adaptive suite | **new** (the NES had no in-game music — only engine hum) | see below |
 | Stage clear / tally | **new**, rising resolution jingle + tally tick sounds | 6 s + per-line ticks |
 | Game over | **faithful re-arrangement** of the descending motif | somber, short tail |
@@ -100,4 +100,12 @@ Retrigger guard: identical SFX ≥ 30 ms apart; beyond poly cap, steal the oldes
 |---|---|
 | Stage intro fanfare, Game over, Pause chirp, engine hum concept, power-up pickup feel, extra-life spirit | Title, adaptive gameplay suite, tally, high-score |
 
-Review criterion for the faithful set: a Battle City player must recognize each within 2 seconds. The orchestrator gates the music tasks on this.
+Review criterion for the faithful set: a Battle City player must recognize each within 2 seconds.
+
+**Honesty note (2026-08-02) — this criterion is currently UNVERIFIED, and nothing in the build should claim otherwise.** Neither the implementing agent nor the orchestrator has an ear, and no note-level transcription of the originals could be found from a source worth trusting. The agent explicitly declined to lift one from an unverifiable source and present it as fidelity — the right call, because fabricated fidelity is worse than an admitted gap.
+
+What *is* verified: construction, duration, and spectrum. Score-vs-render agreement is exact (every melody plays its written notes at its written times), and the suite's L0 measures 110.6 Hz against the engine hum's 109.9 Hz, so the "musicalised descendant of the hum" claim holds.
+
+So the three are **motif-shaped, not transcribed**: the game-over piece falls in two voices and stops unresolved on the dominant in the original's ~3 s; the pause chirp is two high notes a fourth apart; the fanfare is new. They may read as "*a* game over" rather than "*that* game over".
+
+**This is owner-verifiable in minutes and is a one-array edit per tune** (`[tick, midi, dur, vel]`). It belongs on the same list as the `[CAL-nn]` constants in fidelity §16: things only someone with the original can settle.
