@@ -317,7 +317,7 @@ e2e/smoke.spec.ts             · Playwright
 **Build notes:** silhouettes per type; pooled views keyed by tank id; interpolate prevX/prevY→x/y with alpha; track stepping, turret recoil on `shotFired`, 2.5° turn lean, spawn-star billboard while `spawningT>0`, carrier 4Hz emissive pulse, armor HP tint crossfade, shield shimmer while `shieldT>0`, stun stars while `stunT>0`.
 **Commit:** `feat(render): procedural tank/bullet models with animation states`
 
-### - [ ] T2.5 Post chain & auto quality
+### - [x] T2.5 Post chain & auto quality
 **Files:** create `src/render/post.ts`; extend renderer; modify `src/app/main.ts` (auto-probe on title: DPR/cores/1s FPS sample → preset; override persisted).
 **Spec:** art §7; arch §5.
 **Tests:** preset table data test (post.ts exports per-preset config matching art §7 exactly); probe unit test with injected samples (30fps sample ⇒ 'low', 60fps+DPR2+8cores ⇒ 'high').

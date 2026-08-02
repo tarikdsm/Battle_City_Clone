@@ -138,6 +138,8 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 
 Global cap ~180 live particles (High); FxSystem drops lowest-priority when exceeded.
 
+**The spawn star belongs on the flat-graphic path** (ruled 2026-08-02, implement in T4.x with the other overlays). It currently ships *lit and emissive*, so ACES desaturates it before bloom ever runs — 12.7° of its measured 27.7° hue gap from `#7fc4ff` is that, not the chain. Apply §3.0's own test: a spawn star is part of the board's diagram, not an object the light falls on. Moving it to an unlit, `toneMapped = false` material that stays on the bloom layer recovers the token exactly and removes the last hue lever from the rig. The tier-3 tip is the opposite case — it is part of a tank — so it stays lit and emissive.
+
 **Emissive budget (ruled 2026-08-02).** §1 pillar 2 rations emissive surfaces so bloom stays special, and T2.4 found `emissive` is a *material* property, so per-instance glow is impossible without extra materials. The ruling: the **spawn star** and the **tier-3 barrel tip** each get **one shared emissive material** (both are uniform in colour across every tank that shows them), and the **carrier pulse stays diffuse** because it tints a whole tank per instance and already reads as the strongest overlay on the board. That is +2 materials, not +6. The entity draw-call budget rises from 8 to **12** to absorb them — arch §11 caps the whole scene near 120 and a full board currently measures 24, so the constraint was a brief's round number, not an architectural limit. Bullets and tracers blooming while the spawn star does not would have inverted §4's intent exactly.
 
 ## 9. Animation
