@@ -33,6 +33,16 @@ const MAX_STEPS_PER_TICK = 10;
 
 export interface LoopCallbacks {
   /**
+   * Run once per rendered FRAME, before any step and whether or not the core is
+   * paused. Optional, and it exists for exactly one thing: reading a **polled**
+   * input device (the gamepad — T9.1). A device with no events has to be
+   * sampled, and sampling it inside `step` would tie it to the 60 Hz tick, so a
+   * button pressed and released between two ticks on a 144 Hz display would
+   * never be seen. Sampling here, and draining in `step`, is what gives a
+   * polled pad the same sub-tick press latch the keyboard has.
+   */
+  frame?(dtMs: number): void;
+  /**
    * Advance the simulation exactly one tick.
    *
    * Called **once on a paused frame too**, and must therefore be safe to run
@@ -115,6 +125,11 @@ export function createLoop(cb: LoopCallbacks, opts?: LoopOptions): Loop {
       lastMs = nowMs; // …and a NaN timestamp must not become the new baseline,
       // or every later frame would measure `now - NaN` and the loop would die.
     }
+
+    // Before the pause fork: a paused core still runs one `step`, and that step
+    // is the only thing that can ever unpause it — so the pad has to have been
+    // read by the time it runs.
+    cb.frame?.(dt);
 
     if (cb.isPaused()) {
       // **One step, and that is not a contradiction** (fixed at T3.3). A paused

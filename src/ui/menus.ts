@@ -23,11 +23,19 @@
 // because the post chain's composer blit overwrites anything drawn after
 // `renderer.render()` (T2.5).
 
+import { sharedGamepads, type PadNavEvent } from '../input/gamepad';
+
 // ---------------------------------------------------------------------------
 // --- The vocabulary --------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-export type NavEvent = 'up' | 'down' | 'left' | 'right' | 'confirm' | 'back';
+/**
+ * The six events. Defined in `input/gamepad.ts` and re-exported here, so the
+ * vocabulary has exactly one definition: `input/` may not import `ui/` (arch
+ * §2's layering), and a second copy of a six-string union is precisely the kind
+ * of duplicate that stays correct until the day somebody adds a seventh.
+ */
+export type NavEvent = PadNavEvent;
 
 /**
  * `KeyboardEvent.code` → a nav event, or `null` for "not ours" (the caller must
@@ -583,18 +591,39 @@ export function mountMenu(
 }
 
 /**
- * Subscribes to keyboard nav on `target` and returns the remover.
+ * Subscribes to navigation on `target` — **keyboard and gamepad** — and returns
+ * the remover.
  *
  * `preventDefault` fires only for keys the menu actually consumed — the arrows
  * scroll the page and Space pages down, so a menu that swallowed everything
  * would break the browser, and one that swallowed nothing would scroll the page
  * behind the panel on every cursor move.
+ *
+ * The gamepad half is here, and *only* here, for the reason this file's header
+ * gives: every screen already consumes the same six abstract events, so a
+ * second producer of them is one subscription in one place and no screen
+ * changes at all (T9.1). It costs a rAF while a menu is open — the pads are a
+ * polled device, and a menu that read them once per key press would read them
+ * never. The hub's own `retainNav` gate is what keeps a run played on the pad
+ * from queueing hundreds of cursor moves for the next screen that opens.
  */
 export function attachNav(
   target: Window,
   onNav: (ev: NavEvent) => void,
   onRawKey?: (code: string) => boolean,
 ): () => void {
+  const pads = sharedGamepads();
+  const releaseNav = pads.retainNav();
+  let frame: number | null = null;
+  const pump = (): void => {
+    pads.sample();
+    for (const ev of pads.drainNav()) {
+      onNav(ev);
+    }
+    frame = target.requestAnimationFrame(pump);
+  };
+  frame = target.requestAnimationFrame(pump);
+
   const listener = (e: KeyboardEvent): void => {
     if (e.repeat && e.code !== 'ArrowUp' && e.code !== 'ArrowDown') {
       // Auto-repeat is welcome on the cursor and nowhere else: a held Enter
@@ -617,5 +646,10 @@ export function attachNav(
   target.addEventListener('keydown', listener);
   return (): void => {
     target.removeEventListener('keydown', listener);
+    if (frame !== null) {
+      target.cancelAnimationFrame(frame);
+      frame = null;
+    }
+    releaseNav();
   };
 }

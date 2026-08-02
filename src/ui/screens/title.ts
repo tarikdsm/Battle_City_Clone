@@ -8,6 +8,7 @@
 // file is only the logo and the prompt on top of it — DOM, never canvas.
 
 import { el, legend, mountChrome } from '../menus';
+import { sharedGamepads } from '../../input/gamepad';
 import type { Screen } from '../../app/screens';
 import type { AudioSystem } from '../../audio/audio';
 import type { ScoreEntry } from '../../app/storage';
@@ -75,9 +76,33 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
       // Pointer events are off on `.bc-screen` so the board stays clickable;
       // the title is the one screen that wants the whole viewport as a button.
       view.node.style.pointerEvents = 'auto';
+
+      // …and any BUTTON, on any pad (T9.1). This screen does not use
+      // `attachNav` — "press any key" is the one place the six-event model
+      // would be wrong — so it pumps the hub itself. Every nav event counts,
+      // including a direction: the prompt says any, and a player reaching for a
+      // controller should not have to find the right button first.
+      const pads = sharedGamepads();
+      const releaseNav = pads.retainNav();
+      let frame: number | null = null;
+      const pump = (): void => {
+        pads.sample();
+        if (pads.drainNav().length > 0) {
+          click();
+          return; // started: stop pumping, `leave` is about to run
+        }
+        frame = window.requestAnimationFrame(pump);
+      };
+      frame = window.requestAnimationFrame(pump);
+
       detach = (): void => {
         window.removeEventListener('keydown', listener);
         view.node.removeEventListener('pointerdown', click);
+        if (frame !== null) {
+          window.cancelAnimationFrame(frame);
+          frame = null;
+        }
+        releaseNav();
       };
     },
 

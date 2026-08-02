@@ -44,6 +44,7 @@ import type { Screen } from '../../app/screens';
 import { applyCarry, levelStageOf, type Session } from '../../app/session';
 import type { SettingsV1 } from '../../app/storage';
 import { createInput, type InputSystem } from '../../input/input';
+import { sharedGamepads } from '../../input/gamepad';
 import { concreteQuality } from '../../render/post';
 import {
   createRenderer,
@@ -234,12 +235,21 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     // on a second one of its own (see `createInput`).
     opts.audio.setVolumes(volumesFor(settings));
 
+    // GDD §7's four devices, merged behind one `PlayerIntent` pair. The gamepad
+    // hub is the app's, not this screen's (`sharedGamepads`) — hot-plug
+    // assignment has to survive a stage change, and a campaign rebuilds this
+    // screen once per stage.
     const pad =
       next.attract === true
         ? null
-        : createInput(bindingsFor(settings), undefined, () => {
-            opts.audio.resume();
-          });
+        : createInput(
+            bindingsFor(settings),
+            undefined,
+            () => {
+              opts.audio.resume();
+            },
+            [sharedGamepads()],
+          );
     const panel = next.attract === true ? null : createHud(mount);
     panel?.sync(state, levelStageOf(next.session.stageNumber));
 
@@ -289,13 +299,26 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     ro.observe(document.documentElement);
 
     const driver = createLoop({
+      frame(): void {
+        // The polled devices, once per frame — see `LoopCallbacks.frame`. The
+        // attract board has no input at all, so there is nothing to sample.
+        input?.sample();
+      },
       step(): void {
         // One poll per tick — the turbo pulse is counted in ticks, so polling
         // per frame instead would make the autofire rate frame-rate dependent.
         // Polled even while suspended, so the driver's held-key set and its
         // turbo phase stay honest; the RESULT is what is dropped.
+        //
+        // Read through the `input` BINDING, never through the `pad` const above
+        // (fixed at T9.1). `applySettings` replaces the driver whenever any
+        // setting changes mid-run — the map is snapshotted at construction — so
+        // a loop that closed over the original object kept polling a **disposed**
+        // driver, which reports neutral for ever. Nudging the volume from the
+        // pause menu made the game uncontrollable, and nothing caught it because
+        // no harness plays on after touching a setting.
         const polled: readonly [PlayerIntent, PlayerIntent] =
-          pad?.poll() ?? IDLE_INTENTS;
+          input?.poll() ?? IDLE_INTENTS;
         const intents = inputSuspended ? SUSPENDED_INTENTS : polled;
         if (injectPause) {
           // A single tick of "the pause button is down", so core's own edge
@@ -412,9 +435,14 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
       // construction (`createKeyboard`), so a new map means a new driver.
       if (input !== null && run !== null && run.attract !== true) {
         input.dispose();
-        input = createInput(bindingsFor(s), undefined, () => {
-          opts.audio.resume();
-        });
+        input = createInput(
+          bindingsFor(s),
+          undefined,
+          () => {
+            opts.audio.resume();
+          },
+          [sharedGamepads()],
+        );
       }
     },
   };
