@@ -68,8 +68,12 @@ const ART_PALETTE: readonly (readonly [PaletteKey, number])[] = [
   ['enemyBasic', 0x8a8f9c],
   ['enemyBasicTrim', 0xcf4b4b],
   ['enemyFast', 0xc8a05a],
+  ['enemyFastTrim', 0xe08b3a],
   ['enemyPower', 0x8f6bd0],
   ['enemyArmor', 0xc3cad6],
+  ['enemyArmorHp3', 0x9fbb84],
+  ['enemyArmorHp2', 0xb8963c],
+  ['enemyArmorHp1', 0x6e7684],
 
   ['powerupGold', 0xffd76b],
   ['spawnAccent', 0x7fc4ff],

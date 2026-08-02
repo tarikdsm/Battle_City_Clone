@@ -75,6 +75,22 @@ interface Row {
   /** …and `powerupGold` on a plain `litSurface`, i.e. without the emissive. */
   bulletCtlHex: string;
   bulletCtlPct: number;
+  /** Tokens delivered by `instanceColor` rather than by `material.color`. */
+  tints: TintRow[];
+}
+
+/**
+ * A §3.1 token that reaches the screen as an **instance colour** — the armor HP
+ * ramp and Fast's orange trim. These are the tokens art §3.0's promise is
+ * hardest to keep for, because `material.color` is somebody else's token and
+ * this one arrives as a ratio against it. The probe therefore renders the real
+ * `InstancedMesh` + real material + real ratio and scores the result against the
+ * authored hex: a wrong ratio shows up here and nowhere else.
+ */
+interface TintRow {
+  label: string;
+  hex: string;
+  pct: number;
 }
 
 /**
@@ -256,6 +272,12 @@ async function main(): Promise<void> {
         delta: pct(r.bulletCtlPct),
         result: verdict(Math.abs(r.bulletCtlPct) <= 10),
       },
+      ...r.tints.map((t) => ({
+        target: `1 ${t.label} ±10%`,
+        rendered: t.hex,
+        delta: pct(t.pct),
+        result: verdict(Math.abs(t.pct) <= 10),
+      })),
     ]);
 
     // The six tank tokens, on the shipping part geometry.
@@ -317,6 +339,8 @@ async function measureInPage(args: {
     TANK_MODELS,
     TANK_PROBE,
     TANK_TYPES,
+    ARMOR_HP_TINT,
+    ARMOR_HP_TOKEN,
     createPartGeometry,
     createBulletGeometry,
     isOverlayRole,
@@ -447,6 +471,52 @@ async function measureInPage(args: {
   root.entities.add(bulletMesh);
   addProbe(PALETTE.powerupGold, 144, 144, litSurface(PALETTE.powerupGold));
 
+  // Tokens that arrive as an INSTANCE COLOUR rather than as `material.color`:
+  // art §3.1's armor HP ramp (on `enemyArmor`) and Fast's orange trim (on
+  // `enemyFast`). Probed through the real `InstancedMesh` + real material +
+  // real ratio, because that composition is the thing that can be wrong — each
+  // material's own token is already covered by the six rows above.
+  const TINT_ROW_Z = 80;
+  const tintProbes: { label: string; token: number; x: number }[] = [];
+  const addTinted = (
+    material: unknown,
+    entries: { label: string; token: number; tint: readonly number[] }[],
+  ): void => {
+    const mesh = new THREE.InstancedMesh(partGeo, material, entries.length);
+    const m = new THREE.Matrix4();
+    const c = new THREE.Color();
+    for (let i = 0; i < entries.length; i++) {
+      const x = 16 + tintProbes.length * 32;
+      m.makeScale(16, 10, 16);
+      m.setPosition(x + 8, 5, TINT_ROW_Z + 8);
+      mesh.setMatrixAt(i, m);
+      c.r = entries[i].tint[0];
+      c.g = entries[i].tint[1];
+      c.b = entries[i].tint[2];
+      mesh.setColorAt(i, c);
+      tintProbes.push({ label: entries[i].label, token: entries[i].token, x });
+    }
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    root.entities.add(mesh);
+  };
+  addTinted(
+    mats.enemyArmor,
+    (ARMOR_HP_TOKEN as number[]).map((token: number, i: number) => ({
+      label: `armor hp${4 - i}`,
+      token,
+      tint: ARMOR_HP_TINT[i],
+    })),
+  );
+  addTinted(mats.enemyFast, [
+    {
+      label: 'fast orange',
+      token: PALETTE.enemyFastTrim,
+      tint: matsMod.faceTint(PALETTE.enemyFastTrim, PALETTE.enemyFast),
+    },
+  ]);
+
   // Controls: the SAME two tokens at `litSurface`'s calibrated defaults. Without
   // these a deviation on water or ice is unattributable — art §6's fit is
   // two-point and non-linear, so a dark token can miss target 1 for reasons that
@@ -556,6 +626,9 @@ async function measureInPage(args: {
     };
   }
 
+  // Probe row for the instance-coloured tokens, top faces.
+  const tintPx = tintProbes.map((t) => px(t.x + 8, 10, TINT_ROW_Z + 8));
+
   /** Hue in degrees, or −1 for an achromatic sample. */
   const hueOf = (p: [number, number, number]): number => {
     const r = p[0] / 255;
@@ -633,6 +706,11 @@ async function measureInPage(args: {
       bulletPct: rel(at(P.bullet), PALETTE.powerupGold),
       bulletCtlHex: hex(at(P.bulletCtl)),
       bulletCtlPct: rel(at(P.bulletCtl), PALETTE.powerupGold),
+      tints: tintProbes.map((t, i) => ({
+        label: t.label,
+        hex: hex(at(tintPx[i])),
+        pct: rel(at(tintPx[i]), t.token),
+      })),
       tanks: (TANK_TYPES as string[]).map((type) => {
         const token = TANK_MODELS[type].token;
         const top = at(tankPx[type].top);

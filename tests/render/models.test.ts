@@ -24,6 +24,7 @@ import type { GameState, LevelData, Tank } from '../../src/core/types';
 import { PALETTE, createMaterials } from '../../src/render/materials';
 import {
   ARMOR_HP_TINT,
+  ARMOR_HP_TOKEN,
   TANK_MODELS,
   TANK_PROBE,
   TANK_TYPES,
@@ -176,15 +177,48 @@ describe('TANK_MODELS — art §4’s shared proportions', () => {
     expect(ARMOR_HP_TINT).toHaveLength(ARMOR_HP);
   });
 
-  it('gives Power its oversized barrel shroud, wider than the barrel', () => {
-    const power = TANK_MODELS.power;
-    const barrel = power.parts.find((p) => p.role === 'barrel');
-    const shroud = power.parts.filter((p) => p.role === 'shroud');
-    expect(barrel).toBeDefined();
-    expect(shroud.length).toBeGreaterThanOrEqual(1);
-    for (const s of shroud) {
-      expect(s.w, 'shroud is oversized').toBeGreaterThan(barrel!.w);
+  it('makes Power’s barrel the longest and thickest of any type (art §4)', () => {
+    // Art §4, amended 2026-08-02: "barrel is the silhouette: noticeably longer
+    // and thicker than any other type, ending in a blocky muzzle brake". This
+    // is the ruling that came out of T2.4's own grayscale measurement — Basic
+    // vs Power was the weakest pair — so it is asserted rather than described.
+    const barrel = (t: TankType): { w: number; d: number } =>
+      TANK_MODELS[t].parts.find((p) => p.role === 'barrel')!;
+    const power = barrel('power');
+    for (const type of TANK_TYPES) {
+      if (type === 'power') continue;
+      expect(power.d, `longer than ${type}`).toBeGreaterThan(barrel(type).d);
+      expect(power.w, `thicker than ${type}`).toBeGreaterThan(barrel(type).w);
     }
+  });
+
+  it('caps Power’s barrel with a brake wider than the barrel itself', () => {
+    const power = TANK_MODELS.power;
+    const barrel = power.parts.find((p) => p.role === 'barrel')!;
+    const brake = power.parts.filter((p) => p.role === 'shroud');
+    expect(brake.length).toBeGreaterThanOrEqual(1);
+    for (const b of brake) {
+      expect(b.w, 'brake is wider than the barrel').toBeGreaterThan(barrel.w);
+      // …and at the muzzle, not somewhere along the barrel.
+      expect(b.z).toBeLessThan(barrel.z);
+    }
+  });
+
+  it('carries art §3.1’s authored orange on Fast’s trim', () => {
+    // §3.1 gained `enemyFastTrim` on 2026-08-02; until then Fast's spine was a
+    // value shade of its own token because the doc named an orange with no hex.
+    const c = new Color();
+    const base = new Color(PALETTE.enemyFast);
+    const want = new Color(PALETTE.enemyFastTrim);
+    const trim = TANK_MODELS.fast.parts.find((p) => p.role === 'trim')!;
+    c.setRGB(
+      base.r * trim.tint[0],
+      base.g * trim.tint[1],
+      base.b * trim.tint[2],
+    );
+    expect(c.r).toBeCloseTo(want.r, 6);
+    expect(c.g).toBeCloseTo(want.g, 6);
+    expect(c.b).toBeCloseTo(want.b, 6);
   });
 
   it('exposes Fast’s track fronts — the tracks reach further forward than the hull', () => {
@@ -497,13 +531,45 @@ describe('armor HP tint (fidelity §3.2: silver → green → yellow → dark-si
     expect(armorTintIndex(-3)).toBe(ARMOR_HP_TINT.length - 1);
   });
 
-  it('starts at the untouched silver token and darkens at the end', () => {
-    // Full HP has to be the material's own token — an armor tank at 4 HP is
-    // what the calibration probe measures.
+  it('starts at the untouched silver token — the target-1 probe', () => {
+    // Full HP has to be the material's own token, exactly: an Armor tank at
+    // 4 HP is what `scripts/calibrate-lighting.ts` measures.
     expect([...ARMOR_HP_TINT[0]]).toEqual([1, 1, 1]);
-    const lum = (t: readonly number[]): number =>
-      0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2];
-    expect(lum(ARMOR_HP_TINT[3])).toBeLessThan(lum(ARMOR_HP_TINT[0]));
+    expect(ARMOR_HP_TOKEN[0]).toBe(PALETTE.enemyArmor);
+  });
+
+  it('reproduces art §3.1’s four authored HP colours exactly', () => {
+    // The ratio's whole job: `enemyArmor × tint` is the §3.1 HP hex, so
+    // `material.color` stays the authored silver at every HP (art §3.0).
+    expect([...ARMOR_HP_TOKEN]).toEqual([
+      0xc3cad6, 0x9fbb84, 0xb8963c, 0x6e7684,
+    ]);
+    const base = new Color(PALETTE.enemyArmor);
+    const c = new Color();
+    for (let i = 0; i < ARMOR_HP_TOKEN.length; i++) {
+      const want = new Color(ARMOR_HP_TOKEN[i]);
+      const t = ARMOR_HP_TINT[i];
+      c.setRGB(base.r * t[0], base.g * t[1], base.b * t[2]);
+      expect(c.r, `hp ${4 - i} r`).toBeCloseTo(want.r, 6);
+      expect(c.g, `hp ${4 - i} g`).toBeCloseTo(want.g, 6);
+      expect(c.b, `hp ${4 - i} b`).toBeCloseTo(want.b, 6);
+    }
+  });
+
+  it('descends in luminance at every step — HP reads in grayscale too', () => {
+    // Art §3.1 states this as the reason the four colours are what they are: a
+    // hue-only ramp (silver → green → yellow) would leave a colourblind player
+    // unable to read remaining HP, which art §11 forbids.
+    const lum = (hex: number): number =>
+      0.2126 * ((hex >> 16) & 255) +
+      0.7152 * ((hex >> 8) & 255) +
+      0.0722 * (hex & 255);
+    for (let i = 1; i < ARMOR_HP_TOKEN.length; i++) {
+      expect(
+        lum(ARMOR_HP_TOKEN[i]),
+        `hp ${4 - i} is darker than hp ${5 - i}`,
+      ).toBeLessThan(lum(ARMOR_HP_TOKEN[i - 1]));
+    }
   });
 });
 

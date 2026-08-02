@@ -495,14 +495,19 @@ function basicParts(token: number): ModelPart[] {
       tint: PLAIN,
       recoil: true,
     }),
+    // A modest barrel, and that is a §4 requirement rather than taste: Power's
+    // barrel has to read as "noticeably longer than any other type", and every
+    // barrel is clipped by the same 16 u footprint — so if Basic's also reaches
+    // the front edge, the two are the same length on screen whatever the part
+    // table says.
     part({
       role: 'barrel',
       x: 0,
       y: 8.8,
-      z: -3,
+      z: -2,
       w: 1.6,
       h: 1.6,
-      d: 9.5,
+      d: 7.5,
       tint: BARREL_TINT,
       recoil: true,
     }),
@@ -575,10 +580,10 @@ function fastParts(token: number): ModelPart[] {
       tint: BARREL_TINT,
       recoil: true,
     }),
-    // A dorsal spine at the tail. Art §3.1 asks for "sand + orange" but authors
-    // no orange hex, so this is a value contrast rather than an invented token
-    // (see the T2.4 report) — and a raised spine is a silhouette cue, which is
-    // what art §11 wants ahead of colour anyway.
+    // A dorsal spine at the tail, in art §3.1's `enemyFastTrim` orange (added
+    // 2026-08-02 — it was an unauthored "orange" until then, and shipped as a
+    // value shade). The spine is the silhouette cue art §11 wants ahead of
+    // colour; the orange reinforces it.
     part({
       role: 'trim',
       x: 0,
@@ -587,15 +592,33 @@ function fastParts(token: number): ModelPart[] {
       w: 1.6,
       h: 1.6,
       d: 4.4,
-      tint: shade(0.55),
+      tint: faceTint(PALETTE.enemyFastTrim, token),
     }),
     ...starParts(token),
   ];
 }
 
-/** Power: "standard hull, oversized barrel shroud (muzzle brake)" (art §4). */
+/**
+ * Power (art §4, amended 2026-08-02): "standard hull, **barrel is the
+ * silhouette**: noticeably longer and thicker than any other type, ending in a
+ * blocky muzzle brake."
+ *
+ * The amendment came out of T2.4's own measurement: Basic-vs-Power was the
+ * weakest grayscale pair at 11.0% strongly-different area, because the previous
+ * cut put Power's mass in a shroud sitting *above* the hull — and turret-height
+ * differences do not read from all four facings under a 32° camera. A barrel
+ * does: it is the one part that projects clear of the chassis whichever way the
+ * tank is pointing. So the barrel carries the mass (3.0 u thick over 11.5 u,
+ * against Fast's 1.4 × 11 and Armor's 2.0 × 9) and the brake caps it.
+ */
 function powerParts(token: number): ModelPart[] {
+  // The fin is shaded and the muzzle block is BRIGHT, which is a readability
+  // decision and not a style one: the brake overhangs the near-black board, so
+  // a dark block loses its own edge there. Measured — art §11 asks for value
+  // separation, and the brightest part of Power's silhouette is now the part
+  // that distinguishes it.
   const dark = shade(0.62);
+  const bright = shade(1.25);
   return [
     ...trackSet(TRACK_W, TRACK_H, TRACK_X),
     part({
@@ -622,24 +645,26 @@ function powerParts(token: number): ModelPart[] {
     part({
       role: 'barrel',
       x: 0,
-      y: 8.3,
-      z: -2.6,
-      w: 2.2,
-      h: 2,
-      d: 9,
+      y: 8.2,
+      z: -2.25,
+      w: 3.2,
+      h: 2.8,
+      d: 11.5,
       tint: BARREL_TINT,
       recoil: true,
     }),
-    // Clear of the hull front (z = −2.8) on purpose: the first cut overlapped
-    // it and the "oversized shroud" simply did not read.
+    // The brake, as two stepped blocks at the muzzle — both wider than the
+    // barrel, which is what makes it read as a brake rather than as more
+    // barrel. Clear of the hull front (z = −2.8) on purpose: the previous cut
+    // overlapped it and the mass simply did not appear.
     part({
       role: 'shroud',
       x: 0,
-      y: 8.3,
-      z: -4.9,
-      w: 4.4,
+      y: 8.2,
+      z: -4.4,
+      w: 5,
       h: 3.4,
-      d: 4.4,
+      d: 1.4,
       tint: dark,
       index: 0,
       recoil: true,
@@ -647,12 +672,12 @@ function powerParts(token: number): ModelPart[] {
     part({
       role: 'shroud',
       x: 0,
-      y: 8.3,
-      z: -7.2,
-      w: 5.2,
-      h: 3.4,
-      d: 1.6,
-      tint: dark,
+      y: 8.2,
+      z: -6.7,
+      w: 6.6,
+      h: 3.6,
+      d: 2.6,
+      tint: bright,
       index: 1,
       recoil: true,
     }),
@@ -918,22 +943,33 @@ export const TANK_PROBE: Readonly<Record<TankType, TankProbe>> = Object.freeze({
 });
 
 /**
- * Fidelity §3.2's armor HP tints, index 0 = full HP: **silver → green → yellow
- * → dark-silver**, as ratios against the `enemyArmor` token.
+ * The armor HP colours art §3.1 authors, index 0 = full HP: **silver → green →
+ * yellow → dark-silver** (fidelity §3.2's order). They replaced that spec's
+ * `[CAL-04]` placeholders on 2026-08-02.
  *
- * Tagged `[CAL-04]` in the fidelity spec, i.e. explicitly a calibration
- * placeholder — so the three non-silver steps are built from *authored* §3.1
- * tokens (`player2Accent`, `powerupGold`) rather than from hexes invented here.
- * Index 0 is `PLAIN` and must stay so: a full-HP Armor tank is what the
- * calibration probe measures.
+ * **Luminance-descending on purpose** — art §3.1 requires remaining HP to read
+ * in grayscale as well as in colour, so this is not merely a hue ramp.
+ * {@link ARMOR_HP_TINT} is what ships; this table is what it is derived from,
+ * and what `scripts/calibrate-lighting.ts` scores each rendered plate against.
+ */
+export const ARMOR_HP_TOKEN: readonly number[] = Object.freeze([
+  PALETTE.enemyArmor,
+  PALETTE.enemyArmorHp3,
+  PALETTE.enemyArmorHp2,
+  PALETTE.enemyArmorHp1,
+]);
+
+/**
+ * …the same four colours as **ratios** against the `enemyArmor` token, which is
+ * the form an `instanceColor` needs: `enemyArmor × ARMOR_HP_TINT[i]` is
+ * `ARMOR_HP_TOKEN[i]`, so `material.color` stays the authored silver whatever
+ * an Armor tank's HP is (art §3.0, and what the calibration probe reads).
+ *
+ * Index 0 is exactly `[1, 1, 1]` by construction — it is the token divided by
+ * itself — and must stay so: a full-HP Armor tank is the target-1 probe.
  */
 export const ARMOR_HP_TINT: readonly (readonly [number, number, number])[] =
-  Object.freeze([
-    PLAIN,
-    faceTint(PALETTE.player2Accent, PALETTE.enemyArmor),
-    faceTint(PALETTE.powerupGold, PALETTE.enemyArmor),
-    shade(0.45),
-  ]);
+  Object.freeze(ARMOR_HP_TOKEN.map((hex) => faceTint(hex, PALETTE.enemyArmor)));
 
 if (ARMOR_HP_TINT.length !== ARMOR_HP) {
   throw new Error(
