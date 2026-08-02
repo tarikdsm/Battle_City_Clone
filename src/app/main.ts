@@ -42,7 +42,6 @@ import { parseDebugFlags } from './debug';
 import { createErrorRail, createErrorScreen } from './errorScreen';
 import { loadSettings, saveSettings, type SettingsV1 } from './storage';
 import { createScreenMachine, OVERLAY_STYLE, type Screen } from './screens';
-import { validateLevel } from '../levels/schema';
 import type { LevelData } from '../core/types';
 import { createAudio } from '../audio/audio';
 import {
@@ -61,7 +60,7 @@ import { createIntroScreen } from '../ui/screens/intro';
 import { createTallyScreen } from '../ui/screens/tally';
 import { createGameOverScreen } from '../ui/screens/gameOver';
 import { createHiScoreScreen } from '../ui/screens/hiScore';
-import stage01 from '../levels/original/stage01.json';
+import { originalStage } from '../levels/campaign';
 
 /**
  * The preset the auto probe runs **under**.
@@ -141,26 +140,26 @@ console.log('boot ok');
 
 // --- the app's singletons ---------------------------------------------------
 
-// The level is validated rather than trusted, even though it ships in the
-// bundle: `resolveJsonModule` types it as a loose object literal (`version:
-// number`, `terrain: string[]`), so the validator is what turns it into a
-// `LevelData` — and a hand-edited row of the wrong length surfaces on the error
-// screen instead of as an out-of-bounds read three systems deep.
-const parsed = validateLevel(stage01);
-if (!parsed.ok) {
-  throw new Error(`stage01.json is invalid:\n${parsed.errors.join('\n')}`);
+/**
+ * The layout for a 1…35 stage number, ready to hand to core.
+ *
+ * `originalStage` validates rather than trusts the JSON — `resolveJsonModule`
+ * types a stage file as a loose object literal (`version: number`, `terrain:
+ * string[]`), so the validator is what turns it into a `LevelData`, and a
+ * hand-edited row of the wrong length surfaces on the error screen instead of
+ * as an out-of-bounds read three systems deep.
+ *
+ * `?enemies=` (dev-only) shortens the wave so the stage-clear beat and the
+ * tally are reachable in a capture without twenty kills. It edits the LEVEL,
+ * never a rule: `createGame` copies this array into the spawner queue and every
+ * §7 behaviour runs against it unchanged.
+ */
+function stageLevel(levelStage: number): LevelData {
+  const level = originalStage(levelStage);
+  return debug.enemies === undefined
+    ? level
+    : { ...level, enemies: level.enemies.slice(0, debug.enemies) };
 }
-// `?enemies=` (dev-only) shortens the wave so the stage-clear beat and the
-// tally are reachable in a capture without twenty kills. It edits the LEVEL,
-// never a rule: `createGame` copies this array into the spawner queue and every
-// §7 behaviour runs against it unchanged.
-const level: LevelData =
-  debug.enemies === undefined
-    ? parsed.level
-    : {
-        ...parsed.level,
-        enemies: parsed.level.enemies.slice(0, debug.enemies),
-      };
 
 let settings: SettingsV1 = loadSettings();
 const settingsNow = (): SettingsV1 => settings;
@@ -464,10 +463,12 @@ function startBoard(run: PlayRun): void {
 function toTitle(): void {
   session = null;
   // GDD §5's "subtle attract camera drift over a diorama": the title mounts
-  // over a real, running stage with no controls attached.
+  // over a real, running stage with no controls attached. Stage 1, always —
+  // the title is the one board the player has not chosen, so a layout that
+  // changed between visits would read as a bug rather than as variety.
   startBoard({
     session: createSession({ players: 1 }),
-    level,
+    level: stageLevel(1),
     attract: true,
   });
   screens.showOverlay('title');
@@ -483,15 +484,23 @@ function toMenu(focus?: string): void {
 /**
  * Put a run's current stage on the board and announce it.
  *
- * There is exactly one level until Phase 7 transcribes the other 34, so the
- * layout is stage 1's whatever the number says. Everything else about the stage
- * — the spawn cadence, the AI's base-rush weight — already scales from
- * `session.stageNumber`, so dropping 35 files into `src/levels/original/` is
- * the only change this line needs.
+ * One number does both jobs and they are not the same number: `levelStageOf`
+ * folds the run's rising counter onto 1…35 — which is the layout to load and
+ * the label to show — while `run.stageNumber` itself goes to core untouched, so
+ * the spawn cadence and the AI's base-rush weight keep tightening past stage 35
+ * (fidelity §11.5).
  */
 function startStage(run: Session): void {
   session = run;
   const stage = levelStageOf(run.stageNumber);
+  const level = stageLevel(stage);
+  if (import.meta.env.DEV) {
+    // Which LAYOUT is on the board, not just which number is on the curtain.
+    // The two were the same thing for the whole of Phase 6 — every stage played
+    // stage 1 — and nothing on screen said so. A run that quietly serves the
+    // wrong file is invisible from any single stage, so it gets a line.
+    console.log('stage', stage, level.id, `(counter ${run.stageNumber})`);
+  }
   startBoard({ session: run, level });
   screens.showOverlay('intro', { stage });
 }

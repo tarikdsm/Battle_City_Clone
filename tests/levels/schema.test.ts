@@ -278,9 +278,10 @@ describe('contact sheet', () => {
 });
 
 describe('shipped levels', () => {
-  // The game boots straight into stage01.json (`main.ts`), so a bad row length
-  // or an occupied spawn tile would be a black screen rather than a test
-  // failure.
+  // Stage 1 is the attract board behind the title screen as well as the first
+  // stage of a run (`main.ts`), so a bad row length or an occupied spawn tile
+  // here would be a black screen on boot rather than a test failure.
+  // `tests/levels/campaign.test.ts` covers all 35 the same way.
   it('stage01.json is schema-valid', () => {
     const result = validateLevel(stage01Json);
     expect(result.ok ? [] : result.errors).toEqual([]);
