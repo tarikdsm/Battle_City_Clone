@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T20:10:13.261Z",
+  "capturedAt": "2026-08-02T20:34:06.441Z",
   "note": "Emulated touch (Playwright device descriptors) on a desktop GPU — NOT a phone. Boxes are live getBoundingClientRect values; the three overlap fields are rectangle intersections in px² and must all be 0.",
   "layouts": {
     "pixel5-portrait": {
@@ -241,6 +241,58 @@
         }
       },
       "boardAreaFraction": 0.604
+    },
+    "pwa-offline-portrait": {
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "w": 420,
+        "h": 900
+      },
+      "device": "offline pages build",
+      "orientation": "portrait",
+      "canvas": {
+        "x": 0,
+        "y": 70,
+        "w": 420,
+        "h": 580
+      },
+      "hud": {
+        "x": 0,
+        "y": 0,
+        "w": 420,
+        "h": 70
+      },
+      "touch": {
+        "x": 0,
+        "y": 650,
+        "w": 420,
+        "h": 250
+      },
+      "overlapCanvasTouch": 0,
+      "overlapCanvasHud": 0,
+      "overlapHudTouch": 0,
+      "controls": {
+        "stick": {
+          "x": 15,
+          "y": 675,
+          "w": 176,
+          "h": 200
+        },
+        "fire": {
+          "x": 253,
+          "y": 698,
+          "w": 155,
+          "h": 155
+        },
+        "pause": {
+          "x": 199,
+          "y": 758,
+          "w": 46,
+          "h": 34
+        }
+      },
+      "boardAreaFraction": 0.644
     }
   },
   "touchGate": {
@@ -257,18 +309,118 @@
     },
     "pixel5-cpu4x": {
       "cpuThrottleRate": 4,
-      "bootProbe": "auto quality low {fps: 4.965243296921549, dpr: 1.0000000149011612, cores: 16}",
-      "steadyStateFps": 121.3
+      "bootProbe": "auto quality low {fps: 1.986886548495702, dpr: 1.0000000149011612, cores: 16}",
+      "steadyStateFps": 47.7
     },
     "pixel5-cpu6x": {
       "cpuThrottleRate": 6,
-      "bootProbe": "auto quality low {fps: 1.7054660185202328, dpr: 1.0000000149011612, cores: 16}",
-      "steadyStateFps": 64.3
+      "bootProbe": "auto quality low {fps: 0, dpr: 1.0000000149011612, cores: 16}",
+      "steadyStateFps": 28.4
     },
     "desktop-cpu1x": {
       "cpuThrottleRate": 1,
-      "bootProbe": "auto quality low {fps: 43.26875798591166, dpr: 1.0000000149011612, cores: 16}",
-      "steadyStateFps": 91.3
+      "bootProbe": "auto quality low {fps: 32.692688730609, dpr: 1.0000000149011612, cores: 16}",
+      "steadyStateFps": 94
+    }
+  },
+  "gamepad": {
+    "note": "A fake Gamepad API injected into the REAL app before boot. Proves every line between navigator.getGamepads() and the game — the shared hub, the menu rAF pump, the intent merge, core’s pause edge. Proves nothing about physical hardware.",
+    "titleStartedByPadButton": true,
+    "menuCursor": {
+      "first": "campaign",
+      "afterDown": "neo",
+      "afterUp": "campaign"
+    },
+    "backReturnedToTitle": true,
+    "startPausedTheSimulation": true,
+    "stickMovedTheBoard": true,
+    "survivedUnplug": true
+  },
+  "pwa": {
+    "note": "Real production artifacts from `vite build --mode pages`, served by `vite preview --mode pages`. The HTTP cache was cleared through CDP before the network was cut, so an offline load can only have come from the service worker. NOT verified: installation on a real phone home screen, or any iOS behaviour.",
+    "baseUrl": "http://localhost:4173/Battle_City_Clone/",
+    "registration": {
+      "scope": "http://localhost:4173/Battle_City_Clone/",
+      "scriptUrl": "http://localhost:4173/Battle_City_Clone/sw.js",
+      "controlled": false
+    },
+    "manifestHref": "http://localhost:4173/Battle_City_Clone/manifest.webmanifest",
+    "manifest": {
+      "name": "Battle City",
+      "short_name": "Battle City",
+      "description": "A 3D remake of the 1985 tank game. Thirty-five original stages, twelve new ones, and a stage editor.",
+      "start_url": "/Battle_City_Clone/",
+      "display": "standalone",
+      "background_color": "#0a0a0a",
+      "theme_color": "#0a0a0a",
+      "lang": "en",
+      "scope": "/Battle_City_Clone/",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any"
+        },
+        {
+          "src": "icons/icon-512.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "any"
+        },
+        {
+          "src": "icons/icon-maskable-512.png",
+          "sizes": "512x512",
+          "type": "image/png",
+          "purpose": "maskable"
+        }
+      ]
+    },
+    "caches": {
+      "workbox-precache-v2-http://localhost:4173/Battle_City_Clone/": [
+        "/Battle_City_Clone/assets/customLevels-DxHSJ75T.js",
+        "/Battle_City_Clone/assets/editor-DPV00_2y.js",
+        "/Battle_City_Clone/assets/index-BGmee5Mh.js",
+        "/Battle_City_Clone/assets/index-C0gu3X7w.css",
+        "/Battle_City_Clone/assets/inter-latin-var-Dx4kXJAl.woff2",
+        "/Battle_City_Clone/assets/orbitron-latin-var-Du7j2Vp2.woff2",
+        "/Battle_City_Clone/icons/apple-touch-icon-180.png",
+        "/Battle_City_Clone/icons/icon-192.png",
+        "/Battle_City_Clone/icons/icon-512.png",
+        "/Battle_City_Clone/icons/icon-maskable-512.png",
+        "/Battle_City_Clone/icons/icon.svg",
+        "/Battle_City_Clone/index.html",
+        "/Battle_City_Clone/manifest.webmanifest",
+        "/Battle_City_Clone/registerSW.js"
+      ]
+    },
+    "offline": {
+      "online": false,
+      "controlled": true,
+      "navigationWorkerStart": 5,
+      "navigationTransferSize": 0,
+      "fonts": [
+        {
+          "name": "/Battle_City_Clone/assets/orbitron-latin-var-Du7j2Vp2.woff2",
+          "workerStart": 47,
+          "transferSize": 0
+        },
+        {
+          "name": "/Battle_City_Clone/assets/inter-latin-var-Dx4kXJAl.woff2",
+          "workerStart": 47,
+          "transferSize": 0
+        }
+      ],
+      "canvas": true,
+      "titleShown": true
+    },
+    "standaloneMediaMatches": false,
+    "requestsOutsideBasePath": [],
+    "standaloneWindow": {
+      "standalone": true,
+      "browser": false,
+      "url": "http://localhost:4173/Battle_City_Clone/",
+      "controlled": true
     }
   }
 }

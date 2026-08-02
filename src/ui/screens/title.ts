@@ -9,6 +9,7 @@
 
 import { el, legend, mountChrome } from '../menus';
 import { sharedGamepads } from '../../input/gamepad';
+import { isTouchDevice } from '../../input/touch';
 import type { Screen } from '../../app/screens';
 import type { AudioSystem } from '../../audio/audio';
 import type { ScoreEntry } from '../../app/storage';
@@ -34,7 +35,15 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
         document.createTextNode('Battle'),
         el('em', undefined, 'City'),
       );
-      const press = el('p', 'bc-press', 'Press any key to start');
+      // GDD §5's prompt is "press any key/tap", and which half is true depends
+      // on the device in front of the player. A phone told to press a key is a
+      // phone that looks broken (caught by the offline PWA capture, T9.3).
+      const touch = isTouchDevice(window);
+      const press = el(
+        'p',
+        'bc-press',
+        touch ? 'Tap to start' : 'Press any key to start',
+      );
       press.dataset.role = 'press';
       view.body.append(logo, press);
 
@@ -48,7 +57,7 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
           ),
         );
       }
-      legend(view.footer, ['Any key', 'Start']);
+      legend(view.footer, touch ? ['Tap', 'Start'] : ['Any key', 'Start']);
 
       // "Press any key" means any key — so this screen does NOT go through
       // `navFromKey`. It is the one place in the app where the abstract nav

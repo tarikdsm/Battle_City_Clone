@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "preview:pages": "vite preview --mode pages",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
@@ -29,7 +30,8 @@
     "capture:campaign": "tsx scripts/capture-campaign.ts",
     "capture:editor": "tsx scripts/capture-editor.ts",
     "capture:neo": "tsx scripts/capture-neo.ts",
-    "capture:platform": "tsx scripts/capture-platform.ts"
+    "capture:platform": "tsx scripts/capture-platform.ts",
+    "icons": "tsx scripts/gen-icons.ts"
   },
   "dependencies": {
     "three": "0.185.1"
@@ -45,6 +47,7 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.65.0",
     "vite": "^8.1.5",
+    "vite-plugin-pwa": "^1.3.0",
     "vitest": "^4.1.10"
   }
 }
