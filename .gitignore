@@ -3,6 +3,9 @@ dist/
 coverage/
 playwright-report/
 test-results/
+
+# `npm run capture:entities` output (screenshots + measurements)
+screens/
 *.local
 .DS_Store
 Thumbs.db

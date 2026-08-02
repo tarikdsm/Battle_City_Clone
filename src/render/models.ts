@@ -196,9 +196,9 @@ const TRACK_H = 5;
  * ~19 px feature at the canonical 1600×900 viewport: visible, and coarse enough
  * that art §9's *stepped* scroll reads as steps rather than as sliding.
  */
-const TREAD_N = 3;
-const TREAD_SPAN = 14;
-const TREAD_PITCH = TREAD_SPAN / TREAD_N;
+export const TREAD_N = 3;
+export const TREAD_SPAN = 14;
+export const TREAD_PITCH = TREAD_SPAN / TREAD_N;
 const TREAD_H = 1.2;
 const TREAD_D = 1.6;
 /** How far a rung stands proud of the track top — what makes the step visible. */
@@ -254,9 +254,18 @@ function trackSet(w: number, h: number, x: number): ModelPart[] {
   return out;
 }
 
-/** The spawn star of art §4 — two crossed bars, billboarded (see §7.3 note). */
-function starParts(token: number): ModelPart[] {
-  const tint = faceTint(PALETTE.spawnAccent, token);
+/**
+ * The spawn star of art §4 — two crossed bars, billboarded.
+ *
+ * Drawn on the **shared `spawnStar` material** rather than on the tank's own
+ * (art §8's emissive ruling, 2026-08-02), so its tint is `PLAIN`: there is no
+ * ratio to apply because `material.color` already *is* `spawnAccent`. The parts
+ * still live in the tank's table because that is where a reader looks for them
+ * and because the twinkle and the billboard are per-tank; only the mesh they
+ * are written into differs.
+ */
+function starParts(): ModelPart[] {
+  const tint = PLAIN;
   return [
     part({
       role: 'star',
@@ -451,6 +460,8 @@ function playerParts(token: number, accent: number): ModelPart[] {
       recoil: true,
     }),
     ...rings,
+    // Art §4's "gold emissive barrel tip", on the shared `tierTip` material —
+    // so `PLAIN` here means `powerupGold`, not the tank's own token.
     part({
       role: 'tip',
       x: 0,
@@ -459,13 +470,13 @@ function playerParts(token: number, accent: number): ModelPart[] {
       w: 2.4,
       h: 2.4,
       d: 0.9,
-      tint: faceTint(PALETTE.powerupGold, token),
+      tint: PLAIN,
       tier: 3,
       recoil: true,
     }),
     ...shieldParts(token),
     ...stunParts(token),
-    ...starParts(token),
+    ...starParts(),
   ];
 }
 
@@ -536,7 +547,7 @@ function basicParts(token: number): ModelPart[] {
       tint: band,
       index: 1,
     }),
-    ...starParts(token),
+    ...starParts(),
   ];
 }
 
@@ -594,7 +605,7 @@ function fastParts(token: number): ModelPart[] {
       d: 4.4,
       tint: faceTint(PALETTE.enemyFastTrim, token),
     }),
-    ...starParts(token),
+    ...starParts(),
   ];
 }
 
@@ -611,7 +622,7 @@ function fastParts(token: number): ModelPart[] {
  * tank is pointing. So the barrel carries the mass (3.0 u thick over 11.5 u,
  * against Fast's 1.4 × 11 and Armor's 2.0 × 9) and the brake caps it.
  */
-function powerParts(token: number): ModelPart[] {
+function powerParts(): ModelPart[] {
   // The fin is shaded and the muzzle block is BRIGHT, which is a readability
   // decision and not a style one: the brake overhangs the near-black board, so
   // a dark block loses its own edge there. Measured — art §11 asks for value
@@ -681,12 +692,12 @@ function powerParts(token: number): ModelPart[] {
       index: 1,
       recoil: true,
     }),
-    ...starParts(token),
+    ...starParts(),
   ];
 }
 
 /** Armor: "tall stacked plates (+2 u), twin exhausts; plates tint by HP". */
-function armorParts(token: number): ModelPart[] {
+function armorParts(): ModelPart[] {
   const trackH = 5.5;
   const plates: ModelPart[] = [
     part({
@@ -771,7 +782,7 @@ function armorParts(token: number): ModelPart[] {
       tint: exhaust,
       index: 1,
     }),
-    ...starParts(token),
+    ...starParts(),
   ];
 }
 
@@ -811,18 +822,8 @@ export const TANK_MODELS: Readonly<Record<TankType, TankModel>> = Object.freeze(
       basicParts(PALETTE.enemyBasic),
     ),
     fast: model('fast', 'enemyFast', 'enemyFast', fastParts(PALETTE.enemyFast)),
-    power: model(
-      'power',
-      'enemyPower',
-      'enemyPower',
-      powerParts(PALETTE.enemyPower),
-    ),
-    armor: model(
-      'armor',
-      'enemyArmor',
-      'enemyArmor',
-      armorParts(PALETTE.enemyArmor),
-    ),
+    power: model('power', 'enemyPower', 'enemyPower', powerParts()),
+    armor: model('armor', 'enemyArmor', 'enemyArmor', armorParts()),
   },
 );
 
@@ -918,7 +919,12 @@ export interface TankProbe {
 
 function probeOf(model: TankModel): TankProbe {
   const plain = model.parts.filter(
-    (p) => !isOverlayRole(p.role) && p.tint.every((c) => c === 1),
+    (p) =>
+      !isOverlayRole(p.role) &&
+      // Tier hardware is conditional (and the tip is on another material
+      // entirely), so it must never be what the probe samples.
+      p.tier === undefined &&
+      p.tint.every((c) => c === 1),
   );
   let top = plain[0];
   let side = plain[0];

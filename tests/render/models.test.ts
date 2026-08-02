@@ -21,18 +21,26 @@ import {
 } from '../../src/core/constants';
 import { createGame } from '../../src/core/game';
 import type { GameState, LevelData, Tank } from '../../src/core/types';
-import { PALETTE, createMaterials } from '../../src/render/materials';
+import {
+  ENTITY_DRAW_BUDGET,
+  PALETTE,
+  createMaterials,
+} from '../../src/render/materials';
+import { createBulletView } from '../../src/render/bulletView';
 import {
   ARMOR_HP_TINT,
   ARMOR_HP_TOKEN,
   TANK_MODELS,
+  TREAD_SPAN,
   TANK_PROBE,
   TANK_TYPES,
   countRole,
   createBulletGeometry,
   createPartGeometry,
+  isOverlayRole,
   modelBounds,
   tankTypeOf,
+  type PartRole,
   type TankType,
 } from '../../src/render/models';
 import { createSceneRoot } from '../../src/render/sceneRoot';
@@ -149,10 +157,9 @@ describe('TANK_MODELS — art §4’s shared proportions', () => {
     // and a barrel that overhangs reads as clipping into a wall the tank has not
     // reached. Overlays (spawn star, shield frame, stun stars) are deliberately
     // exempt: they are effects around the tank, not the tank.
-    const OVERLAY = new Set(['star', 'shield', 'stun']);
     for (const type of TANK_TYPES) {
       for (const p of TANK_MODELS[type].parts) {
-        if (OVERLAY.has(p.role)) continue;
+        if (isOverlayRole(p.role)) continue;
         const tag = `${type}/${p.role}`;
         expect(Math.abs(p.x) + p.w / 2, `${tag} x`).toBeLessThanOrEqual(
           TANK_SIZE / 2 + 1e-9,
@@ -459,7 +466,11 @@ describe('track scroll (art §9: stepped, 8 u per visual step, rate ∝ speed)',
   });
 
   it('wraps a shifted rung back inside the track instead of off the end', () => {
-    const span = 14;
+    // The span is imported, not restated: a third copy of 14 is exactly how
+    // the wrap and the geometry would drift apart, and the silent symptom is
+    // tread rungs walking off the ends of the track.
+    const span = TREAD_SPAN;
+    expect(span).toBe(14);
     expect(wrapTread(0, span)).toBeCloseTo(0, 9);
     expect(wrapTread(6, span)).toBeCloseTo(6, 9);
     // Past the rear lip: comes back at the front, not 1 u outside the track.
@@ -705,6 +716,8 @@ interface Mounted {
   view: TankView;
   scene: Scene;
   meshes: Record<TankType, InstancedMesh>;
+  /** Art section 8's shared emissive meshes - spawn star and tier-3 tip. */
+  emissive: Record<'star' | 'tip', InstancedMesh>;
   dispose(): void;
 }
 
@@ -713,21 +726,28 @@ function mount(): Mounted {
   const root = createSceneRoot(mats);
   const view = createTankView(mats, root);
   const found: Partial<Record<TankType, InstancedMesh>> = {};
+  const emissive: Partial<Record<'star' | 'tip', InstancedMesh>> = {};
   root.scene.traverse((o) => {
     if (!(o instanceof InstancedMesh)) return;
     for (const type of TANK_TYPES) {
       if (o.material === mats[TANK_MODELS[type].material]) found[type] = o;
     }
+    if (o.material === mats.spawnStar) emissive.star = o;
+    if (o.material === mats.tierTip) emissive.tip = o;
   });
   for (const type of TANK_TYPES) {
     if (!found[type]) {
       throw new Error(`tank mesh ${type} not found in the scene`);
     }
   }
+  if (!emissive.star || !emissive.tip) {
+    throw new Error('shared emissive meshes not found in the scene');
+  }
   return {
     view,
     scene: root.scene,
     meshes: found as Record<TankType, InstancedMesh>,
+    emissive: emissive as Record<'star' | 'tip', InstancedMesh>,
     dispose(): void {
       view.dispose();
       root.dispose();
@@ -844,20 +864,36 @@ describe('TankView — the shipped path', () => {
     expect(m.meshes.basic.count).toBe(4 * parts);
 
     // Drive each of them a different distance, one frame at a time.
-    for (let step = 0; step < 4; step++) {
+    // The
+    // per-frame deltas are all BELOW `TANK_SIZE`, or the view's teleport guard
+    // treats the move as a respawn and the tank accumulates no distance at all
+    // - which is what silently flattened an earlier version of this test to
+    // steps 2 / 5 / 7 / 0.
+    const PER_FRAME = [2, 4, 7, 9];
+    for (const d of PER_FRAME) expect(d).toBeLessThan(TANK_SIZE);
+    for (let step = 0; step < 5; step++) {
       for (let i = 0; i < made.length; i++) {
         made[i].prevX = made[i].x;
-        // 5 u a frame, so the four tanks land on steps 2 / 5 / 7 / 10 — the
-        // parity that makes their tread shifts actually differ.
-        made[i].x += (i + 1) * 5;
+        made[i].x += PER_FRAME[i];
       }
       m.view.update(state, 1, 16);
+    }
+    // Distances 10 / 20 / 35 / 45 => steps 1 / 2 / 4 / 5, i.e. tread parities
+    // odd / even / even / odd.
+    for (let i = 0; i < made.length; i++) {
+      expect(trackStepOf(5 * PER_FRAME[i])).toBe([1, 2, 4, 5][i]);
     }
     const before = made.map((t) =>
       zsOfPart(m.meshes.basic, tread, t.x + TANK_SIZE / 2),
     );
-    // Different distances ⇒ different phases, or the test proves nothing.
+    // The sentinel: these three pairs must all be distinguishable, or a
+    // migration could happen and the assertions below would still pass. 1 vs 3
+    // is the one that matters most - tank 3 back-fills into the slot tank 1 is
+    // about to vacate, so a slot-keyed scheme would hand tank 3 the dead
+    // tank's phase.
     expect(before[0]).not.toEqual(before[1]);
+    expect(before[1]).not.toEqual(before[3]);
+    expect(before[2]).not.toEqual(before[3]);
 
     made[1].alive = false;
     m.view.update(state, 1, 16);
@@ -961,19 +997,95 @@ describe('TankView — the shipped path', () => {
 
     const model = TANK_MODELS.basic;
     const mat = new Matrix4();
-    const scaleOf = (role: string): number => {
-      const idx = model.parts.findIndex((p) => p.role === role);
-      m.meshes.basic.getMatrixAt(idx, mat);
+    const scaleOf = (mesh: InstancedMesh, index: number): number => {
+      mesh.getMatrixAt(index, mat);
       return Math.hypot(mat.elements[0], mat.elements[1], mat.elements[2]);
     };
-    expect(scaleOf('hull')).toBe(0);
-    expect(scaleOf('star')).toBeGreaterThan(0);
+    const partAt = (role: PartRole): number =>
+      model.parts.findIndex((p) => p.role === role);
+
+    // The tank itself is not drawn: mid-spawn it is intangible in the core.
+    expect(scaleOf(m.meshes.basic, partAt('hull'))).toBe(0);
+    // ...and the star comes from the SHARED emissive mesh (art section 8), so
+    // its slot in the tank's own mesh stays collapsed whatever it is doing.
+    expect(scaleOf(m.meshes.basic, partAt('star'))).toBe(0);
+    expect(m.emissive.star.count).toBe(countRole(model, 'star'));
+    expect(scaleOf(m.emissive.star, 0)).toBeGreaterThan(0);
 
     t.spawningT = 0;
     m.view.update(state, 1, 16);
-    expect(scaleOf('hull')).toBeGreaterThan(0);
-    expect(scaleOf('star')).toBe(0);
+    expect(scaleOf(m.meshes.basic, partAt('hull'))).toBeGreaterThan(0);
+    expect(m.emissive.star.count).toBe(0);
     m.dispose();
+  });
+
+  it('draws the tier-3 tip from the shared emissive mesh, and only at tier 3', () => {
+    const m = mount();
+    const state = game(1);
+    const p1 = state.tanks[0];
+    for (const tier of [0, 1, 2] as const) {
+      p1.tier = tier;
+      m.view.update(state, 1, 16);
+      expect(m.emissive.tip.count, `tier ${tier}`).toBe(0);
+    }
+    p1.tier = 3;
+    m.view.update(state, 1, 16);
+    expect(m.emissive.tip.count).toBe(countRole(TANK_MODELS.p1, 'tip'));
+    m.dispose();
+  });
+
+  it('keeps the emissive roles off the tank materials entirely', () => {
+    // The whole point of art section 8's ruling: `emissive` is a material
+    // property, so a star tinted per instance would be lit rather than glowing
+    // - and after T2.5's bloom, bullets would bloom while the star did not.
+    // These two materials carry the authored token directly, with no ratio.
+    const mats = createMaterials();
+    expect(mats.spawnStar.color.getHexString()).toBe('7fc4ff'); // spawnAccent
+    expect(mats.spawnStar.emissive.getHexString()).toBe('7fc4ff');
+    expect(mats.tierTip.color.getHexString()).toBe('ffd76b'); // powerupGold
+    expect(mats.tierTip.emissive.getHexString()).toBe('ffd76b');
+    // ...so the model's parts carry no tint for them to apply.
+    for (const type of TANK_TYPES) {
+      for (const p of TANK_MODELS[type].parts) {
+        if (p.role !== 'star' && p.role !== 'tip') continue;
+        expect([...p.tint], `${type}/${p.role}`).toEqual([1, 1, 1]);
+      }
+    }
+    mats.dispose();
+  });
+
+  it('stays inside the entity draw-call budget (art section 8)', () => {
+    // Every `InstancedMesh` the entity layer parents into the scene is one
+    // main-pass draw call when it has instances, so counting them IS the
+    // budget - and pinning the exact number means the next material is a
+    // decision (this test fails, somebody updates it) rather than a discovery
+    // six tasks later. `bulletTrail` was added at T2.4 and nothing noticed.
+    const mats = createMaterials();
+    const root = createSceneRoot(mats);
+    const tanks = createTankView(mats, root);
+    const bullets = createBulletView(mats, root);
+    const meshes: InstancedMesh[] = [];
+    root.entities.traverse((o) => {
+      if (o instanceof InstancedMesh) meshes.push(o);
+    });
+
+    // 6 tank types + spawn star + tier tip + bullet head + tracer.
+    expect(meshes).toHaveLength(10);
+    expect(meshes.length).toBeLessThanOrEqual(ENTITY_DRAW_BUDGET);
+    expect(ENTITY_DRAW_BUDGET).toBe(12);
+    // One material each - two meshes sharing one would be a merge opportunity,
+    // and two materials on one mesh is impossible.
+    expect(new Set(meshes.map((o) => o.material)).size).toBe(meshes.length);
+    // ...and every one is registered, so the shadow-recompile sweep and
+    // disposal reach it.
+    for (const mesh of meshes) {
+      expect(mats.all).toContain(mesh.material);
+    }
+
+    tanks.dispose();
+    bullets.dispose();
+    root.dispose();
+    mats.dispose();
   });
 
   it('sizes each mesh for the tanks the core can actually put on the field', () => {
@@ -1007,7 +1119,28 @@ describe('TankView — the shipped path', () => {
   });
 });
 
-describe('tankTypeOf — the skin a tank wears', () => {
+describe('player identity - the assumption `playerSpawned` rests on', () => {
+  it('gives each player tank an id equal to its playerIndex', () => {
+    // `tankView.onEvent` re-arms a respawned player's animation from
+    // `playerSpawned`, which carries a `playerIndex` and not a `tankId`. The
+    // core guarantees they are the same number forever (`players.ts`: the two
+    // slots are allocated up front and never move), and this is that guarantee
+    // written down - without it a respawned player silently inherits its
+    // previous life's track phase and half-finished recoil.
+    const state = game(2);
+    expect(state.tanks[0].id).toBe(0);
+    expect(state.tanks[0].playerIndex).toBe(0);
+    expect(state.tanks[1].id).toBe(1);
+    expect(state.tanks[1].playerIndex).toBe(1);
+    // ...and the slot survives a 1-player game, where P2 exists but never plays.
+    const solo = game(1);
+    expect(solo.tanks[1].id).toBe(1);
+    expect(solo.tanks[1].playerIndex).toBe(1);
+    expect(solo.tanks[1].alive).toBe(false);
+  });
+});
+
+describe('tankTypeOf - the skin a tank wears', () => {
   it('maps players by index and enemies by type', () => {
     const state = game(2);
     expect(tankTypeOf(state.tanks[0])).toBe('p1');

@@ -57,8 +57,12 @@ import {
   DIR_YAW,
   TANK_MODELS,
   TANK_TYPES,
+  TREAD_PITCH,
+  TREAD_SPAN,
   WHITE_TINT,
+  countRole,
   createPartGeometry,
+  isOverlayRole,
   lerp,
   tankTypeOf,
   type ModelPart,
@@ -89,7 +93,7 @@ export const VIBRATION_HZ = 9;
 /** "Armor HP tint: crossfade **150 ms** on hit + white hit-flash **60 ms**." */
 export const ARMOR_TINT_MS = 150;
 export const HIT_FLASH_MS = 60;
-/** "Carrier flash: emissive pulse **4 Hz square**" + art §11's ±4% scale. */
+/** "Carrier flash: emissive pulse **4 Hz square**" + art §11's +4% scale. */
 export const CARRIER_HZ = 4;
 export const CARRIER_SCALE = 0.04;
 /** How far the carrier pulse pushes the tank towards `danger`. */
@@ -103,14 +107,6 @@ const SHIELD_HZ = 8;
 /** Art §8: "orbiting stars over the stunned tank." */
 const STUN_RPS = 1.1;
 const STUN_RADIUS = 6;
-
-/**
- * Tread span and pitch, mirrored from `models.ts` so the wrap maths and the
- * geometry cannot disagree.
- */
-const TREAD_SPAN = 14;
-const TREAD_N = 3;
-const TREAD_PITCH = TREAD_SPAN / TREAD_N;
 
 // ---------------------------------------------------------------------------
 // --- Animation curves (pure) -----------------------------------------------
@@ -253,6 +249,11 @@ export interface TankAnim {
  * `createSlotMap`'s `keySpace` parameter was renamed for in T2.3).
  */
 export const TANK_ID_SPACE = 64;
+
+/** Whether an id off the event stream can index the state registry at all. */
+function inIdSpace(id: number): boolean {
+  return id >= 0 && id < TANK_ID_SPACE;
+}
 
 const NO_ORDINAL = Number.NaN;
 
@@ -407,6 +408,28 @@ interface TypeEntry {
   slots: number;
 }
 
+/**
+ * A mesh shared across every type, for the two roles art §8 rules must be
+ * genuinely **emissive**: the spawn star and the tier-3 barrel tip.
+ *
+ * They cannot ride the tank's own mesh, and the reason is a three.js fact
+ * rather than a preference: `emissive` is a material property, and
+ * vertex/instance colour reaches `diffuseColor` only (`color_fragment.glsl`).
+ * A star tinted per instance would be lit, not glowing — and once T2.5's bloom
+ * lands, bullets would bloom while the star does not, which is the exact
+ * inversion of art §4. Both roles are one colour across the whole field, so one
+ * shared material each covers it: +2 draw calls, and only while something is
+ * actually spawning or somebody is at tier 3 (an `InstancedMesh` with
+ * `count === 0` draws nothing at all).
+ */
+interface SharedMesh {
+  mesh: InstancedMesh;
+  readonly material: MeshStandardMaterial;
+  capacity: number;
+  /** Instances written so far this frame. */
+  used: number;
+}
+
 export interface TankView {
   /** One frame. `alpha` is the loop's interpolation factor, exactly 1 paused. */
   update(state: GameState, alpha: number, dtMs: number): void;
@@ -427,6 +450,14 @@ export function createTankView(
   // id alone — the pools differ, the identities do not.
   const states = createAnimStates();
 
+  /** Parts per tank that each shared mesh may have to draw. */
+  const STAR_PARTS = Math.max(
+    ...TANK_TYPES.map((t) => countRole(TANK_MODELS[t], 'star')),
+  );
+  const TIP_PARTS = Math.max(
+    ...TANK_TYPES.map((t) => countRole(TANK_MODELS[t], 'tip')),
+  );
+
   const entries = {} as Record<TankType, TypeEntry>;
   for (const type of TANK_TYPES) {
     const model = TANK_MODELS[type];
@@ -440,6 +471,37 @@ export function createTankView(
       slots,
     };
     group.add(entries[type].mesh);
+  }
+
+  const shared: Record<'star' | 'tip', SharedMesh> = {
+    star: makeShared(materials.spawnStar, (2 + ENEMY_CAP) * STAR_PARTS),
+    tip: makeShared(materials.tierTip, 2 * TIP_PARTS),
+  };
+  group.add(shared.star.mesh, shared.tip.mesh);
+
+  function makeShared(
+    material: MeshStandardMaterial,
+    capacity: number,
+  ): SharedMesh {
+    const mesh = makeInstanced(geometry, material, Math.max(1, capacity));
+    // Emissive overlays: a glow casting a shadow is simply wrong, and it would
+    // cost a shadow-map draw for a surface the light does not fall on.
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    return { mesh, material, capacity: Math.max(1, capacity), used: 0 };
+  }
+
+  function growShared(entry: SharedMesh, wanted: number): void {
+    if (wanted <= entry.capacity) return;
+    const capacity = Math.max(wanted, entry.capacity * 2);
+    const next = makeInstanced(geometry, entry.material, capacity);
+    next.castShadow = false;
+    next.receiveShadow = false;
+    group.remove(entry.mesh);
+    entry.mesh.dispose();
+    group.add(next);
+    entry.mesh = next;
+    entry.capacity = capacity;
   }
 
   /**
@@ -714,10 +776,10 @@ export function createTankView(
             break;
         }
         if (p.recoil === true) pz += recoil;
-        if (bodyScale !== 1 && !isOverlay(p.role)) {
-          // Art §11: the carrier flash also modulates scale ±4%, "for
-          // colourblind visibility" — so it is a uniform swell of the whole
-          // body, positions included, not just fatter parts.
+        if (bodyScale !== 1 && !isOverlayRole(p.role)) {
+          // Art §11: the carrier flash also modulates scale +4% for
+          // colourblind visibility — a uniform swell of the whole body,
+          // positions included, not just fatter parts.
           px *= bodyScale;
           py *= bodyScale;
           pz *= bodyScale;
@@ -725,6 +787,37 @@ export function createTankView(
           sh *= bodyScale;
           sd *= bodyScale;
         }
+      }
+
+      // Art §8's two emissive roles are drawn from a shared mesh, so their slot
+      // in the tank's own mesh is always collapsed. Writing it (rather than
+      // skipping it) keeps `base + i` a pure function of the part index, which
+      // is what makes a mid-pool death cheap.
+      const emissive =
+        p.role === 'star' ? shared.star : p.role === 'tip' ? shared.tip : null;
+      if (emissive !== null) {
+        writePart(mesh, base + i, basis, cx, cy, cz, px, py, pz, 0, 0, 0);
+        colour.r = 1;
+        colour.g = 1;
+        colour.b = 1;
+        mesh.setColorAt(base + i, colour);
+        if (visible && emissive.used < emissive.capacity) {
+          writePart(
+            emissive.mesh,
+            emissive.used++,
+            basis,
+            cx,
+            cy,
+            cz,
+            px,
+            py,
+            pz,
+            sw,
+            sh,
+            sd,
+          );
+        }
+        continue;
       }
 
       if (!visible) {
@@ -776,6 +869,25 @@ export function createTankView(
         ensureCapacity(entries[type], entries[type].pool.count);
       }
 
+      // Sized from what this frame will actually draw, before a single matrix
+      // is written — growing a mesh mid-pass would lose the instances already
+      // in it, exactly as it would for a type mesh.
+      let starWanted = 0;
+      let tipWanted = 0;
+      for (let i = 0; i < tanks.length; i++) {
+        const tank = tanks[i];
+        if (!tank.alive || !inIdSpace(tank.id)) continue;
+        if (tank.spawningT > 0) {
+          starWanted += countRole(TANK_MODELS[tankTypeOf(tank)], 'star');
+        } else if (tank.tier >= 3) {
+          tipWanted += countRole(TANK_MODELS[tankTypeOf(tank)], 'tip');
+        }
+      }
+      growShared(shared.star, starWanted);
+      growShared(shared.tip, tipWanted);
+      shared.star.used = 0;
+      shared.tip.used = 0;
+
       for (let i = 0; i < tanks.length; i++) {
         const tank = tanks[i];
         if (!tank.alive || tank.id < 0 || tank.id >= TANK_ID_SPACE) continue;
@@ -792,15 +904,21 @@ export function createTankView(
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor !== null) mesh.instanceColor.needsUpdate = true;
       }
+
+      for (const key of ['star', 'tip'] as const) {
+        const entry = shared[key];
+        entry.mesh.count = entry.used;
+        if (entry.used > 0) entry.mesh.instanceMatrix.needsUpdate = true;
+      }
     },
 
     onEvent(e: GameEvent): void {
       switch (e.t) {
         case 'shotFired':
-          if (e.tankId < TANK_ID_SPACE) states[e.tankId].recoilMs = 0;
+          if (inIdSpace(e.tankId)) states[e.tankId].recoilMs = 0;
           break;
         case 'tankHit':
-          if (e.tankId < TANK_ID_SPACE) states[e.tankId].flashMs = 0;
+          if (inIdSpace(e.tankId)) states[e.tankId].flashMs = 0;
           break;
         case 'tankDestroyed':
           releaseId(e.tankId);
@@ -809,11 +927,13 @@ export function createTankView(
           // Re-arm rather than reset here: the tank's own fields (dir, hp) are
           // read at `acquire` time, and this event can arrive before the view
           // has ever seen it.
-          if (e.tankId < TANK_ID_SPACE) states[e.tankId].ordinal = NO_ORDINAL;
+          if (inIdSpace(e.tankId)) states[e.tankId].ordinal = NO_ORDINAL;
           break;
         case 'playerSpawned':
           // A player tank's id IS its player index, forever — `players.ts`
-          // allocates the two slots up front and never moves them.
+          // allocates the two slots up front and never moves them. Pinned by
+          // `models.test.ts`, because a respawned player silently inheriting
+          // its previous life's track phase is the failure mode if it drifts.
           states[e.playerIndex].ordinal = NO_ORDINAL;
           break;
         default:
@@ -826,13 +946,11 @@ export function createTankView(
       for (const type of TANK_TYPES) {
         entries[type].mesh.dispose();
       }
+      shared.star.mesh.dispose();
+      shared.tip.mesh.dispose();
       geometry.dispose();
     },
   };
-}
-
-function isOverlay(role: ModelPart['role']): boolean {
-  return role === 'shield' || role === 'stun' || role === 'star';
 }
 
 function makeInstanced(

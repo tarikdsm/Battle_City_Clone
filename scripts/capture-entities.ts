@@ -5,8 +5,11 @@
 //   npm run dev            # in another terminal — the script needs it
 //   npm run capture:entities
 //
-// Output goes to `test-results/entities/` (git-ignored) unless CAPTURE_OUT says
+// Output goes to `screens/entities/` (git-ignored) unless CAPTURE_OUT says
 // otherwise: PNGs plus a `results.json` with every number this prints.
+//
+// NOT `test-results/`, which Playwright owns and **wipes** at the start of every
+// `npx playwright test` — measured, after a full run of this script vanished.
 //
 // ## Why this is checked in, and what it is for
 //
@@ -27,7 +30,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const URL = process.env.CAPTURE_URL ?? 'http://localhost:5173/';
-const OUT = process.env.CAPTURE_OUT ?? join('test-results', 'entities');
+const OUT = process.env.CAPTURE_OUT ?? join('screens', 'entities');
 
 /** Full frames. */
 const W = 1600;
@@ -449,11 +452,13 @@ async function main(): Promise<void> {
     };
     const none = (): void => undefined;
     // Worst case: two players and four DISTINCT enemy types alive at once, so
-    // all six tank materials draw.
+    // all six tank materials draw — plus both of art §8's shared emissive
+    // meshes, which only draw while something is spawning (the star) or
+    // somebody is at tier 3 (the tip).
     const worst = (): void => {
-      H.tank({ kind: 'player', playerIndex: 0, tx: 0, ty: 6, id: 0 });
+      H.tank({ kind: 'player', playerIndex: 0, tx: 0, ty: 6, id: 0, tier: 3 });
       H.tank({ kind: 'player', playerIndex: 1, tx: 2, ty: 6, id: 1 });
-      H.tank({ enemyType: 'basic', tx: 4, ty: 6, ordinal: 1 });
+      H.tank({ enemyType: 'basic', tx: 4, ty: 6, ordinal: 1, spawningT: 1.3 });
       H.tank({ enemyType: 'fast', tx: 6, ty: 6, ordinal: 2 });
       H.tank({ enemyType: 'power', tx: 8, ty: 6, ordinal: 3 });
       H.tank({ enemyType: 'armor', tx: 10, ty: 6, hp: 4, ordinal: 4 });

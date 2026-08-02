@@ -202,6 +202,8 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     | 'enemyArmor'
     | 'bullet'
     | 'bulletTrail'
+    | 'spawnStar'
+    | 'tierTip'
   )[] = [
     // Art §6's definitive list puts ALL terrain on the lit path. Terrain is
     // something the light falls on, not part of the board's diagram.
@@ -218,6 +220,8 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     'enemyArmor',
     'bullet',
     'bulletTrail',
+    'spawnStar',
+    'tierTip',
   ];
 
   it.each(FLAT)('%s opts out of tone mapping', (key) => {

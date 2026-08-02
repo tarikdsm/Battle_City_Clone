@@ -210,7 +210,22 @@ export interface MaterialsByRole {
   readonly enemyArmor: MeshStandardMaterial;
   readonly bullet: MeshStandardMaterial;
   readonly bulletTrail: MeshStandardMaterial;
+  readonly spawnStar: MeshStandardMaterial;
+  readonly tierTip: MeshStandardMaterial;
 }
+
+/**
+ * Art §8's entity draw-call budget — the main-pass draws the tank and bullet
+ * views may produce between them, one per `InstancedMesh`.
+ *
+ * **12, raised from 8 on 2026-08-02** to absorb the two emissive materials §8's
+ * emissive ruling requires. Arch §11 caps the whole scene near 120 and a full
+ * six-kind board measures 24, so this is a discipline rather than a hardware
+ * limit: it exists so that adding an entity material is a *decision*.
+ * `tests/render/models.test.ts` pins the current count against it, which is why
+ * `bulletTrail` slipping in unnoticed at T2.4 cannot happen again.
+ */
+export const ENTITY_DRAW_BUDGET = 12;
 
 /**
  * The six skins a tank can wear — the subset of {@link MaterialsByRole} that
@@ -512,6 +527,38 @@ export function createMaterials(): Materials {
   bulletTrail.blending = AdditiveBlending;
   bulletTrail.depthWrite = false;
 
+  // Art §8's emissive ruling (2026-08-02). `emissive` is a **material**
+  // property, so per-instance glow is impossible — and after T2.5's bloom lands,
+  // bullets glowing while art §4's "flat emissive 4-point star billboard" does
+  // not would invert §4's intent exactly. Both of these are uniform in colour
+  // across every tank that shows them, so one shared material each covers the
+  // whole field: +2 materials, not +6.
+  //
+  // The carrier pulse deliberately stays diffuse (an `instanceColor` blend
+  // toward `danger`): it tints a whole tank per instance, which no shared
+  // material can express, and it already reads as the strongest overlay on the
+  // board.
+  //
+  // Neither carries `instanceColor`, so `material.color` IS the authored token
+  // for both — art §3.0's promise kept by construction rather than by ratio.
+  const spawnStar = new MeshStandardMaterial({
+    color: srgb(PALETTE.spawnAccent),
+    emissive: srgb(PALETTE.spawnAccent),
+    emissiveIntensity: 1,
+    roughness: 0.4,
+    metalness: 0,
+  });
+  const tierTip = new MeshStandardMaterial({
+    color: srgb(PALETTE.powerupGold),
+    emissive: srgb(PALETTE.powerupGold),
+    // Art §4 calls it "gold emissive"; §1 pillar 2 rations emissive so bloom
+    // stays special, and a tier pip is a status read rather than a spectacle —
+    // hence dimmer than a bullet in flight.
+    emissiveIntensity: 0.7,
+    roughness: 0.4,
+    metalness: 0,
+  });
+
   // The single source of truth. `all` below is derived from it, so a new
   // material cannot be half-registered: adding it here without adding it to
   // `MaterialsByRole` is a compile error, and there is no third list to forget.
@@ -532,6 +579,8 @@ export function createMaterials(): Materials {
     enemyArmor,
     bullet,
     bulletTrail,
+    spawnStar,
+    tierTip,
   };
 
   // Keyed rather than `Object.values`, which types a plain interface as `any[]`.
