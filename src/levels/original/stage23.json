@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "id": "orig-23",
+  "name": "Stage 23",
+  "provenance": "transcribed",
+  "source": "NES ROM stage table — cyneprepou4uk/NES-Games-Disassembly@57972cd Battle City/incbin/stages/stage_23.bin (terrain), bank_FF.asm tbl_E4EC + tbl_E578 (wave)",
+  "terrain": [
+    ".............",
+    ".....SS......",
+    "......S......",
+    ".SSTTBSBTTSS.",
+    "...STTSTTS...",
+    "T...STTTS...T",
+    "ST...TTT...TS",
+    "T...SSTSS...T",
+    "....S.S.S....",
+    "...S..S..S...",
+    ".............",
+    ".............",
+    "..S.......S.."
+  ],
+  "partials": [
+    { "tx": 4, "ty": 7, "mask": 12 },
+    { "tx": 5, "ty": 7, "mask": 3 },
+    { "tx": 7, "ty": 7, "mask": 3 },
+    { "tx": 8, "ty": 7, "mask": 12 },
+    { "tx": 6, "ty": 8, "mask": 12 }
+  ],
+  "enemies": [
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "power",
+    "power",
+    "power",
+    "power",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast"
+  ]
+}

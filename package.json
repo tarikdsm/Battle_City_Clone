@@ -16,6 +16,7 @@
     "format": "prettier --check .",
     "check": "npm run typecheck && npm run lint && npm run format && npm run test",
     "levels:preview": "tsx scripts/level-preview.ts",
+    "levels:transcribe": "tsx scripts/transcribe-original-stages.ts",
     "replays:record": "tsx scripts/record-replay.ts",
     "calibrate:lighting": "tsx scripts/calibrate-lighting.ts",
     "capture:entities": "tsx scripts/capture-entities.ts",

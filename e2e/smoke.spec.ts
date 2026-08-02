@@ -282,11 +282,24 @@ test('loops: title → play → death → game over → high scores → title', 
   // --- death ---------------------------------------------------------------
   // Deterministic, and it uses a rule rather than luck: fidelity §5.2 says a
   // PLAYER's bullet destroys the eagle. P1 spawns at tile (4,12) and the eagle
-  // sits at (6,12) on the same row, behind two brick subcell-pairs — so facing
-  // right and holding fire ends the run in a few seconds, every time.
-  await page.keyboard.press('KeyD');
+  // sits at (6,12) on the same row, behind the stamped brick ring — so facing
+  // right and holding fire brings the run down on the player's own shot.
+  //
+  // "Face right" is re-pressed on a beat rather than once, because a respawn
+  // resets the tank to facing up. That was free on T3.2's provisional stage 1;
+  // it is not on the transcribed one (T7.1), whose brick columns sit on the ODD
+  // tiles and leave column 4 — the one P1 spawns in — open from the top of the
+  // field to the player. A tank that wanders into it has a clean shot down, and
+  // a P1 that came back facing up would then fire at the sky until the timeout.
+  // Re-aiming keeps the mechanism the comment above describes, whether the run
+  // ends on the first life or the third.
+  const gameOver = screen(page, 'gameOver');
   await page.keyboard.down('KeyJ');
-  await expect(screen(page, 'gameOver')).toBeVisible({ timeout: 30_000 });
+  for (let beat = 0; beat < 60 && (await gameOver.count()) === 0; beat++) {
+    await page.keyboard.press('KeyD');
+    await page.waitForTimeout(500);
+  }
+  await expect(gameOver).toBeVisible({ timeout: 30_000 });
   await page.keyboard.up('KeyJ');
 
   // --- game over → high scores → title -------------------------------------

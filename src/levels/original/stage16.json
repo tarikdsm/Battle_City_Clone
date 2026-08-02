@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "id": "orig-16",
+  "name": "Stage 16",
+  "provenance": "transcribed",
+  "source": "NES ROM stage table — cyneprepou4uk/NES-Games-Disassembly@57972cd Battle City/incbin/stages/stage_16.bin (terrain), bank_FF.asm tbl_E4EC + tbl_E578 (wave)",
+  "notes": "Deviates from the ROM at (8,12) T: the format requires the enemy and player spawn tiles to be empty (content doc 05 §1), and the ROM puts terrain there.",
+  "terrain": [
+    ".............",
+    "..STS........",
+    "...T.TS......",
+    ".T....TB.....",
+    ".TT..T.TS....",
+    ".T.T.T..TB...",
+    ".T..T...TTS..",
+    "..T....TTTTB.",
+    "...T..T.TTTT.",
+    "B.....T..TTTS",
+    "BB.....T.TTTT",
+    "SBB.....T.TTT",
+    "SSBB.......TT"
+  ],
+  "partials": [
+    { "tx": 6, "ty": 2, "mask": 12 },
+    { "tx": 7, "ty": 3, "mask": 12 },
+    { "tx": 8, "ty": 4, "mask": 12 },
+    { "tx": 9, "ty": 5, "mask": 12 },
+    { "tx": 10, "ty": 6, "mask": 12 },
+    { "tx": 11, "ty": 7, "mask": 12 }
+  ],
+  "enemies": [
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "fast",
+    "fast",
+    "armor",
+    "armor"
+  ]
+}

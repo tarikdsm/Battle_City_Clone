@@ -127,10 +127,10 @@ describe('validateLevel — accepts valid levels', () => {
 // inside a brick ring the engine stamps on every level (fidelity §2), so a
 // "reach the base" test over empty tiles alone could never pass on ANY level.
 // It is also the only reading the originals survive: over empty tiles alone,
-// two thirds of the 35 transcribed stages fall under the 40% bar (stage 21's
-// centre spawn reaches 1.2%), because Battle City is a game about shooting your
-// way out of a brick maze. Measured on the shipped stages, the weakest stage
-// under the shipped rule is 31 at 63.9%.
+// 20 of the 35 transcribed stages fall under the 40% bar (stage 21's centre
+// spawn reaches 1.2%), because Battle City is a game about shooting your way
+// out of a brick maze. Measured on the shipped stages, the weakest stage under
+// the shipped rule is 31 at 63.9%.
 
 function blankLevel(): LevelData {
   return {
@@ -278,16 +278,28 @@ describe('contact sheet', () => {
 });
 
 describe('shipped levels', () => {
-  // The game boots straight into this file (`main.ts`), so a bad row length or
-  // an occupied spawn tile would be a black screen rather than a test failure.
-  it('stage01.json is schema-valid and still marked provisional', () => {
+  // The game boots straight into stage01.json (`main.ts`), so a bad row length
+  // or an occupied spawn tile would be a black screen rather than a test
+  // failure.
+  it('stage01.json is schema-valid', () => {
     const result = validateLevel(stage01Json);
     expect(result.ok ? [] : result.errors).toEqual([]);
     expect(result.ok).toBe(true);
-    // T7.2 replaces it. Until then the name has to say so on the HUD-facing
-    // field, so nobody mistakes the approximation for the transcription.
-    expect(stage01Json.name).toContain('provisional');
     expect(stage01Json.enemies).toHaveLength(20);
+  });
+
+  it('ships exactly the 35 original stages, ids orig-01..orig-35', () => {
+    const levels = shippedLevels();
+    expect(levels).toHaveLength(35);
+    expect(levels.map((l) => l.id)).toEqual(
+      Array.from(
+        { length: 35 },
+        (_, i) => `orig-${String(i + 1).padStart(2, '0')}`,
+      ),
+    );
+    expect(levels.map((l) => l.name)).toEqual(
+      Array.from({ length: 35 }, (_, i) => `Stage ${i + 1}`),
+    );
   });
 
   it('every shipped level is schema-valid and completable', () => {
@@ -295,6 +307,42 @@ describe('shipped levels', () => {
       const result = validateLevel(level);
       expect(result.ok ? [] : result.errors).toEqual([]);
       expect(completabilityErrors(level)).toEqual([]);
+    }
+  });
+
+  // The headline deliverable of the transcription task (T7.1) is knowing which
+  // stages are the originals and which are inventions. An unlabelled stage, or
+  // one labelled without a source to check it against, is the failure this
+  // asserts against.
+  it('labels every stage transcribed or reconstructed, with a source', () => {
+    for (const level of shippedLevels()) {
+      expect([level.id, level.provenance]).toEqual([
+        level.id,
+        expect.stringMatching(/^(transcribed|reconstructed)$/),
+      ]);
+      expect(level.source ?? '').not.toBe('');
+    }
+  });
+
+  it('stage 1 is the sparse brick layout with a basic-dominated wave', () => {
+    // Content doc 05 §2.2's sanity anchor: if this ever stops holding, the
+    // transcription pipeline is suspect, whatever the other 34 files say.
+    const [stage1] = shippedLevels();
+    const a = analyseLevel(stage1);
+    expect(a.enemyCounts).toEqual({ basic: 18, fast: 2, power: 0, armor: 0 });
+    expect(a.terrainCounts.W).toBe(0);
+    expect(a.terrainCounts.T).toBe(0);
+    expect(a.terrainCounts.I).toBe(0);
+    expect(a.openness).toBeGreaterThan(0.5);
+    // The lone steel block above the base, and nothing else steel but the two
+    // side pieces on row 7.
+    expect(a.terrainCounts.S).toBe(3);
+  });
+
+  it('gives every stage a 20-tank wave', () => {
+    for (const level of shippedLevels()) {
+      const { basic, fast, power, armor } = analyseLevel(level).enemyCounts;
+      expect([level.id, basic + fast + power + armor]).toEqual([level.id, 20]);
     }
   });
 });

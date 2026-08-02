@@ -30,7 +30,21 @@ Runtime validation errors are user-readable (editor imports).
 
 ### 2.1 Sources
 
-Primary: original NES gameplay/stage references — GameFAQs complete guides ([brian_sulpher's walkthrough](https://gamefaqs.gamespot.com/nes/562966-battle-city/faqs/29287), [Shirow's FAQ](https://gamefaqs.gamespot.com/nes/562966-battle-city/faqs/15969)) and [StrategyWiki's Battle City pages](https://strategywiki.org/wiki/Battle_City), cross-checked against stage screenshots/longplay footage. The transcription task fetches and cites the exact source used per stage.
+Planned: original NES gameplay/stage references — GameFAQs complete guides ([brian_sulpher's walkthrough](https://gamefaqs.gamespot.com/nes/562966-battle-city/faqs/29287), [Shirow's FAQ](https://gamefaqs.gamespot.com/nes/562966-battle-city/faqs/15969)) and [StrategyWiki's Battle City pages](https://strategywiki.org/wiki/Battle_City), cross-checked against stage screenshots/longplay footage. The transcription task fetches and cites the exact source used per stage.
+
+**Actually used (T7.1, 2026-08-02).** Those prose guides were not needed: the game's own stage table is available as data, which is a strictly better source than any description of it. All 35 stages are transcribed from the ROM, and the path is committed as `scripts/transcribe-original-stages.ts` (`npm run levels:transcribe`) rather than described, so the claim is reproducible.
+
+| Role | Source | What it gave |
+|---|---|---|
+| Primary | [cyneprepou4uk/NES-Games-Disassembly](https://github.com/cyneprepou4uk/NES-Games-Disassembly/tree/main/Battle%20City), pinned at `57972cd` | `incbin/stages/stage_NN.bin` — 91 bytes per stage, one nibble per tile carrying kind **and** half-tile shape; `bank_FF.asm` tables `tbl_E4EC`/`tbl_E578` plus the spawn routine at `$E3CB` — the 20-tank wave and its order |
+| Verifier | [krystiankaluzny/Tanks](https://github.com/krystiankaluzny/Tanks) `@f59aea3` | 26×26 ASCII grids (C++/SDL2). Agrees with the ROM on 99.56% of tiles |
+| Verifier | [feichao93/battle-city](https://github.com/feichao93/battle-city) `@745c369` | 13×13 JSON with half-tile masks and per-stage bot lists (TypeScript/React). Agrees on 99.82% of tiles and on 33/35 waves |
+
+The nibble→(kind, mask) table is not documented anywhere; it was derived by decoding all 35 stages and matching every tile against those two reimplementations, and the transcription script re-runs that comparison on every invocation. Where the three disagree the ROM wins — the other two are reimplementations, and both differ from each other as well.
+
+Seven tiles across stages 5, 12, 15, 16 and 32 deviate from the ROM: the format requires the three enemy spawn tiles and the two player spawn tiles to be empty (§1) and the ROM does not. Each affected stage file records the deviation in a `notes` field.
+
+Each stage file carries `provenance` (`"transcribed" | "reconstructed"`) and `source`. These are campaign bookkeeping, not part of `LevelData`, so `validateLevel` ignores them and user levels need not have them.
 
 ### 2.2 Transcription protocol (agent workflow)
 
