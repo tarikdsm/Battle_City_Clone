@@ -408,17 +408,17 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 8 — Editor & Neo campaign (Lane main after G3)
 
-### - [ ] T8.1 Editor: painting & wave editing
+### - [x] T8.1 Editor: painting & wave editing
 **Files:** create `src/editor/{editor,tools,waveEditor}.ts`, `src/ui/screens/editor.ts` (route `#editor`, code-split). Test `tests/editor/tools.test.ts` (paint tile/subcell mode produces expected LevelData mutations; validation surfaces content §1 errors verbatim).
 **Spec:** arch §9; content §1, §5.
 **Commit:** `feat(editor): terrain painting and enemy wave editor`
 
-### - [ ] T8.2 Editor: test-play, save, share codes
+### - [x] T8.2 Editor: test-play, save, share codes
 **Files:** create `src/editor/share.ts`; extend editor + menus (custom levels list/play). Tests `tests/editor/share.test.ts` (roundtrip JSON↔`BC1.` base64url; tampered payload → readable error; unknown prefix `BC2.` rejected).
 **Spec:** arch §9; content §5.
 **Commit:** `feat(editor): instant test-play, local save, share codes`
 
-### - [ ] T8.3 Neo campaign (12 stages)
+### - [x] T8.3 Neo campaign (12 stages)
 **Files:** create `src/levels/neo/neo01..12.json` per content §3 briefs (authored via the editor — dogfood; any editor friction reported becomes fix-first).
 **Tests:** schema+completability; contact sheet regenerated; difficulty positions per content §4.
 **Commit:** `content: neo campaign (12 stages)` — playtest gate with owner.
