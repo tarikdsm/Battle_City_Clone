@@ -21,6 +21,7 @@ import {
   createMaterials,
   type Quality,
 } from './materials';
+import { POST_PRESETS, createPostChain, type PostChain } from './post';
 import { createSceneRoot, type SceneRoot } from './sceneRoot';
 import { createTankView, type TankView } from './tankView';
 import { createTerrainView, type TerrainView } from './terrainView';
@@ -73,6 +74,15 @@ export function createRenderer(
   // viewport is seamless rather than a visible black bar.
   gl.setClearColor(0x0a0a0a, 1);
 
+  // The post chain (art §7). It reads the finished drawing buffer and writes
+  // back over it, so the beauty pass above stays exactly the render T2.2–T2.4
+  // calibrated — see the header of `post.ts` for why it is not a `RenderPass`.
+  const post: PostChain = createPostChain(
+    gl,
+    sceneRoot.scene,
+    sceneRoot.camera,
+  );
+
   let currentQuality: Quality = quality;
   let viewW = 1;
   let viewH = 1;
@@ -90,6 +100,11 @@ export function createRenderer(
       }
     }
     sceneRoot.setShadowQuality(preset);
+    // Reconfigures the chain in place: the scene, its materials and the pooled
+    // views are untouched by a preset switch (T2.2's contract), and every effect
+    // the new preset replaces is disposed rather than dropped (`post.ts` routes
+    // all of them through one `Slot`).
+    post.setPreset(POST_PRESETS[q]);
   }
 
   function applyViewport(w: number, h: number): void {
@@ -101,6 +116,9 @@ export function createRenderer(
     gl.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, cap));
     gl.setSize(viewW, viewH, true);
     sceneRoot.setViewport(viewW, viewH);
+    // After `setPixelRatio`/`setSize`: the chain's targets are sized from the
+    // drawing buffer, which only exists once those two have run.
+    post.setSize(viewW, viewH);
   }
 
   applyQuality(quality);
@@ -122,6 +140,8 @@ export function createRenderer(
       tanks.update(state, alpha, dtMs);
       bullets.update(state, alpha);
       gl.render(sceneRoot.scene, sceneRoot.camera);
+      // Art §7's chain, applied to the frame that is now in the drawing buffer.
+      post.render();
     },
 
     // Terrain damage (T2.3) and the tanks' recoil / hit-flash / respawn
@@ -146,6 +166,7 @@ export function createRenderer(
     },
 
     dispose(): void {
+      post.dispose();
       tanks.dispose();
       bullets.dispose();
       terrain.dispose();

@@ -69,6 +69,7 @@ import {
   type TankModel,
   type TankType,
 } from './models';
+import { BLOOM_LAYER } from './post';
 import type { SceneRoot } from './sceneRoot';
 import { createSlotMap, type SlotMap, type SlotMove } from './terrainView';
 
@@ -488,6 +489,13 @@ export function createTankView(
     // cost a shadow-map draw for a surface the light does not fall on.
     mesh.castShadow = false;
     mesh.receiveShadow = false;
+    // …and these two meshes, alone in the whole scene, are what art §7's bloom
+    // is for (art §8's emissive ruling, 2026-08-02: one shared emissive material
+    // each for the spawn star and the tier-3 tip). `enable` rather than `set`:
+    // the mesh stays on layer 0 so the beauty pass still draws it, and gains a
+    // second layer that only the bloom source pass renders. The carrier pulse
+    // is deliberately absent — it is a per-instance diffuse tint, not emissive.
+    mesh.layers.enable(BLOOM_LAYER);
     return { mesh, material, capacity: Math.max(1, capacity), used: 0 };
   }
 
@@ -497,6 +505,9 @@ export function createTankView(
     const next = makeInstanced(geometry, entry.material, capacity);
     next.castShadow = false;
     next.receiveShadow = false;
+    // The replacement inherits the bloom layer; a grown pool that stopped
+    // glowing would be a bug nothing but a screenshot could catch.
+    next.layers.enable(BLOOM_LAYER);
     group.remove(entry.mesh);
     entry.mesh.dispose();
     group.add(next);

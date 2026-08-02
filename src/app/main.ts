@@ -11,20 +11,39 @@ import {
   type LevelData,
   type PlayerIntent,
 } from '../core/types';
+import {
+  concreteQuality,
+  decideAutoQuality,
+  sampleDevice,
+} from '../render/post';
 import { createRenderer, type Quality } from '../render/renderer';
 import { parseDebugFlags } from './debug';
 import { createErrorRail, createErrorScreen } from './errorScreen';
 import { createLoop } from './loop';
 import { createSession } from './session';
+import { loadSettings } from './storage';
 import { createScreenMachine, OVERLAY_STYLE, type Screen } from './screens';
 
 /**
- * Settings carry a fourth `'auto'` quality that the renderer does not accept
- * (T2.1 report §6). The real Auto probe — DPR, `hardwareConcurrency`, a 1 s FPS
- * sample — is T2.5; until then anything unresolved starts at High, which is what
- * the preview wants anyway.
+ * Resolves the settings vocabulary (`'auto' | 'low' | 'medium' | 'high'`) to the
+ * three concrete levels the renderer accepts — arch §5's Auto probe.
+ *
+ * Order is the whole point: the `?quality=` debug flag beats the stored setting,
+ * the stored setting beats the probe, and the probe's answer is **never written
+ * back** (see `concreteQuality`). Sampling is skipped entirely when either
+ * override is present, so an explicit choice does not pay a second of boot for
+ * a number nobody will read.
+ *
+ * The probe belongs on the title screen (arch §5) — it lands here because the
+ * title screen is T3.x and this preview is the only thing that owns a renderer.
  */
-const DEFAULT_QUALITY: Quality = 'high';
+async function resolveQuality(override?: Quality): Promise<Quality> {
+  const settled = concreteQuality(loadSettings().quality, override);
+  if (settled !== null) {
+    return settled;
+  }
+  return decideAutoQuality(await sampleDevice(window));
+}
 
 /** Placeholder until the title screen lands (T3.x). */
 function createBootScreen(): Screen {
@@ -48,7 +67,7 @@ function createBootScreen(): Screen {
  * A corner caption for the dev preview. It also keeps `#ui` non-empty, which the
  * e2e smoke asserts — the boot screen it replaces was the only thing in there.
  */
-function createPreviewCaption(): Screen {
+function createPreviewCaption(quality: Quality): Screen {
   let node: HTMLElement | null = null;
   return {
     enter(root: HTMLElement): void {
@@ -56,7 +75,10 @@ function createPreviewCaption(): Screen {
       tag.style.cssText =
         'position:fixed;left:12px;bottom:10px;margin:0;pointer-events:none;' +
         'font:12px/1 system-ui,sans-serif;color:#7fc4ff;opacity:0.65;';
-      tag.textContent = 'scene preview — T2.4';
+      // The resolved preset is on screen because an Auto decision is otherwise
+      // invisible: "why does this machine look softer than that one" has to be
+      // answerable without a debugger.
+      tag.textContent = `scene preview — T2.5 · quality ${quality}`;
       root.append(tag);
       node = tag;
     },
@@ -189,7 +211,27 @@ console.log('boot ok');
 // rather than a mock. Gated on DEV, so a production bundle keeps exactly the
 // pre-T2.2 behaviour (canvas sized to the window, boot screen, nothing drawn).
 if (import.meta.env.DEV) {
-  const renderer = createRenderer(canvas, debug.quality ?? DEFAULT_QUALITY);
+  // `void` + async IIFE rather than a top-level await: this module is the entry
+  // chunk, and a top-level await there makes the whole bundle async. The 1 s
+  // probe runs while the boot screen is up, so nothing is waiting on it but the
+  // first frame — and a rejection lands on the `unhandledrejection` rail armed
+  // above, which is where a boot failure belongs.
+  void (async (): Promise<void> => {
+    const quality = await resolveQuality(debug.quality);
+    startPreview(quality);
+  })();
+} else {
+  // Unchanged pre-T2.2 path: no GL context, so nothing owns the drawing buffer.
+  const resizeCanvas = (): void => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  };
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+}
+
+function startPreview(quality: Quality): void {
+  const renderer = createRenderer(canvas, quality);
   const state = createGame(previewLevel(), {
     players: 2, // both player colours on the board
     seed: debug.seed ?? createSession().seed,
@@ -225,18 +267,10 @@ if (import.meta.env.DEV) {
   fitToWindow();
   window.addEventListener('resize', fitToWindow);
 
-  screens.register('play', createPreviewCaption());
+  screens.register('play', createPreviewCaption(quality));
   screens.show('play');
 
   // `start()` re-baselines the clock; calling `tickOnce` by hand here would
   // measure dt from the epoch and burn a 10-step catch-up (T2.1 report §6).
   loop.start();
-} else {
-  // Unchanged pre-T2.2 path: no GL context, so nothing owns the drawing buffer.
-  const resizeCanvas = (): void => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-  };
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
 }

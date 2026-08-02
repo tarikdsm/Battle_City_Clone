@@ -18,7 +18,8 @@
     "levels:preview": "tsx scripts/level-preview.ts",
     "replays:record": "tsx scripts/record-replay.ts",
     "calibrate:lighting": "tsx scripts/calibrate-lighting.ts",
-    "capture:entities": "tsx scripts/capture-entities.ts"
+    "capture:entities": "tsx scripts/capture-entities.ts",
+    "capture:post": "tsx scripts/capture-post.ts"
   },
   "dependencies": {
     "three": "0.185.1"
