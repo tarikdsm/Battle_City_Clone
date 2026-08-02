@@ -1,0 +1,81 @@
+{
+  "capturedAt": "2026-08-02T07:10:57.601Z",
+  "url": "http://localhost:5173/",
+  "viewport": {
+    "w": 1600,
+    "h": 900,
+    "devicePixelRatio": 1.0000000149011612
+  },
+  "gpu": {
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics (0x00009A60) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "headless": false
+  },
+  "autoProbe": {
+    "picked": "low",
+    "fps": 29.676525865238723,
+    "dpr": 1.0000000149011612,
+    "cores": 16
+  },
+  "loop": {
+    "high": {
+      "frames": 276,
+      "meanMs": 1.876,
+      "medianMs": 1.9,
+      "p95Ms": 2.8,
+      "maxMs": 3.8,
+      "fps": 34.4,
+      "drawCalls": {
+        "min": 37,
+        "median": 39,
+        "max": 41
+      }
+    },
+    "medium": {
+      "frames": 345,
+      "meanMs": 1.522,
+      "medianMs": 1.4,
+      "p95Ms": 2.5,
+      "maxMs": 3.7,
+      "fps": 43,
+      "drawCalls": {
+        "min": 35,
+        "median": 37,
+        "max": 39
+      }
+    },
+    "low": {
+      "frames": 431,
+      "meanMs": 0.796,
+      "medianMs": 0.7,
+      "p95Ms": 1.5,
+      "maxMs": 2.5,
+      "fps": 53.8,
+      "drawCalls": {
+        "min": 12,
+        "median": 14,
+        "max": 15
+      }
+    }
+  },
+  "scene": {
+    "high": {
+      "enemiesLeftAtEnd": 14,
+      "scoreAtEnd": 200
+    },
+    "medium": {
+      "enemiesLeftAtEnd": 16,
+      "scoreAtEnd": 0
+    },
+    "low": {
+      "enemiesLeftAtEnd": 16,
+      "scoreAtEnd": 0
+    }
+  },
+  "budget": {
+    "renderCpuMs": 6,
+    "drawCalls": 120
+  },
+  "consoleErrors": [],
+  "failedRequests": []
+}

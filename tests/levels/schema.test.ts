@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fixtureJson from '../fixtures/level-basic.json';
+import stage01Json from '../../src/levels/original/stage01.json';
 import { validateLevel } from '../../src/levels/schema';
 
 // A loosely-typed level shape so tests can freely inject single flaws without
@@ -93,5 +94,19 @@ describe('validateLevel — rejects malformed levels', () => {
 describe('validateLevel — accepts valid levels', () => {
   it('accepts the basic fixture', () => {
     expect(validateLevel(fixtureJson).ok).toBe(true);
+  });
+});
+
+describe('shipped levels', () => {
+  // The game boots straight into this file (`main.ts`), so a bad row length or
+  // an occupied spawn tile would be a black screen rather than a test failure.
+  it('stage01.json is schema-valid and still marked provisional', () => {
+    const result = validateLevel(stage01Json);
+    expect(result.ok ? [] : result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+    // T7.2 replaces it. Until then the name has to say so on the HUD-facing
+    // field, so nobody mistakes the approximation for the transcription.
+    expect(stage01Json.name).toContain('provisional');
+    expect(stage01Json.enemies).toHaveLength(20);
   });
 });
