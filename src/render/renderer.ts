@@ -39,8 +39,28 @@ export interface Renderer {
   dispose(): void;
 }
 
-/** Art §6: ACES filmic, exposure 1.1. */
-const TONE_MAPPING_EXPOSURE = 1.1;
+/**
+ * ACES filmic exposure — **calibrated, and deliberately not art §6's 1.1.**
+ *
+ * §6 set 1.1 when *everything* went through the tone curve. Art §3.0 then took
+ * the board, grid and frame off it (flat graphics render their token directly),
+ * so exposure now reaches **only** lit 3D surfaces — tanks, and terrain from
+ * T2.3. Its old value no longer means what it meant, and re-deriving it is part
+ * of applying the new policy rather than a departure from it.
+ *
+ * That split is also what makes §6's targets satisfiable at all. The key/fill
+ * pair in `sceneRoot.ts` is pinned by the flat graphics; at §6's stated 1.1 the
+ * same lighting left a player tank **+20.9%**, outside the ±10% target, and no
+ * key/fill pair fixes both because the two paths respond differently. Exposure
+ * is the lever that reaches the ACES path alone — measured, sweeping it moves a
+ * tank across a ±20% range while the board and its shadow stay **bit-identical**.
+ *
+ * Measured at 0.70: a fully-lit player-gold top face reads `#d1a44a` against the
+ * authored `#d99c2b` — **+3.9%** in luminance, against §6's ±10% target. (ACES
+ * desaturates as it rolls off, so the hue is paler than the token even when the
+ * luminance is exact; that is the tone curve doing its job, not a mismatch.)
+ */
+const TONE_MAPPING_EXPOSURE = 0.7;
 
 /** Placeholder tank body: the 16×16 u footprint of art §4 at ~10 u tall. */
 const PLACEHOLDER_TANK_H = 10;

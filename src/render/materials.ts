@@ -12,6 +12,7 @@ import {
   Color,
   LineBasicMaterial,
   Material,
+  MeshLambertMaterial,
   MeshStandardMaterial,
 } from 'three';
 
@@ -118,8 +119,8 @@ export const QUALITY_PRESETS: Readonly<Record<Quality, QualityPreset>> =
  * without allocating (see `renderer.ts`).
  */
 export interface Materials {
-  readonly board: MeshStandardMaterial;
-  readonly boardFrame: MeshStandardMaterial;
+  readonly board: MeshLambertMaterial;
+  readonly boardFrame: MeshLambertMaterial;
   readonly gridLine: LineBasicMaterial;
   readonly player1: MeshStandardMaterial;
   readonly player2: MeshStandardMaterial;
@@ -146,13 +147,36 @@ function srgb(hex: number): Color {
   return new Color(hex);
 }
 
-/** Matte, non-metallic surface — the board and everything terrain-like. */
-function surface(hex: number, roughness: number): MeshStandardMaterial {
-  return new MeshStandardMaterial({
-    color: srgb(hex),
-    roughness,
-    metalness: 0,
-  });
+/**
+ * A **flat graphic element** in the sense of art §3.0: part of the board's
+ * diagram rather than an object the light happens to fall on. The board plane
+ * and the frame wall qualify; terrain and tanks do not.
+ *
+ * Two decisions, both forced by measurement rather than taste:
+ *
+ * **`toneMapped = false`** — the stated point of §3.0. A fully-lit patch leaves
+ * the shader at its authored token instead of being crushed by the ACES curve.
+ * That only works because §6 calibrates the rig so full lighting multiplies
+ * albedo by ~1.0: policy (§3.0) and calibration (§6) are two halves of one
+ * mechanism, and changing either alone breaks the palette's promise.
+ *
+ * **`MeshLambertMaterial`, not `MeshStandardMaterial`** — this one is subtle and
+ * cost an hour to find. Standard adds a dielectric specular term that does *not*
+ * scale with albedo, so it lifts a dark surface proportionally far more than a
+ * light one. Calibrated against the near-black board, the frame wall then landed
+ * **27% below** its token — same orientation, same lighting, shadows ruled out.
+ * Lambert in this version is pure diffuse (`RE_Direct_Lambert` +
+ * `RE_IndirectDiffuse_Lambert`, no specular lobe at all), so its output is
+ * strictly proportional to albedo and **one calibration serves every flat
+ * graphic** — including whatever T2.3 adds. It still receives shadows, and it
+ * still shades the frame's sides darker than its top, which is what makes the
+ * rim read as raised. "Flat" meaning "no gloss" is the right physics for a
+ * diagram anyway.
+ */
+function graphicSurface(hex: number): MeshLambertMaterial {
+  const m = new MeshLambertMaterial({ color: srgb(hex) });
+  m.toneMapped = false;
+  return m;
 }
 
 /**
@@ -170,24 +194,17 @@ function tankSkin(hex: number): MeshStandardMaterial {
 }
 
 export function createMaterials(): Materials {
-  const board = surface(PALETTE.board, 0.95);
-  const boardFrame = surface(PALETTE.boardFrame, 0.8);
+  const board = graphicSurface(PALETTE.board);
+  const boardFrame = graphicSurface(PALETTE.boardFrame);
 
+  // The lattice is the purest case of art §3.0: a diagram drawn on the board,
+  // with no lighting model at all (`LineBasicMaterial` is unlit), so
+  // `toneMapped = false` puts exactly `#191d2b` on screen. This is the
+  // measurement the policy was written from — tone-mapped it landed 1.07× the
+  // board's luminance (invisible); unmapped it is 1.6×.
+  //
   // `linewidth` is deliberately not set: WebGL renders every line at 1 px
   // regardless, so setting it would only mislead.
-  //
-  // `toneMapped = false` is the one deliberate departure from "everything goes
-  // through ACES", and it is what makes the lattice do its job. Measured on the
-  // board at exposure 1.1: tone-mapped, `#191d2b` lands at luminance 15.5
-  // against a board of 14.5 — a 7% difference, i.e. invisible, because ACES
-  // compresses hardest exactly where these two colours live. Unmapped, the line
-  // renders at the authored `#191d2b` (luminance 29) for a 2:1 contrast, which
-  // is the ratio art §3 chose when it put `#191d2b` next to `#10121b`.
-  //
-  // Defensible beyond the numbers: the lattice is a flat readability aid, not a
-  // lit surface (GDD pillar 2 — readability wins), and keeping it out of the
-  // tone curve also keeps it out of T2.5's bloom, where a glowing grid would be
-  // wrong anyway.
   const gridLine = new LineBasicMaterial({ color: srgb(PALETTE.gridLine) });
   gridLine.toneMapped = false;
 

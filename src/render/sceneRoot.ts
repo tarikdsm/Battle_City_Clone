@@ -109,11 +109,41 @@ const KEY_AZIMUTH_RAD = (-35 * Math.PI) / 180;
 const KEY_ELEVATION_RAD = (50 * Math.PI) / 180;
 const KEY_DIST = 300;
 const KEY_COLOR = 0xfff2e0;
-const KEY_INTENSITY = 3.0;
 
 const FILL_SKY = 0x2a3550;
 const FILL_GROUND = 0x1a1410;
-const FILL_INTENSITY = 0.35;
+
+/**
+ * **Calibrated, not chosen — art §6 specifies targets and these are the values
+ * that hit them.** Measured through the real pipeline (T2.2 report §12):
+ *
+ * | surface | authored | rendered | vs token |
+ * |---|---|---|---|
+ * | board, fully lit | `#10121b` | `#11121d` | **+2.0%** |
+ * | frame wall top   | `#262b3d` | `#272b40` | **+1.0%** |
+ *
+ * and shadowed board is **23.1%** of lit board. Targets: ±10% and 15–35%.
+ *
+ * Do not nudge either number alone. `KEY_INTENSITY` sets how bright a lit
+ * surface is; `FILL_INTENSITY` lifts the shadow *and* the lit surface, because
+ * the fill reaches both. They trade against each other and the pair above is a
+ * solution to both constraints at once — re-sweep if you touch either.
+ *
+ * `FILL_INTENSITY` looks absurd next to `KEY_INTENSITY`; it is not. Intensity
+ * multiplies the light's **colour**, and `FILL_SKY` (#2a3550) is a very dark
+ * navy — linear luminance 0.036, about 4% of the key's near-white 0.90. So a
+ * 4:1 ratio in the constants is roughly 1:6 in delivered light. That asymmetry
+ * is exactly the trap the original 3.0 / 0.35 pair fell into: it reads like a
+ * sensible 9:1 key-to-fill and measured **1550:1**, which is why every shadow
+ * clipped to pure black.
+ *
+ * These two calibrate the **flat-graphic** path only (art §3.0 — board, grid,
+ * frame; no tone mapping). Lit 3D surfaces are on the ACES path and are
+ * calibrated separately by `TONE_MAPPING_EXPOSURE` in `renderer.ts`; the two are
+ * independent, which is what makes satisfying both at once possible at all.
+ */
+const KEY_INTENSITY = 3.8;
+const FILL_INTENSITY = 16.0;
 
 /**
  * Half-width of the key light's shadow frustum. The board's half-diagonal is
@@ -217,10 +247,13 @@ export function createSceneRoot(materials: Materials): SceneRoot {
     new Color(FILL_GROUND),
     FILL_INTENSITY,
   );
-  // Hemisphere light is directionless in the horizontal, but three still blends
-  // sky→ground by the surface normal against the light's own up axis, so it has
-  // to sit above the board rather than at the origin inside it.
-  fill.position.set(center.x, 200, center.z);
+  // `HemisphereLight.position` is read as a **direction from the world origin**,
+  // not as a place: three normalises it and blends sky→ground by
+  // `0.5·dot(normal, dir) + 0.5`. Putting it "above the board" at
+  // (104, 200, 104) therefore tilted the sky axis 36° off vertical and left the
+  // ground plane picking up 10% ground colour it should not see. Straight up is
+  // the whole intent, and (0, 1, 0) is how you say it.
+  fill.position.set(0, 1, 0);
   scene.add(fill);
 
   // --- Camera -------------------------------------------------------------
