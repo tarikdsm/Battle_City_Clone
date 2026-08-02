@@ -8,12 +8,26 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  LineBasicMaterial,
+  MeshLambertMaterial,
+  MeshStandardMaterial,
+} from 'three';
+
+import {
+  CALIBRATION,
   ICE_ALPHA,
   PALETTE,
   QUALITY_PRESETS,
+  createMaterials,
+  graphicSurface,
+  litSurface,
   type PaletteKey,
+  // Imported from materials, not renderer: `Quality` is *declared* here and
+  // only re-exported there (Contract Zero names renderer.ts as its home), and
+  // reaching through renderer.ts would drag `HTMLCanvasElement` into a node-env
+  // test that has no DOM.
+  type Quality,
 } from '../../src/render/materials';
-import type { Quality } from '../../src/render/renderer';
 
 // Transcribed from docs/03-art-direction.md §3, top to bottom. This table is the
 // spec: if the doc changes, change it here first and let the test go red.
@@ -153,5 +167,149 @@ describe('QUALITY_PRESETS (art §7)', () => {
     // with "a shadow map of some default size".
     expect(QUALITY_PRESETS.low.shadows).toBe(false);
     expect(QUALITY_PRESETS.low.shadowMapSize).toBe(0);
+  });
+});
+
+// Constructing a Material or a Color touches no GL context — which is exactly
+// why `createMaterials()` is a factory — so the round-2 rulings (art §3.0's
+// tone-mapping policy and §6's calibration) are assertable right here, in the
+// node environment, with no DOM and no WebGL.
+describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
+  const FLAT: readonly ('board' | 'boardFrame' | 'gridLine')[] = [
+    'board',
+    'boardFrame',
+    'gridLine',
+  ];
+  const LIT: readonly (
+    | 'player1'
+    | 'player2'
+    | 'enemyBasic'
+    | 'enemyFast'
+    | 'enemyPower'
+    | 'enemyArmor'
+    | 'bullet'
+  )[] = [
+    'player1',
+    'player2',
+    'enemyBasic',
+    'enemyFast',
+    'enemyPower',
+    'enemyArmor',
+    'bullet',
+  ];
+
+  it.each(FLAT)('%s opts out of tone mapping', (key) => {
+    const mats = createMaterials();
+    // The single strongest regression risk in this task: drop this flag and the
+    // ACES curve crushes the token (the grid measured 1.07× the board's
+    // luminance — invisible — before the policy landed).
+    expect(mats[key].toneMapped).toBe(false);
+    mats.dispose();
+  });
+
+  it.each(LIT)('%s stays on the ACES path', (key) => {
+    const mats = createMaterials();
+    expect(mats[key].toneMapped).toBe(true);
+    mats.dispose();
+  });
+
+  it('flat graphics are Lambert, lit surfaces are Standard', () => {
+    const mats = createMaterials();
+    // Not cosmetic: a standard material adds a specular term that does not
+    // scale with albedo, which put the frame wall 27% below its token when the
+    // rig was calibrated against the near-black board. "Simplifying" these back
+    // to MeshStandardMaterial silently decalibrates the whole flat path.
+    expect(mats.board).toBeInstanceOf(MeshLambertMaterial);
+    expect(mats.boardFrame).toBeInstanceOf(MeshLambertMaterial);
+    expect(mats.gridLine).toBeInstanceOf(LineBasicMaterial);
+    for (const key of LIT) {
+      expect(mats[key], key).toBeInstanceOf(MeshStandardMaterial);
+    }
+    mats.dispose();
+  });
+
+  it('carries the authored token through to the material colour', () => {
+    const mats = createMaterials();
+    // `new Color(hex)` converts sRGB → the linear working space, so this also
+    // pins the round-trip the whole palette promise rests on.
+    expect(mats.board.color.getHexString()).toBe('10121b');
+    expect(mats.boardFrame.color.getHexString()).toBe('262b3d');
+    expect(mats.gridLine.color.getHexString()).toBe('191d2b');
+    expect(mats.player1.color.getHexString()).toBe('d99c2b');
+    expect(mats.enemyArmor.color.getHexString()).toBe('c3cad6');
+    mats.dispose();
+  });
+
+  it('exports both factories, and they carry the policy (art §6)', () => {
+    const flat = graphicSurface(PALETTE.brickTop);
+    const lit = litSurface(PALETTE.brickTop);
+    expect(flat).toBeInstanceOf(MeshLambertMaterial);
+    expect(flat.toneMapped).toBe(false);
+    expect(lit).toBeInstanceOf(MeshStandardMaterial);
+    expect(lit.toneMapped).toBe(true);
+    // The calibrated specular response the exposure was fit through.
+    expect(lit.roughness).toBe(CALIBRATION.litRoughness);
+    expect(lit.metalness).toBe(CALIBRATION.litMetalness);
+    // Overridable, because water and ice want gloss (art §5) — but doing so is
+    // a calibration change, which is why it has to be spelled out.
+    const glossy = litSurface(PALETTE.waterDeep, {
+      roughness: 0.1,
+      metalness: 0.4,
+    });
+    expect(glossy.roughness).toBe(0.1);
+    expect(glossy.metalness).toBe(0.4);
+    flat.dispose();
+    lit.dispose();
+    glossy.dispose();
+  });
+
+  it('registers every material in `all` exactly once', () => {
+    const mats = createMaterials();
+    // `all` drives both the shadow-toggle recompile sweep and disposal, so a
+    // material missing from it fails silently twice over. It is derived from
+    // the role record precisely so this cannot drift — this asserts the
+    // derivation, not a hand-kept list.
+    const roles = Object.keys(mats).filter(
+      (k) => k !== 'all' && k !== 'dispose',
+    );
+    expect(mats.all).toHaveLength(roles.length);
+    expect(new Set(mats.all).size).toBe(roles.length);
+    for (const role of roles) {
+      const m = (mats as unknown as Record<string, unknown>)[role];
+      expect(mats.all, role).toContain(m);
+    }
+    mats.dispose();
+  });
+});
+
+describe('CALIBRATION (art §6)', () => {
+  it('is frozen — the five values are one solution, not five knobs', () => {
+    expect(Object.isFrozen(CALIBRATION)).toBe(true);
+    const mutable = CALIBRATION as unknown as Record<string, number>;
+    expect(() => {
+      mutable.keyIntensity = 99;
+    }).toThrow(TypeError);
+    expect(CALIBRATION.keyIntensity).toBe(3.8);
+  });
+
+  it('holds the measured values (re-run npm run calibrate:lighting to change)', () => {
+    // Pinned so a stray edit is a failing test rather than a silent visual
+    // regression nobody notices until a screenshot looks wrong.
+    expect(CALIBRATION).toEqual({
+      keyIntensity: 3.8,
+      fillIntensity: 16.0,
+      fillSky: 0x303543,
+      fillGround: 0x8f6b3d,
+      toneMappingExposure: 0.7,
+      litRoughness: 0.55,
+      litMetalness: 0.15,
+    });
+  });
+
+  it('keeps exposure off art §6’s superseded 1.1', () => {
+    // Exposure reaches only the ACES path; 1.1 predates the §3.0 split and
+    // measured +20.9% on a tank. Guarded because "restoring the documented
+    // value" is exactly the kind of well-meaning edit that would break it.
+    expect(CALIBRATION.toneMappingExposure).not.toBe(1.1);
   });
 });

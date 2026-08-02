@@ -34,7 +34,7 @@ import {
 } from 'three';
 
 import { FIELD_TILES, FIELD_U, TILE } from '../core/constants';
-import type { Materials, QualityPreset } from './materials';
+import { CALIBRATION, type Materials, type QualityPreset } from './materials';
 
 // --- Board geometry (art §5 "Board edge", art §2 framing) ---
 
@@ -110,40 +110,9 @@ const KEY_ELEVATION_RAD = (50 * Math.PI) / 180;
 const KEY_DIST = 300;
 const KEY_COLOR = 0xfff2e0;
 
-const FILL_SKY = 0x2a3550;
-const FILL_GROUND = 0x1a1410;
-
-/**
- * **Calibrated, not chosen — art §6 specifies targets and these are the values
- * that hit them.** Measured through the real pipeline (T2.2 report §12):
- *
- * | surface | authored | rendered | vs token |
- * |---|---|---|---|
- * | board, fully lit | `#10121b` | `#11121d` | **+2.0%** |
- * | frame wall top   | `#262b3d` | `#272b40` | **+1.0%** |
- *
- * and shadowed board is **23.1%** of lit board. Targets: ±10% and 15–35%.
- *
- * Do not nudge either number alone. `KEY_INTENSITY` sets how bright a lit
- * surface is; `FILL_INTENSITY` lifts the shadow *and* the lit surface, because
- * the fill reaches both. They trade against each other and the pair above is a
- * solution to both constraints at once — re-sweep if you touch either.
- *
- * `FILL_INTENSITY` looks absurd next to `KEY_INTENSITY`; it is not. Intensity
- * multiplies the light's **colour**, and `FILL_SKY` (#2a3550) is a very dark
- * navy — linear luminance 0.036, about 4% of the key's near-white 0.90. So a
- * 4:1 ratio in the constants is roughly 1:6 in delivered light. That asymmetry
- * is exactly the trap the original 3.0 / 0.35 pair fell into: it reads like a
- * sensible 9:1 key-to-fill and measured **1550:1**, which is why every shadow
- * clipped to pure black.
- *
- * These two calibrate the **flat-graphic** path only (art §3.0 — board, grid,
- * frame; no tone mapping). Lit 3D surfaces are on the ACES path and are
- * calibrated separately by `TONE_MAPPING_EXPOSURE` in `renderer.ts`; the two are
- * independent, which is what makes satisfying both at once possible at all.
- */
-const KEY_INTENSITY = 3.8;
-const FILL_INTENSITY = 16.0;
+// Intensities and fill colours are calibration outputs, not rig geometry, and
+// live in `CALIBRATION` (materials.ts) with the rest of the coupled set. Only
+// the direction and colour of the key are fixed by art §6 and stay here.
 
 /**
  * Half-width of the key light's shadow frustum. The board's half-diagonal is
@@ -210,7 +179,10 @@ export function createSceneRoot(materials: Materials): SceneRoot {
   scene.add(frame);
 
   // --- Lights (art §6) ----------------------------------------------------
-  const key = new DirectionalLight(new Color(KEY_COLOR), KEY_INTENSITY);
+  const key = new DirectionalLight(
+    new Color(KEY_COLOR),
+    CALIBRATION.keyIntensity,
+  );
   key.position.set(
     center.x +
       KEY_DIST * Math.sin(KEY_AZIMUTH_RAD) * Math.cos(KEY_ELEVATION_RAD),
@@ -243,9 +215,9 @@ export function createSceneRoot(materials: Materials): SceneRoot {
   scene.add(key);
 
   const fill = new HemisphereLight(
-    new Color(FILL_SKY),
-    new Color(FILL_GROUND),
-    FILL_INTENSITY,
+    new Color(CALIBRATION.fillSky),
+    new Color(CALIBRATION.fillGround),
+    CALIBRATION.fillIntensity,
   );
   // `HemisphereLight.position` is read as a **direction from the world origin**,
   // not as a place: three normalises it and blends sky→ground by

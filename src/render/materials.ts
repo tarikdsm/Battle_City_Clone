@@ -114,11 +114,76 @@ export const QUALITY_PRESETS: Readonly<Record<Quality, QualityPreset>> =
   });
 
 /**
+ * The lighting rig's calibrated numbers, art §6. **All five move together** —
+ * they are the solution to one system of three constraints, not five
+ * independent knobs, which is why they live in one frozen table instead of
+ * being spread across `sceneRoot.ts` and `renderer.ts` where a reader of either
+ * file would see half the mechanism.
+ *
+ * The constraints (art §6):
+ *   1. a fully-lit horizontal surface within ±10% of its token;
+ *   2. shadowed ground at 15–35% of lit ground;
+ *   3. a vertical face within ±20% of its authored *side* token.
+ *
+ * Which lever reaches which constraint is not obvious, and is the whole reason
+ * a single-number tweak here is never safe:
+ *
+ * | lever | reaches |
+ * |---|---|
+ * | `keyIntensity` | every key-lit surface — target 1 |
+ * | `fillSky` / `fillIntensity` | shadowed **horizontal** surfaces — target 2 |
+ * | `fillGround` | **vertical** faces only — target 3 |
+ * | `toneMappingExposure` | the ACES path only (lit 3D), not flat graphics |
+ * | `litRoughness` / `litMetalness` | the specular term the exposure was fit through |
+ *
+ * `fillGround` reaching verticals *without* touching the ground plane is the
+ * non-obvious one, and it is what makes targets 2 and 3 independently
+ * satisfiable: three blends a hemisphere light by
+ * `0.5·dot(normal, up) + 0.5`, so a horizontal surface samples **pure sky**
+ * (weight 1) while a vertical face samples a **50/50 sky+ground mix**
+ * (weight 0.5). Verified by measurement, not just by reading the shader.
+ *
+ * **Re-run `npm run calibrate:lighting` after touching anything here.**
+ */
+export interface Calibration {
+  readonly keyIntensity: number;
+  readonly fillIntensity: number;
+  /** Hemisphere sky colour — reaches horizontal surfaces. */
+  readonly fillSky: number;
+  /** Hemisphere ground colour — reaches vertical faces (see above). */
+  readonly fillGround: number;
+  /** ACES exposure. Only affects tone-mapped (lit 3D) materials. */
+  readonly toneMappingExposure: number;
+  readonly litRoughness: number;
+  readonly litMetalness: number;
+}
+
+export const CALIBRATION: Calibration = Object.freeze({
+  keyIntensity: 3.8,
+  fillIntensity: 16.0,
+  // Art §6's `#2a3550` desaturated toward neutral at held luminance. The
+  // saturation was the defect the third target was written against: a strongly
+  // blue fill tints every shaded face toward navy regardless of its own colour
+  // (a violet tank's side measured near-pure blue).
+  fillSky: 0x303543,
+  // Nothing like art §6's `#1a1410`, and the reason is structural rather than
+  // aesthetic: this is the *only* lever that reaches vertical faces, so target 3
+  // sets it outright. Warm because the two side tokens pull in opposite
+  // directions — brick's albedo is warm and steel's is cool, so a neutral fill
+  // splits them 41 points apart (wider than the ±20% window) while this warm one
+  // closes the spread to 35 and lands both at ±17.5.
+  fillGround: 0x8f6b3d,
+  toneMappingExposure: 0.7,
+  litRoughness: 0.55,
+  litMetalness: 0.15,
+});
+
+/**
  * Every shared material in the scene, created once and reused. Tank entries are
  * keyed so a pooled view can swap `mesh.material` by reference each frame
  * without allocating (see `renderer.ts`).
  */
-export interface Materials {
+export interface MaterialsByRole {
   readonly board: MeshLambertMaterial;
   readonly boardFrame: MeshLambertMaterial;
   readonly gridLine: LineBasicMaterial;
@@ -129,7 +194,17 @@ export interface Materials {
   readonly enemyPower: MeshStandardMaterial;
   readonly enemyArmor: MeshStandardMaterial;
   readonly bullet: MeshStandardMaterial;
-  /** Every material above, once each — for `needsUpdate` sweeps and disposal. */
+}
+
+export interface Materials extends MaterialsByRole {
+  /**
+   * Every material above, once each — for the `needsUpdate` sweep on a shadow
+   * toggle and for disposal. **Derived** from the role record rather than
+   * hand-listed: a material that made it into the record but not into this
+   * array would compile fine and then fail silently, keeping its stale
+   * compiled program across a Low→High switch (so it would never start
+   * sampling shadows) and leaking on `dispose()`.
+   */
   readonly all: readonly Material[];
   dispose(): void;
 }
@@ -148,9 +223,15 @@ function srgb(hex: number): Color {
 }
 
 /**
- * A **flat graphic element** in the sense of art §3.0: part of the board's
- * diagram rather than an object the light happens to fall on. The board plane
- * and the frame wall qualify; terrain and tanks do not.
+ * A **flat graphic element** in the sense of art §3.0 — part of the board's
+ * *diagram*, not an object the light falls on.
+ *
+ * **This is exactly three things and the list is closed** (art §6): the board
+ * plane, the grid lattice and the frame wall. Everything else in the game —
+ * *all* terrain including brick, steel, water, trees and ice, plus tanks,
+ * bullets, props and power-ups — is a lit object and uses {@link litSurface}.
+ * (An earlier revision of this comment implied terrain belonged here. It does
+ * not; terrain is something the light falls on.)
  *
  * Two decisions, both forced by measurement rather than taste:
  *
@@ -160,37 +241,58 @@ function srgb(hex: number): Color {
  * albedo by ~1.0: policy (§3.0) and calibration (§6) are two halves of one
  * mechanism, and changing either alone breaks the palette's promise.
  *
- * **`MeshLambertMaterial`, not `MeshStandardMaterial`** — this one is subtle and
- * cost an hour to find. Standard adds a dielectric specular term that does *not*
- * scale with albedo, so it lifts a dark surface proportionally far more than a
- * light one. Calibrated against the near-black board, the frame wall then landed
- * **27% below** its token — same orientation, same lighting, shadows ruled out.
- * Lambert in this version is pure diffuse (`RE_Direct_Lambert` +
- * `RE_IndirectDiffuse_Lambert`, no specular lobe at all), so its output is
- * strictly proportional to albedo and **one calibration serves every flat
- * graphic** — including whatever T2.3 adds. It still receives shadows, and it
+ * **`MeshLambertMaterial`, not `MeshStandardMaterial`** — subtle, and the
+ * expensive find of T2.2. Standard adds a dielectric specular term that does
+ * *not* scale with albedo, so it lifts a dark surface proportionally far more
+ * than a light one. Calibrated against the near-black board, the frame wall then
+ * landed **27% below** its token — same orientation, same lighting, shadows
+ * ruled out by re-measuring with them off. Lambert in this version is pure
+ * diffuse (`RE_Direct_Lambert` + `RE_IndirectDiffuse_Lambert`, no specular lobe
+ * in the shader at all), so its output is strictly proportional to albedo and
+ * one calibration serves all three flat graphics. It still receives shadows and
  * still shades the frame's sides darker than its top, which is what makes the
  * rim read as raised. "Flat" meaning "no gloss" is the right physics for a
  * diagram anyway.
  */
-function graphicSurface(hex: number): MeshLambertMaterial {
+export function graphicSurface(hex: number): MeshLambertMaterial {
   const m = new MeshLambertMaterial({ color: srgb(hex) });
   m.toneMapped = false;
   return m;
 }
 
 /**
- * Painted-metal look shared by every tank: enough gloss for the key light to
- * pick out a highlight on the top face, not enough to look chrome. The bevels
- * and per-type trim that make these read as *tanks* arrive with the procedural
- * models in T2.4; here they dress plain boxes.
+ * A **lit 3D surface** in the sense of art §3.0 — the token is albedo, and the
+ * rig modulates it. Use this for *all* terrain, tanks, bullets, props and
+ * power-ups; only the board, grid and frame use {@link graphicSurface}.
+ *
+ * `roughness`/`metalness` default to {@link CALIBRATION}'s values, and that
+ * default is load-bearing rather than cosmetic: `toneMappingExposure` was fit
+ * **through** this specular response, so a terrain material that overrides them
+ * moves its own calibration off target 1. Overriding is legitimate — water and
+ * ice want gloss, art §5 says so — but it is a calibration change, so re-run
+ * `npm run calibrate:lighting` and re-measure that token rather than assuming
+ * the tank's deviation carries over.
  */
-function tankSkin(hex: number): MeshStandardMaterial {
+export function litSurface(
+  hex: number,
+  opts?: { roughness?: number; metalness?: number },
+): MeshStandardMaterial {
   return new MeshStandardMaterial({
     color: srgb(hex),
-    roughness: 0.55,
-    metalness: 0.15,
+    roughness: opts?.roughness ?? CALIBRATION.litRoughness,
+    metalness: opts?.metalness ?? CALIBRATION.litMetalness,
   });
+}
+
+/**
+ * Painted-metal preset over {@link litSurface}: enough gloss for the key light
+ * to pick out a highlight on the top face, not enough to look chrome. A thin
+ * wrapper on purpose — it is the calibrated default, so tanks and terrain share
+ * one response. The bevels and per-type trim that make these read as *tanks*
+ * arrive with the procedural models in T2.4; here they dress plain boxes.
+ */
+export function tankSkin(hex: number): MeshStandardMaterial {
+  return litSurface(hex);
 }
 
 export function createMaterials(): Materials {
@@ -226,7 +328,10 @@ export function createMaterials(): Materials {
     metalness: 0,
   });
 
-  const all: readonly Material[] = [
+  // The single source of truth. `all` below is derived from it, so a new
+  // material cannot be half-registered: adding it here without adding it to
+  // `MaterialsByRole` is a compile error, and there is no third list to forget.
+  const byRole: MaterialsByRole = {
     board,
     boardFrame,
     gridLine,
@@ -237,19 +342,15 @@ export function createMaterials(): Materials {
     enemyPower,
     enemyArmor,
     bullet,
-  ];
+  };
+
+  // Keyed rather than `Object.values`, which types a plain interface as `any[]`.
+  const all: readonly Material[] = Object.freeze(
+    (Object.keys(byRole) as (keyof MaterialsByRole)[]).map((k) => byRole[k]),
+  );
 
   return {
-    board,
-    boardFrame,
-    gridLine,
-    player1,
-    player2,
-    enemyBasic,
-    enemyFast,
-    enemyPower,
-    enemyArmor,
-    bullet,
+    ...byRole,
     all,
     dispose(): void {
       for (const m of all) {
