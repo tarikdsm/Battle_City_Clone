@@ -114,6 +114,45 @@ export type PitTest = (tx: number, ty: number) => boolean;
 
 const NO_PITS: PitTest = () => false;
 
+// ---------------------------------------------------------------------------
+// TEMPORARY diagnostic — T3.2 follow-up, remove with the `?probe=post` block in
+// post.ts.
+//
+// Every camera fit, with the size it was derived from. The question it answers
+// is the one a size ladder cannot: *did the fit re-run for the current
+// viewport, and what did it produce* — as opposed to what the chain was later
+// sized to. If two calls with different `w x h` produce identical half-extents,
+// the fit is not tracking the viewport; if the last call's size is not the
+// current canvas, it never ran for it at all.
+// ---------------------------------------------------------------------------
+const FIT_LOG: string[] = [];
+const FIT_PROBE = globalThis.location?.search.includes('probe=post') === true;
+
+function recordFit(
+  w: number,
+  h: number,
+  aspect: number,
+  halfW: number,
+  halfH: number,
+  zoom: number,
+): void {
+  if (!FIT_PROBE) {
+    return;
+  }
+  const line =
+    `${FIT_LOG.length}: fit ${w}x${h} aspect=${aspect.toFixed(4)} ` +
+    `half=${halfW.toFixed(2)}x${halfH.toFixed(2)} zoom=${zoom} ` +
+    `boardPx=${(2 * halfH).toFixed(1)}u->${h}px`;
+  FIT_LOG.push(line);
+  if (FIT_LOG.length > 12) {
+    FIT_LOG.shift();
+  }
+  console.log(`[camera fit] ${line}`);
+  (
+    globalThis as unknown as { __bcCameraFits?: readonly string[] }
+  ).__bcCameraFits = FIT_LOG;
+}
+
 // --- Camera rig (art §2) ---
 
 /**
@@ -364,6 +403,7 @@ export function createSceneRoot(materials: Materials): SceneRoot {
       camera.top = halfH;
       camera.bottom = -halfH;
       camera.updateProjectionMatrix();
+      recordFit(w, h, aspect, halfW, halfH, camera.zoom);
 
       // Hold the lattice above its CSS-pixel floor (see GRID_MIN_CSS_PX). Only
       // rebuilt when the width actually moves, so a resize that does not cross a

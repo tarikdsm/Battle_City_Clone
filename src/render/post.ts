@@ -735,6 +735,13 @@ export function createPostChain(
       // entry is older than the current buffer, something was allocated once
       // and never reallocated — the class of bug `getDrawingBufferSize` hid.
       'allocation history': allocLog.join('  |  ') || '(none recorded)',
+      // Written by `sceneRoot.setViewport` (same URL flag). Read through a
+      // global rather than an import so this diagnostic adds no dependency
+      // between the chain and the scene graph.
+      'camera fits':
+        (
+          globalThis as unknown as { __bcCameraFits?: readonly string[] }
+        ).__bcCameraFits?.join('  |  ') ?? '(none recorded)',
       'GL error since last sample': glErrorSeen,
       'renderer css size': wh(cssSize.x, cssSize.y),
       'renderer pixelRatio': String(gl.getPixelRatio()),

@@ -118,14 +118,27 @@ export function createRenderer(
     // HiDPI and a 1× display changes it without any other event firing.
     gl.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, cap));
     gl.setSize(viewW, viewH, true);
+    // The scissor rectangle is renderer state that nothing else here maintains,
+    // and `setSize` does NOT move it — so it sat at the canvas element's bare
+    // 300×150 default for the whole session (found by the `?probe=post`
+    // ladder). Nothing enables the scissor test today, which is the only reason
+    // it was harmless: the moment anything does, every frame would be clipped
+    // to a fixed rectangle at the origin. Kept in step with the viewport.
+    gl.setScissor(0, 0, viewW, viewH);
     sceneRoot.setViewport(viewW, viewH);
     // After `setPixelRatio`/`setSize`: the chain's targets are sized from the
     // drawing buffer, which only exists once those two have run.
     post.setSize(viewW, viewH);
   }
 
-  applyQuality(quality);
+  // Viewport BEFORE quality, deliberately. `applyQuality` builds the post chain,
+  // and building it against the 1×1 placeholder that `cssW`/`cssH` start at
+  // meant the boot sequence allocated the whole chain four times over as the
+  // layout settled — 1×1, 1×1, the canvas element's 300×150 default, then the
+  // real size. `currentQuality` is already initialised from the constructor
+  // argument, so the DPR cap is correct here without `applyQuality` having run.
   applyViewport(canvas.clientWidth || 1, canvas.clientHeight || 1);
+  applyQuality(quality);
 
   return {
     render(state: GameState, alpha: number, dtMs: number): void {

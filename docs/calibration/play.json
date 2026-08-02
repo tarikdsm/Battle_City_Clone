@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T10:16:51.296Z",
+  "capturedAt": "2026-08-02T10:57:16.055Z",
   "url": "http://localhost:5173/",
   "viewport": {
     "w": 1600,
@@ -13,18 +13,18 @@
   },
   "autoProbe": {
     "picked": "low",
-    "fps": 22.496087634834318,
+    "fps": 21.986807917346418,
     "dpr": 1.0000000149011612,
     "cores": 16
   },
   "loop": {
     "high": {
-      "frames": 223,
-      "meanMs": 2.222,
-      "medianMs": 2.1,
-      "p95Ms": 3.6,
-      "maxMs": 5.6,
-      "fps": 27.8,
+      "frames": 190,
+      "meanMs": 2.528,
+      "medianMs": 2.4,
+      "p95Ms": 4.2,
+      "maxMs": 5.9,
+      "fps": 23.7,
       "drawCalls": {
         "min": 41,
         "median": 43,
@@ -32,12 +32,12 @@
       }
     },
     "medium": {
-      "frames": 268,
-      "meanMs": 2.142,
-      "medianMs": 2,
-      "p95Ms": 3.5,
-      "maxMs": 6.8,
-      "fps": 33.5,
+      "frames": 231,
+      "meanMs": 2.967,
+      "medianMs": 2.8,
+      "p95Ms": 4.7,
+      "maxMs": 11.5,
+      "fps": 28.8,
       "drawCalls": {
         "min": 39,
         "median": 41,
@@ -45,12 +45,12 @@
       }
     },
     "low": {
-      "frames": 320,
-      "meanMs": 0.9,
-      "medianMs": 0.8,
+      "frames": 303,
+      "meanMs": 0.959,
+      "medianMs": 0.9,
       "p95Ms": 1.8,
-      "maxMs": 2.4,
-      "fps": 40,
+      "maxMs": 3.2,
+      "fps": 37.8,
       "drawCalls": {
         "min": 14,
         "median": 16,
@@ -60,16 +60,16 @@
   },
   "scene": {
     "high": {
-      "enemiesLeftAtEnd": 16,
-      "scoreAtEnd": 0
-    },
-    "medium": {
-      "enemiesLeftAtEnd": 14,
-      "scoreAtEnd": 200
-    },
-    "low": {
       "enemiesLeftAtEnd": 15,
       "scoreAtEnd": 100
+    },
+    "medium": {
+      "enemiesLeftAtEnd": 15,
+      "scoreAtEnd": 100
+    },
+    "low": {
+      "enemiesLeftAtEnd": 14,
+      "scoreAtEnd": 200
     }
   },
   "budget": {
