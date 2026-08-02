@@ -40,6 +40,12 @@ import type { GameEvent } from '../../core/events';
 import type { GameState, LevelData, PlayerIntent } from '../../core/types';
 import type { AudioSystem } from '../../audio/audio';
 import { createLoop, type Loop } from '../../app/loop';
+import {
+  markFrameEnd,
+  markFrameStart,
+  markStepEnd,
+  markStepStart,
+} from '../../app/perf';
 import type { Screen } from '../../app/screens';
 import { applyCarry, levelStageOf, type Session } from '../../app/session';
 import type { SettingsV1 } from '../../app/storage';
@@ -358,78 +364,95 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
         input?.sample();
       },
       step(): void {
-        // One poll per tick — the turbo pulse is counted in ticks, so polling
-        // per frame instead would make the autofire rate frame-rate dependent.
-        // Polled even while suspended, so the driver's held-key set and its
-        // turbo phase stay honest; the RESULT is what is dropped.
-        //
-        // Read through the `input` BINDING, never through the `pad` const above
-        // (fixed at T9.1). `applySettings` replaces the driver whenever any
-        // setting changes mid-run — the map is snapshotted at construction — so
-        // a loop that closed over the original object kept polling a **disposed**
-        // driver, which reports neutral for ever. Nudging the volume from the
-        // pause menu made the game uncontrollable, and nothing caught it because
-        // no harness plays on after touching a setting.
-        const polled: readonly [PlayerIntent, PlayerIntent] =
-          input?.poll() ?? IDLE_INTENTS;
-        const intents = inputSuspended ? SUSPENDED_INTENTS : polled;
-        if (injectPause) {
-          // A single tick of "the pause button is down", so core's own edge
-          // detector does the toggle. Writing `state.paused` directly would
-          // bypass `pauseHeld` and desynchronise the next real key press.
-          intents[0].pause = true;
-          injectPause = false;
-        }
-        stepGame(state, intents);
-
-        const events: GameEvent[] = state.events;
-        for (let i = 0; i < events.length; i++) {
-          view.onEvent(events[i]);
-          // The audio layer is a peer of the renderer, not a client of it:
-          // same event stream, same read-only contract, same frame.
-          opts.audio.onEvent(events[i]);
-        }
-        if (events.length > 0) {
-          // The HUD is synced from the state, not from the events, but only on
-          // a tick that produced some: that is what makes it event-driven
-          // without having to derive lives/score/tier from an event stream.
-          panel?.sync(state, levelStageOf(next.session.stageNumber));
-        }
-
-        if (state.paused !== lastPaused) {
-          lastPaused = state.paused;
-          opts.onPauseChanged?.(state.paused);
-        }
-        if (next.attract === true || reported) {
-          return;
-        }
-        // Fidelity §11.2: "20th enemy destroyed → 2 s beat → tally screen". The
-        // beat is measured in SIMULATION time (`phaseT`), not by a timer, so a
-        // pause during it freezes it exactly like everything else.
-        if (state.phase === 'cleared' && state.phaseT >= STAGE_CLEAR_S) {
-          reported = true;
-          opts.onStageCleared?.(state);
-        } else if (state.phase === 'gameOver') {
-          // No extra beat here: the base-lost path already spent core's
-          // GAME_OVER_DELAY_S in `baseLost`, and the out-of-lives path only
-          // reaches this phase once the last respawn timer has run out.
-          reported = true;
-          opts.onGameOver?.(state);
-        }
+        // Bracketed so arch §11's sim-step budget is measured where it actually
+        // runs. Both marks are no-ops outside a dev build and outside a
+        // recording window (app/perf.ts), and neither allocates.
+        markStepStart();
+        stepOnce();
+        markStepEnd();
       },
       render(alpha: number, dtMs: number): void {
-        view.render(state, alpha, dtMs);
-        // The sustained sounds — engine hums, shield hum, ice whoosh, the
-        // power-up sparkle, the clock's tick-tock — are *state*, not events,
-        // so they are driven from the frame like the renderer is. `dtMs` is
-        // the loop's real frame time, deliberately unscaled: art §2's slow-mo
-        // dilates the picture, not the pitch of the sound.
-        opts.audio.update(state, dtMs);
+        markFrameStart();
+        renderOnce(alpha, dtMs);
+        markFrameEnd();
       },
       isPaused(): boolean {
         return state.paused;
       },
     });
+
+    // The two phase bodies, lifted out of the callbacks above so the timing
+    // wrappers stay one line each and the bodies read as they always did.
+    function stepOnce(): void {
+      // One poll per tick — the turbo pulse is counted in ticks, so polling
+      // per frame instead would make the autofire rate frame-rate dependent.
+      // Polled even while suspended, so the driver's held-key set and its
+      // turbo phase stay honest; the RESULT is what is dropped.
+      //
+      // Read through the `input` BINDING, never through the `pad` const above
+      // (fixed at T9.1). `applySettings` replaces the driver whenever any
+      // setting changes mid-run — the map is snapshotted at construction — so
+      // a loop that closed over the original object kept polling a **disposed**
+      // driver, which reports neutral for ever. Nudging the volume from the
+      // pause menu made the game uncontrollable, and nothing caught it because
+      // no harness plays on after touching a setting.
+      const polled: readonly [PlayerIntent, PlayerIntent] =
+        input?.poll() ?? IDLE_INTENTS;
+      const intents = inputSuspended ? SUSPENDED_INTENTS : polled;
+      if (injectPause) {
+        // A single tick of "the pause button is down", so core's own edge
+        // detector does the toggle. Writing `state.paused` directly would
+        // bypass `pauseHeld` and desynchronise the next real key press.
+        intents[0].pause = true;
+        injectPause = false;
+      }
+      stepGame(state, intents);
+
+      const events: GameEvent[] = state.events;
+      for (let i = 0; i < events.length; i++) {
+        view.onEvent(events[i]);
+        // The audio layer is a peer of the renderer, not a client of it:
+        // same event stream, same read-only contract, same frame.
+        opts.audio.onEvent(events[i]);
+      }
+      if (events.length > 0) {
+        // The HUD is synced from the state, not from the events, but only on
+        // a tick that produced some: that is what makes it event-driven
+        // without having to derive lives/score/tier from an event stream.
+        panel?.sync(state, levelStageOf(next.session.stageNumber));
+      }
+
+      if (state.paused !== lastPaused) {
+        lastPaused = state.paused;
+        opts.onPauseChanged?.(state.paused);
+      }
+      if (next.attract === true || reported) {
+        return;
+      }
+      // Fidelity §11.2: "20th enemy destroyed → 2 s beat → tally screen". The
+      // beat is measured in SIMULATION time (`phaseT`), not by a timer, so a
+      // pause during it freezes it exactly like everything else.
+      if (state.phase === 'cleared' && state.phaseT >= STAGE_CLEAR_S) {
+        reported = true;
+        opts.onStageCleared?.(state);
+      } else if (state.phase === 'gameOver') {
+        // No extra beat here: the base-lost path already spent core's
+        // GAME_OVER_DELAY_S in `baseLost`, and the out-of-lives path only
+        // reaches this phase once the last respawn timer has run out.
+        reported = true;
+        opts.onGameOver?.(state);
+      }
+    }
+
+    function renderOnce(alpha: number, dtMs: number): void {
+      view.render(state, alpha, dtMs);
+      // The sustained sounds — engine hums, shield hum, ice whoosh, the
+      // power-up sparkle, the clock's tick-tock — are *state*, not events,
+      // so they are driven from the frame like the renderer is. `dtMs` is
+      // the loop's real frame time, deliberately unscaled: art §2's slow-mo
+      // dilates the picture, not the pitch of the sound.
+      opts.audio.update(state, dtMs);
+    }
 
     renderer = view;
     input = pad;

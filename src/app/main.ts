@@ -39,6 +39,7 @@ import {
   type Session,
 } from './session';
 import { parseDebugFlags } from './debug';
+import { installPerfHandle } from './perf';
 import { createErrorRail, createErrorScreen } from './errorScreen';
 import {
   loadCustomLevels,
@@ -154,6 +155,10 @@ if (
   // when `import.meta.env.DEV` is the literal `false` Vite substitutes.
   console.log('debug flags', debug);
 }
+
+// Arch §11's frame-phase counters. A no-op in a production bundle — see
+// app/perf.ts — so this line costs a shipped player one folded constant.
+installPerfHandle();
 
 screens.show('boot');
 

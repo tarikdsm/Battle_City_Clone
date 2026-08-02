@@ -65,6 +65,7 @@ import {
   FramebufferTexture,
   HalfFloatType,
   NoColorSpace,
+  UnsignedByteType,
   Vector2,
   WebGLRenderTarget,
   type Camera,
@@ -388,7 +389,28 @@ export function createPostChain(
   scene: Scene,
   camera: Camera,
 ): PostChain {
-  const composer = new EffectComposer(gl);
+  // The composer's own ping-pong pair, explicitly **8-bit**.
+  //
+  // `EffectComposer` defaults to `HalfFloatType` (EffectComposer.js:69), which
+  // is the right default for a chain that renders an HDR scene into it. This
+  // chain does not: pass 0 is `copyFramebufferToTexture` of the finished drawing
+  // buffer, i.e. LDR sRGB **bytes** that are already quantised to 8 bits, and
+  // every pass after it (bloom composite, AA, vignette/grade) is a pure image
+  // operation whose output is likewise in [0,1]. Half-float buffers therefore
+  // carry no information the input has — they only double the bandwidth of two
+  // full-resolution targets and of every read and write through them, which on
+  // an integrated GPU is exactly the wrong place to spend it.
+  //
+  // The one genuinely HDR surface in the chain, the bloom source, keeps its
+  // half-float target (`buildBloom` below) because it IS a linear un-tone-mapped
+  // render whose core goes past 1.0 before the additive composite clips it.
+  //
+  // `type` is the only field that departs from the default; size is a
+  // placeholder because `applySize` sets it before the first frame.
+  const composer = new EffectComposer(
+    gl,
+    new WebGLRenderTarget(1, 1, { type: UnsignedByteType }),
+  );
   // The composer never renders the scene: pass 0 is always the copied beauty.
   // `NoColorSpace` is deliberate — the copy holds the drawing buffer's own sRGB
   // bytes, and every pass below is a pure image operation on those values, so

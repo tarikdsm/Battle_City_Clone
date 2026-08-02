@@ -18,6 +18,11 @@
     "tests",
     "e2e",
     "scripts",
+    // Ambient `import.meta.env` only. `src` files enter this program through
+    // the imports the tests make, and the ones that read Vite's DEV constant
+    // need its declaration in scope here too. It brings no Node globals with
+    // it, so the split this file exists for is untouched.
+    "src/vite-env.d.ts",
     "vite.config.ts",
     "playwright.config.ts"
   ]
