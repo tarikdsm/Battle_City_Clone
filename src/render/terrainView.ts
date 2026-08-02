@@ -47,7 +47,7 @@ import {
 } from '../core/constants';
 import type { GameEvent } from '../core/events';
 import { Terrain, type GameState, type TerrainKind } from '../core/types';
-import { PALETTE, type Materials } from './materials';
+import { PALETTE, faceTint, type Materials } from './materials';
 import { PIT_DEPTH, PITCH_TAN, type SceneRoot } from './sceneRoot';
 
 // ---------------------------------------------------------------------------
@@ -496,28 +496,6 @@ export const CANOPY_PROBE = Object.freeze({
     8 + CANOPY_PARALLAX_Z + CANOPY_CENTRE.r * CANOPY_45_SIN,
   ] as const),
 });
-
-/**
- * A per-face colour, expressed as the **ratio** between an art §3.1 detail token
- * and the material's own token.
- *
- * three multiplies `material.color` by the vertex colour, so storing the ratio
- * (rather than the absolute colour) is what lets `material.color` stay equal to
- * the authored token. That matters beyond tidiness: art §3.0's promise and the
- * calibration probe both read `material.color`, so baking absolute colours into
- * the attribute would make the probe measure a surface that is not on screen.
- *
- * Both `Color`s are in the linear working space (three converts on construction
- * from a hex), which is the space the shader multiplies in, so the ratio is
- * correct without any further conversion. Values above 1 are legitimate and
- * expected — `brickTopLip` is *brighter* than `brickTop`.
- */
-function faceTint(token: number, base: number): [number, number, number] {
-  const t = new Color(token);
-  const b = new Color(base);
-  const safe = (n: number, d: number): number => (d > 1e-6 ? n / d : 1);
-  return [safe(t.r, b.r), safe(t.g, b.g), safe(t.b, b.b)];
-}
 
 /** The material's own token, unmodified. */
 const PLAIN: [number, number, number] = [1, 1, 1];

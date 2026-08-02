@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AdditiveBlending,
+  Color,
   MeshBasicMaterial,
   MeshLambertMaterial,
   MeshStandardMaterial,
@@ -20,6 +22,7 @@ import {
   QUALITY_PRESETS,
   TERRAIN_GLOSS,
   createMaterials,
+  faceTint,
   graphicSurface,
   litSurface,
   type PaletteKey,
@@ -194,6 +197,7 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     | 'enemyPower'
     | 'enemyArmor'
     | 'bullet'
+    | 'bulletTrail'
   )[] = [
     // Art §6's definitive list puts ALL terrain on the lit path. Terrain is
     // something the light falls on, not part of the board's diagram.
@@ -209,6 +213,7 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     'enemyPower',
     'enemyArmor',
     'bullet',
+    'bulletTrail',
   ];
 
   it.each(FLAT)('%s opts out of tone mapping', (key) => {
@@ -371,6 +376,66 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
       expect(mats.all, role).toContain(m);
     }
     mats.dispose();
+  });
+});
+
+describe('entity materials (art §4)', () => {
+  it('keeps vertexColors OFF on every tank skin', () => {
+    // T2.4's mechanism: a tank is one `InstancedMesh` per type whose instances
+    // are PARTS, and all trim rides on `instanceColor`. Turning this on would
+    // make three declare an `attribute vec3 color` the shared part geometry
+    // does not carry — an unbound attribute reads (0,0,0) in WebGL2, so every
+    // tank would render black.
+    const mats = createMaterials();
+    for (const key of [
+      'player1',
+      'player2',
+      'enemyBasic',
+      'enemyFast',
+      'enemyPower',
+      'enemyArmor',
+    ] as const) {
+      expect(mats[key].vertexColors, key).toBe(false);
+    }
+    mats.dispose();
+  });
+
+  it('gives the tracer its own dimmer, additive material', () => {
+    // It cannot share the bullet's: three applies vertex/instance colour to
+    // `diffuseColor` only and never to `emissive`, so a trail drawn as extra
+    // instances of the head mesh would glow at the head's brightness however it
+    // was tinted. The falloff has to come from the material.
+    const mats = createMaterials();
+    expect(mats.bulletTrail.emissiveIntensity).toBeLessThan(
+      mats.bullet.emissiveIntensity,
+    );
+    expect(mats.bulletTrail.blending).toBe(AdditiveBlending);
+    expect(mats.bulletTrail.transparent).toBe(true);
+    expect(mats.bulletTrail.depthWrite).toBe(false);
+    // Same authored token as the head — it is the same tracer, fading.
+    expect(mats.bulletTrail.color.getHexString()).toBe('ffd76b');
+    expect(mats.bullet.depthWrite).toBe(true);
+    mats.dispose();
+  });
+});
+
+describe('faceTint — the ratio that keeps material.color the authored token', () => {
+  it('multiplies the base back onto the detail token', () => {
+    // The property every consumer rests on: `base × faceTint(detail, base)` is
+    // `detail`, in the linear space the shader multiplies in.
+    const base = new Color(PALETTE.enemyArmor);
+    const detail = new Color(PALETTE.powerupGold);
+    const t = faceTint(PALETTE.powerupGold, PALETTE.enemyArmor);
+    expect(base.r * t[0]).toBeCloseTo(detail.r, 6);
+    expect(base.g * t[1]).toBeCloseTo(detail.g, 6);
+    expect(base.b * t[2]).toBeCloseTo(detail.b, 6);
+  });
+
+  it('is 1 for a token against itself, and never divides by zero', () => {
+    expect(faceTint(PALETTE.brickTop, PALETTE.brickTop)).toEqual([1, 1, 1]);
+    // A channel the base does not carry cannot be reached by a multiplier, so
+    // the ratio degrades to "leave it alone" rather than to Infinity.
+    expect(faceTint(0xffffff, 0x000000)).toEqual([1, 1, 1]);
   });
 });
 

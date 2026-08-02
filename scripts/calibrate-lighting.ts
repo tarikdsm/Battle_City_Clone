@@ -66,6 +66,38 @@ interface Row {
   /** Same tokens at litSurface's DEFAULT gloss — attribution controls. */
   waterCtlPct: number;
   iceCtlPct: number;
+  // --- T2.4 entities: the six tank tokens and the bullet's gold -------------
+  /** One row per tank type, measured on the SHIPPING part geometry. */
+  tanks: TankRow[];
+  /** The real emissive bullet material on the real capsule. */
+  bulletHex: string;
+  bulletPct: number;
+  /** …and `powerupGold` on a plain `litSurface`, i.e. without the emissive. */
+  bulletCtlHex: string;
+  bulletCtlPct: number;
+}
+
+/**
+ * A tank token, measured twice: on the model's highest untinted horizontal face
+ * (art §6 target 1) and on its southernmost untinted vertical face.
+ *
+ * The side row carries **no target** — art §3.1 authors side tokens for brick
+ * and steel only. It exists for art §6's re-evaluation trigger, which asks
+ * whether several tank tokens read wrong-hued the way steel's do, so the hue is
+ * reported next to the token's own.
+ */
+interface TankRow {
+  type: string;
+  topHex: string;
+  topPct: number;
+  sideHex: string;
+  /** Side luminance as a percentage of the same tank's lit top face. */
+  sideOfTopPct: number;
+  /** Rendered hue in degrees, and the authored token's, for comparison. */
+  sideHue: number;
+  tokenHue: number;
+  /** Signed hue error in degrees, wrapped to (−180, 180]. */
+  hueErr: number;
 }
 
 function parseCandidates(): Candidate[] {
@@ -209,7 +241,40 @@ async function main(): Promise<void> {
         delta: `${r.iceDecalRatio.toFixed(2)}× board`,
         result: 'no target',
       },
+      // T2.4. The bullet is emissive by art §4, so target 1 does not describe
+      // it — the control below is the same token WITHOUT the emissive term, and
+      // that one is a genuine target-1 measurement of `powerupGold`.
+      {
+        target: '1 bullet ±10%',
+        rendered: r.bulletHex,
+        delta: pct(r.bulletPct),
+        result: 'emissive — no target',
+      },
+      {
+        target: '1 gold @lit ±10%',
+        rendered: r.bulletCtlHex,
+        delta: pct(r.bulletCtlPct),
+        result: verdict(Math.abs(r.bulletCtlPct) <= 10),
+      },
     ]);
+
+    // The six tank tokens, on the shipping part geometry.
+    console.table(
+      r.tanks.map((t) => ({
+        tank: t.type,
+        'top ±10%': t.topHex,
+        delta: pct(t.topPct),
+        result: verdict(Math.abs(t.topPct) <= 10),
+        side: t.sideHex,
+        'side/top': `${t.sideOfTopPct.toFixed(1)}%`,
+        'hue °': t.sideHue < 0 ? 'grey' : t.sideHue.toFixed(0),
+        'token °': t.tokenHue < 0 ? 'grey' : t.tokenHue.toFixed(0),
+        'Δhue °':
+          t.sideHue < 0
+            ? '—'
+            : `${t.hueErr >= 0 ? '+' : ''}${t.hueErr.toFixed(0)}`,
+      })),
+    );
   }
   console.log('\nconsole:', noise.length > 0 ? noise : '(clean)');
   await browser.close();
@@ -232,10 +297,12 @@ async function measureInPage(args: {
     materials: '/src/render/materials.ts',
     sceneRoot: '/src/render/sceneRoot.ts',
     terrain: '/src/render/terrainView.ts',
+    models: '/src/render/models.ts',
   };
   const matsMod = await import(urls.materials);
   const rootMod = await import(urls.sceneRoot);
   const terrainMod = await import(urls.terrain);
+  const modelsMod = await import(urls.models);
   const threeUrl = performance
     .getEntriesByType('resource')
     .map((e) => e.name)
@@ -246,6 +313,14 @@ async function measureInPage(args: {
   const { PALETTE, QUALITY_PRESETS, CALIBRATION, createMaterials, litSurface } =
     matsMod;
   const { CANOPY_PROBE } = terrainMod;
+  const {
+    TANK_MODELS,
+    TANK_PROBE,
+    TANK_TYPES,
+    createPartGeometry,
+    createBulletGeometry,
+    isOverlayRole,
+  } = modelsMod;
 
   const canvas = document.createElement('canvas');
   canvas.style.width = `${W}px`;
@@ -328,6 +403,49 @@ async function measureInPage(args: {
   canopy.position.set(112 + 8, 0, 176 + 8);
   canopy.castShadow = true;
   root.entities.add(canopy);
+
+  // --- T2.4 entity probes ---------------------------------------------------
+  // Built from the SHIPPING part table and the SHIPPING part geometry, so this
+  // measures the boxes that are on screen rather than a stand-in — the same
+  // discipline the canopy probe follows. Plain `Mesh`es rather than the
+  // `InstancedMesh` the view uses: the only difference between the two is
+  // `instanceColor`, and both sample points sit on parts whose tint is exactly
+  // (1, 1, 1), so the pixel is identical.
+  //
+  // Tier hardware (`p.tier !== undefined`) is skipped: a tier-0 player has no
+  // rings and no gold tip. Overlays (spawn star, shield frame, stun stars) are
+  // skipped for the same reason — none of them is on screen at rest.
+  const partGeo = createPartGeometry();
+  const TANK_TILE: Record<string, [number, number]> = {
+    p1: [16, 16],
+    p2: [48, 16],
+    basic: [80, 16],
+    fast: [112, 16],
+    power: [144, 16],
+    armor: [176, 16],
+  };
+  for (const type of TANK_TYPES as string[]) {
+    const model = TANK_MODELS[type];
+    const [tx, tz] = TANK_TILE[type];
+    for (const p of model.parts) {
+      if (isOverlayRole(p.role) || p.tier !== undefined) continue;
+      const mesh = new THREE.Mesh(partGeo, mats[model.material]);
+      mesh.scale.set(p.w, p.h, p.d);
+      mesh.position.set(tx + 8 + p.x, p.y, tz + 8 + p.z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      root.entities.add(mesh);
+    }
+  }
+
+  // The bullet, on its real emissive material and real capsule, plus a control
+  // of the same token on a plain lit surface — art §4 makes the bullet emissive,
+  // so target 1 describes the control and not the shipping material.
+  const BULLET_TILE: [number, number] = [80, 144];
+  const bulletMesh = new THREE.Mesh(createBulletGeometry(), mats.bullet);
+  bulletMesh.position.set(BULLET_TILE[0] + 8, 8, BULLET_TILE[1] + 8);
+  root.entities.add(bulletMesh);
+  addProbe(PALETTE.powerupGold, 144, 144, litSurface(PALETTE.powerupGold));
 
   // Controls: the SAME two tokens at `litSurface`'s calibrated defaults. Without
   // these a deviation on water or ice is unattributable — art §6's fit is
@@ -418,6 +536,48 @@ async function measureInPage(args: {
     ),
     waterCtl: px(184, 10, 184),
     iceCtl: px(24, 10, 184),
+    // The bullet capsule's apex (normal straight up) and the gold control's top.
+    bullet: px(BULLET_TILE[0] + 8, 8 + 2, BULLET_TILE[1] + 8),
+    bulletCtl: px(152, 10, 152),
+  };
+
+  // Two points per tank, projected through the real camera from the model's own
+  // probe table.
+  const tankPx: Record<
+    string,
+    { top: [number, number]; side: [number, number] }
+  > = {};
+  for (const type of TANK_TYPES as string[]) {
+    const [tx, tz] = TANK_TILE[type];
+    const probe = TANK_PROBE[type];
+    tankPx[type] = {
+      top: px(tx + 8 + probe.top[0], probe.top[1], tz + 8 + probe.top[2]),
+      side: px(tx + 8 + probe.side[0], probe.side[1], tz + 8 + probe.side[2]),
+    };
+  }
+
+  /** Hue in degrees, or −1 for an achromatic sample. */
+  const hueOf = (p: [number, number, number]): number => {
+    const r = p[0] / 255;
+    const g = p[1] / 255;
+    const b = p[2] / 255;
+    const mx = Math.max(r, g, b);
+    const mn = Math.min(r, g, b);
+    const d = mx - mn;
+    if (d < 0.02) return -1;
+    let h: number;
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    return h < 0 ? h + 360 : h;
+  };
+  const hueErrOf = (a: number, b: number): number => {
+    if (a < 0 || b < 0) return 0;
+    let d = a - b;
+    while (d > 180) d -= 360;
+    while (d <= -180) d += 360;
+    return d;
   };
 
   const rows: Row[] = [];
@@ -469,6 +629,27 @@ async function measureInPage(args: {
       canopyShadePct: rel(at(P.canopyShade), PALETTE.treesCanopy),
       waterCtlPct: rel(at(P.waterCtl), PALETTE.waterDeep),
       iceCtlPct: rel(at(P.iceCtl), PALETTE.ice),
+      bulletHex: hex(at(P.bullet)),
+      bulletPct: rel(at(P.bullet), PALETTE.powerupGold),
+      bulletCtlHex: hex(at(P.bulletCtl)),
+      bulletCtlPct: rel(at(P.bulletCtl), PALETTE.powerupGold),
+      tanks: (TANK_TYPES as string[]).map((type) => {
+        const token = TANK_MODELS[type].token;
+        const top = at(tankPx[type].top);
+        const side = at(tankPx[type].side);
+        const sideHue = hueOf(side);
+        const tokenHue = hueOf(tokenRgb(token));
+        return {
+          type,
+          topHex: hex(top),
+          topPct: rel(top, token),
+          sideHex: hex(side),
+          sideOfTopPct: (lum(side) / lum(top)) * 100,
+          sideHue,
+          tokenHue,
+          hueErr: hueErrOf(sideHue, tokenHue),
+        };
+      }),
     });
   }
 

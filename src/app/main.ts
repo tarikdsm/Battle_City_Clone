@@ -56,7 +56,7 @@ function createPreviewCaption(): Screen {
       tag.style.cssText =
         'position:fixed;left:12px;bottom:10px;margin:0;pointer-events:none;' +
         'font:12px/1 system-ui,sans-serif;color:#7fc4ff;opacity:0.65;';
-      tag.textContent = 'scene preview — T2.3';
+      tag.textContent = 'scene preview — T2.4';
       root.append(tag);
       node = tag;
     },

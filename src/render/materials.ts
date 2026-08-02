@@ -9,6 +9,7 @@
 // module-scope singletons — importing this file costs nothing but the tables.
 
 import {
+  AdditiveBlending,
   Color,
   Material,
   MeshBasicMaterial,
@@ -199,7 +200,23 @@ export interface MaterialsByRole {
   readonly enemyPower: MeshStandardMaterial;
   readonly enemyArmor: MeshStandardMaterial;
   readonly bullet: MeshStandardMaterial;
+  readonly bulletTrail: MeshStandardMaterial;
 }
+
+/**
+ * The six skins a tank can wear — the subset of {@link MaterialsByRole} that
+ * `models.ts` is allowed to name. Narrower than `keyof MaterialsByRole` on
+ * purpose: it makes "a tank wears a tank material" a compile-time fact, and it
+ * gives `mats[model.material]` a single concrete type rather than a union that
+ * includes the board's Lambert.
+ */
+export type TankMaterialKey =
+  | 'player1'
+  | 'player2'
+  | 'enemyBasic'
+  | 'enemyFast'
+  | 'enemyPower'
+  | 'enemyArmor';
 
 export interface Materials extends MaterialsByRole {
   /**
@@ -225,6 +242,40 @@ export interface Materials extends MaterialsByRole {
  */
 function srgb(hex: number): Color {
   return new Color(hex);
+}
+
+/**
+ * A per-detail colour, expressed as the **ratio** between an art §3.1 detail
+ * token and the surface's own token.
+ *
+ * three multiplies `material.color` by the vertex colour **and** by an
+ * `InstancedMesh`'s `instanceColor`, so storing the ratio (rather than the
+ * absolute colour) is what lets `material.color` stay equal to the authored
+ * token. That matters beyond tidiness: art §3.0's promise and
+ * `scripts/calibrate-lighting.ts` both read `material.color`, so baking an
+ * absolute colour into the attribute would make the probe measure a surface
+ * that is not on screen.
+ *
+ * Both `Color`s are in the linear working space (three converts on construction
+ * from a hex), which is the space the shader multiplies in, so the ratio is
+ * correct without any further conversion. **Values well above 1 are legitimate
+ * and expected** — the ratio that puts a gold tier tip on a green P2 tank is 23
+ * in the red channel, because P2's red is 0.043 and gold's is 1.0. The
+ * invariant is not "the ratio is small", it is "token × ratio is a real
+ * colour"; `tests/render/models.test.ts` asserts exactly that.
+ *
+ * Lives here rather than in a view because both `terrainView.ts` (vertex
+ * colours) and `models.ts` (instance colours) need it, and a second copy is how
+ * two files drift apart.
+ */
+export function faceTint(
+  token: number,
+  base: number,
+): [number, number, number] {
+  const t = new Color(token);
+  const b = new Color(base);
+  const safe = (n: number, d: number): number => (d > 1e-6 ? n / d : 1);
+  return [safe(t.r, b.r), safe(t.g, b.g), safe(t.b, b.b)];
 }
 
 /**
@@ -334,8 +385,16 @@ export const TERRAIN_GLOSS = Object.freeze({
  * Painted-metal preset over {@link litSurface}: enough gloss for the key light
  * to pick out a highlight on the top face, not enough to look chrome. A thin
  * wrapper on purpose — it is the calibrated default, so tanks and terrain share
- * one response. The bevels and per-type trim that make these read as *tanks*
- * arrive with the procedural models in T2.4; here they dress plain boxes.
+ * one response.
+ *
+ * **`vertexColors` stays off, and that is load-bearing** (T2.4). Every tank is
+ * one `InstancedMesh` per type whose *instances are parts*, and all per-part
+ * trim plus every dynamic tint rides on `instanceColor`. Turning `vertexColors`
+ * on would make three declare an `attribute vec3 color` that the shared part
+ * geometry does not carry, and an unbound attribute reads (0, 0, 0) in WebGL2 —
+ * every tank would render black. `instanceColor` alone is enough: it defines
+ * `USE_COLOR` in the **fragment** prefix (`WebGLProgram.js`), which is where
+ * `diffuseColor *= vColor` lives.
  */
 export function tankSkin(hex: number): MeshStandardMaterial {
   return litSurface(hex);
@@ -421,6 +480,29 @@ export function createMaterials(): Materials {
     metalness: 0,
   });
 
+  // Art §4's "short **additive** tracer trail". It needs its own material and
+  // cannot share the bullet's, for a reason that is easy to get wrong: three
+  // applies vertex/instance colour to `diffuseColor` only — `emissive` is added
+  // afterwards and is untouched by it (`color_fragment.glsl`). A trail drawn as
+  // extra instances of the bullet mesh would therefore glow at exactly the
+  // head's brightness however it was tinted, and read as a solid rod rather
+  // than as a tracer. Dimmer emissive + additive blending is the falloff.
+  //
+  // `depthWrite: false` because the trail overlaps its own head and the tank
+  // that fired it; additive blending has no ordering requirement, but writing
+  // depth would let the near half of the trail occlude the far half.
+  const bulletTrail = new MeshStandardMaterial({
+    color: srgb(PALETTE.powerupGold),
+    emissive: srgb(PALETTE.powerupGold),
+    emissiveIntensity: 0.35,
+    roughness: 0.4,
+    metalness: 0,
+  });
+  bulletTrail.transparent = true;
+  bulletTrail.opacity = 0.55;
+  bulletTrail.blending = AdditiveBlending;
+  bulletTrail.depthWrite = false;
+
   // The single source of truth. `all` below is derived from it, so a new
   // material cannot be half-registered: adding it here without adding it to
   // `MaterialsByRole` is a compile error, and there is no third list to forget.
@@ -440,6 +522,7 @@ export function createMaterials(): Materials {
     enemyPower,
     enemyArmor,
     bullet,
+    bulletTrail,
   };
 
   // Keyed rather than `Object.values`, which types a plain interface as `any[]`.

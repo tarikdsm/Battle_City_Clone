@@ -7,25 +7,22 @@
 
 import {
   ACESFilmicToneMapping,
-  BoxGeometry,
-  Mesh,
-  MeshStandardMaterial,
   PCFShadowMap,
   SRGBColorSpace,
   WebGLRenderer,
 } from 'three';
 
-import { BULLET_SIZE, TANK_SIZE } from '../core/constants';
 import type { GameEvent } from '../core/events';
-import type { GameState, Tank } from '../core/types';
+import type { GameState } from '../core/types';
+import { createBulletView, type BulletView } from './bulletView';
 import {
   CALIBRATION,
   QUALITY_PRESETS,
   createMaterials,
-  type Materials,
   type Quality,
 } from './materials';
 import { createSceneRoot, type SceneRoot } from './sceneRoot';
+import { createTankView, type TankView } from './tankView';
 import { createTerrainView, type TerrainView } from './terrainView';
 
 // `Quality` is declared next to the preset table it indexes (materials.ts) and
@@ -41,51 +38,6 @@ export interface Renderer {
   dispose(): void;
 }
 
-/** Placeholder tank body: the 16×16 u footprint of art §4 at ~10 u tall. */
-const PLACEHOLDER_TANK_H = 10;
-
-/** Height of the bullet's centre above the board — roughly barrel height. */
-const BULLET_Y = 6;
-
-/**
- * Steady-state pool sizes. Both are generous against the simulation's own caps
- * (2 players + `ENEMY_CAP` tanks; one or two bullets per tank), and the views
- * grow rather than drop an entity if a later task raises them — an allocation on
- * the frame a cap changes beats a tank that is simply not drawn.
- */
-const TANK_POOL = 8;
-const BULLET_POOL = 16;
-
-/** Yaw, in radians, that turns a mesh's −z face towards `Dir` 0…3 (Up/R/D/L). */
-const DIR_YAW: readonly number[] = [0, -Math.PI / 2, Math.PI, Math.PI / 2];
-
-/**
- * `alpha` reaches **exactly 1** on every paused frame (T2.1's loop contract), so
- * the endpoint has to be exact: `a + (b − a) · t` is not, and would leave every
- * entity a rounding error away from its true position for the whole pause. This
- * form returns `b` bit-exactly at t = 1 and `a` at t = 0.
- */
-function lerp(a: number, b: number, t: number): number {
-  return a * (1 - t) + b * t;
-}
-
-/** Which shared skin a tank wears. Pure lookup — no allocation per frame. */
-function tankMaterial(tank: Tank, mats: Materials): MeshStandardMaterial {
-  if (tank.kind === 'player') {
-    return tank.playerIndex === 1 ? mats.player2 : mats.player1;
-  }
-  switch (tank.enemyType) {
-    case 'fast':
-      return mats.enemyFast;
-    case 'power':
-      return mats.enemyPower;
-    case 'armor':
-      return mats.enemyArmor;
-    default:
-      return mats.enemyBasic;
-  }
-}
-
 export function createRenderer(
   canvas: HTMLCanvasElement,
   quality: Quality,
@@ -93,6 +45,8 @@ export function createRenderer(
   const materials = createMaterials();
   const sceneRoot: SceneRoot = createSceneRoot(materials);
   const terrain: TerrainView = createTerrainView(materials, sceneRoot);
+  const tanks: TankView = createTankView(materials, sceneRoot);
+  const bullets: BulletView = createBulletView(materials, sceneRoot);
 
   const gl = new WebGLRenderer({
     canvas,
@@ -118,39 +72,6 @@ export function createRenderer(
   // Matches index.html's page background, so the letterbox around a non-square
   // viewport is seamless rather than a visible black bar.
   gl.setClearColor(0x0a0a0a, 1);
-
-  // --- Pooled placeholder views (T2.4 replaces these with procedural models) --
-  const tankGeo = new BoxGeometry(TANK_SIZE, PLACEHOLDER_TANK_H, TANK_SIZE);
-  const bulletGeo = new BoxGeometry(BULLET_SIZE, BULLET_SIZE, BULLET_SIZE);
-  const tankViews: Mesh[] = [];
-  const bulletViews: Mesh[] = [];
-
-  function growTankViews(to: number): void {
-    while (tankViews.length < to) {
-      const mesh = new Mesh(tankGeo, materials.enemyBasic);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.visible = false;
-      sceneRoot.entities.add(mesh);
-      tankViews.push(mesh);
-    }
-  }
-
-  function growBulletViews(to: number): void {
-    while (bulletViews.length < to) {
-      const mesh = new Mesh(bulletGeo, materials.bullet);
-      // Bullets are 4 u across and emissive: their shadow would be a sub-texel
-      // speck that costs a shadow-map draw call for nothing.
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      mesh.visible = false;
-      sceneRoot.entities.add(mesh);
-      bulletViews.push(mesh);
-    }
-  }
-
-  growTankViews(TANK_POOL);
-  growBulletViews(BULLET_POOL);
 
   let currentQuality: Quality = quality;
   let viewW = 1;
@@ -185,64 +106,6 @@ export function createRenderer(
   applyQuality(quality);
   applyViewport(canvas.clientWidth || 1, canvas.clientHeight || 1);
 
-  /**
-   * Positions the pooled boxes from `state` for this frame. **This is the seam
-   * T2.4 cuts on**: swap the geometry and the per-type dressing here and the
-   * pooling, interpolation and visibility bookkeeping stay untouched.
-   *
-   * Allocation-free by construction: indexed loops (no iterator objects),
-   * `Vector3.set` instead of new vectors, and `mesh.material` reassigned by
-   * reference from the shared table rather than a colour written per frame.
-   */
-  function syncPlaceholderViews(state: GameState, alpha: number): void {
-    const tanks = state.tanks;
-    let used = 0;
-    for (let i = 0; i < tanks.length; i++) {
-      const tank = tanks[i];
-      if (!tank.alive) {
-        continue;
-      }
-      if (used >= tankViews.length) {
-        growTankViews(used + 1);
-      }
-      const view = tankViews[used++];
-      // Core positions are the AABB's top-left corner; a box mesh is centred.
-      view.position.set(
-        lerp(tank.prevX, tank.x, alpha) + TANK_SIZE / 2,
-        PLACEHOLDER_TANK_H / 2,
-        lerp(tank.prevY, tank.y, alpha) + TANK_SIZE / 2,
-      );
-      view.rotation.y = DIR_YAW[tank.dir];
-      view.material = tankMaterial(tank, materials);
-      view.visible = true;
-    }
-    for (let i = used; i < tankViews.length; i++) {
-      tankViews[i].visible = false;
-    }
-
-    const bullets = state.bullets;
-    used = 0;
-    for (let i = 0; i < bullets.length; i++) {
-      const bullet = bullets[i];
-      if (!bullet.alive) {
-        continue;
-      }
-      if (used >= bulletViews.length) {
-        growBulletViews(used + 1);
-      }
-      const view = bulletViews[used++];
-      view.position.set(
-        lerp(bullet.prevX, bullet.x, alpha) + BULLET_SIZE / 2,
-        BULLET_Y,
-        lerp(bullet.prevY, bullet.y, alpha) + BULLET_SIZE / 2,
-      );
-      view.visible = true;
-    }
-    for (let i = used; i < bulletViews.length; i++) {
-      bulletViews[i].visible = false;
-    }
-  }
-
   return {
     render(state: GameState, alpha: number, dtMs: number): void {
       // The terrain's ONE full pass, on the first frame it sees a state. After
@@ -252,15 +115,22 @@ export function createRenderer(
       terrain.build(state);
       // Only advances the shovel's blink, and only while one is running.
       terrain.update(dtMs);
-      syncPlaceholderViews(state, alpha);
+      // Entities are pooled and instanced (`tankView.ts`, `bulletView.ts`):
+      // positions interpolate from prevX/prevY with `alpha`, and every art §9
+      // animation is driven from `state` plus the events pumped through
+      // `onEvent`. Nothing here writes to the simulation.
+      tanks.update(state, alpha, dtMs);
+      bullets.update(state, alpha);
       gl.render(sceneRoot.scene, sceneRoot.camera);
     },
 
-    // Terrain damage (T2.3) is here; T4.x's FX joins it. Events must be pumped
-    // in the same frame they are produced — `stepGame` clears the array at the
-    // top of the next tick (arch §3.1).
+    // Terrain damage (T2.3) and the tanks' recoil / hit-flash / respawn
+    // re-arming (T2.4) are here; T4.x's FX joins them. Events must be pumped in
+    // the same frame they are produced — `stepGame` clears the array at the top
+    // of the next tick (arch §3.1).
     onEvent(e: GameEvent): void {
       terrain.onEvent(e);
+      tanks.onEvent(e);
     },
 
     setQuality(q: Quality): void {
@@ -276,8 +146,8 @@ export function createRenderer(
     },
 
     dispose(): void {
-      tankGeo.dispose();
-      bulletGeo.dispose();
+      tanks.dispose();
+      bullets.dispose();
       terrain.dispose();
       sceneRoot.dispose();
       materials.dispose();
