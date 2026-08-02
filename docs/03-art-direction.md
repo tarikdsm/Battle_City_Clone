@@ -45,9 +45,10 @@ Fixed tokens (render constants; UI mirrors via CSS custom properties):
 | P1 tank | `#d99c2b` family | gold; accents `#f2c14e` |
 | P2 tank | `#3aa655` family | green; accents `#7fd695` |
 | Enemy Basic | gunmetal `#8a8f9c` + red `#cf4b4b` | compact silhouette |
-| Enemy Fast | sand `#c8a05a` + orange | slim, long hull |
+| Enemy Fast | sand `#c8a05a` + orange `#e08b3a` | slim, long hull |
 | Enemy Power | violet `#8f6bd0` | wide barrel shroud |
-| Enemy Armor | silver `#c3cad6` layered plates | HP tints per fidelity §3.2 |
+| Enemy Armor | silver `#c3cad6` layered plates | HP tints below |
+| Armor HP 4/3/2/1 | `#c3cad6` / `#9fbb84` / `#b8963c` / `#6e7684` | silver → green → yellow → dark-silver, luminance descending so HP reads in grayscale too |
 | Power-up / gold | `#ffd76b` (emissive) | star, pickups, eagle emblem |
 | Spawn star / UI accent | `#7fc4ff` (emissive) | spawn, focus rings |
 | Danger | `#e24b4a` | carrier flash, base-threat UI |
@@ -61,7 +62,7 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 | Player | balanced hull, rounded turret, center barrel; P1 gold / P2 green |
 | Basic | short hull, small turret set back |
 | Fast | narrow hull (12 u wide), elongated, tracks exposed front |
-| Power | standard hull, oversized barrel shroud (muzzle brake) |
+| Power | standard hull, **barrel is the silhouette**: noticeably longer and thicker than any other type, ending in a blocky muzzle brake. Basic-vs-Power measured as the weakest grayscale pair at T2.4 (11% strongly-different area) — the fix is barrel mass, which reads from all four facings, not turret height, which does not. |
 | Armor | tall stacked plates (+2 u height), twin exhausts; plates tint by HP |
 | Bullet | 4×4 u emissive capsule + short additive tracer trail |
 | Eagle base | stone pedestal + gold shield emblem (emissive at low intensity); destroyed → cracked pedestal, fallen dimmed emblem, smoke wisps |
@@ -101,7 +102,9 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 - **Uncovered band:** the blend weight is `0.5·cos θ + 0.5`, so surfaces that are neither horizontal nor vertical sample the mid-range — and `FILL_GROUND` is now **22× brighter** than the authored value, so deviation from vertical costs far more than it used to. Tree canopies (§5, flattened spheres) and bevelled model edges live in that band, and a downward-facing normal samples pure ground at full fill intensity. No target covers it yet; measure when the first such surface exists.
 - **The flat-graphic path has no vertical probe.** The frame wall's vertical faces measure −34.3% against `boardFrame` — the one place §3.0's "the authored hex appears" promise is not kept. T2.3's water pit walls join it. Add a vertical flat-graphic probe when convenient.
 - **Target 1 does not generalise across tokens by inspection.** The gold tank's +4.1% led to an assumption that mid-tones carry; `waterDeep` (dark, saturated) failed by +18.0% at the same settings. **Probe each new material rather than assuming**, especially dark or saturated tokens. Measured so far: board +1.2%, frame +0.8%, tank +4.1%, water (glossed) +0.1%, ice −8.2%, tree apex +1.0%.
-- **Target 3 constrains luminance, not hue — accepted trade, with a trigger.** Steel's side faces render warm tan (`#8c7158`) rather than the authored cool `steelSide` (`#5c6474`), and pass at +17.6% because only luminance is measured. The warm ground is what makes brick and steel side luminance satisfiable at all, and hue fidelity would need per-face authoring (ruled against above). **Re-evaluate at T2.4**: if several tank tokens also read wrong-hued, revisit `FILL_GROUND` with five more data points instead of two.
+- **Target 3 constrains luminance, not hue. The trigger fired at T2.4 and the trade is now permanent — this is the rig's signature.** With seven data points the failure is a clean function of the token's **saturation**, not its hue: above ~55% saturation the shaded face holds its hue (P1, P2, Fast all within 10°); below ~50% `FILL_GROUND`'s warmth dominates and near-neutral tokens invert to warm tan (Basic +162°, Armor +171°, Power +53°, steel likewise).
+  **Decision (2026-08-02): keep the warm ground.** A neutral ground was measured at T2.2 to split brick and steel side luminance by 41.6 points — wider than the ±20% window — so no neutral value satisfies target 3 at all. The effect is physically coherent (a warm ground bounce tinting shaded faces), and it does not touch §11's actual requirement, which is **grayscale** separation.
+  **The rule that follows:** a token that must hold its hue on shaded faces needs **saturation ≥ 55%** — raise the token, never retune the rig. Any new token below that threshold will read warm-sided by design.
 - **Curved surfaces fall off, and that is physics, not miscalibration.** A tree canopy measures +1.0% at its apex (target 1 applies and passes) but spans **−6.5% to −54.7%** around its 45° band as the key falls off the curve. Do not tune the rig to flatten this.
 
 ## 7. Post-processing per quality preset
