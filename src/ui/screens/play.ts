@@ -283,12 +283,25 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     let lastW = -1;
     let lastH = -1;
     let lastTop = -1;
+    let lastLeft = -1;
     const fit = (): void => {
       const reserved = panel?.dock() ?? { right: 0, bottom: 0, top: 0 };
-      // The touch strip is inset by whatever the HUD already took, so the two
-      // docks are disjoint boxes and the strip is exactly as wide as the board.
-      const glassDock = glass?.dock(reserved.right) ?? { bottom: 0 };
-      const w = Math.max(1, Math.floor(window.innerWidth - reserved.right));
+      // The touch zones are inset by whatever the HUD already took, so every
+      // dock is a disjoint box. In landscape they are two COLUMNS beside the
+      // board rather than a strip under it (T9 follow-up): the board is bound
+      // by height there, so a strip came straight off it — 12.8 CSS px per tile
+      // measured, against 21.1 with columns, which cost nothing because the
+      // space they take is space a square board could never have used.
+      const glassDock = glass?.dock(reserved.right) ?? {
+        bottom: 0,
+        left: 0,
+        right: 0,
+      };
+      const left = glassDock.left;
+      const w = Math.max(
+        1,
+        Math.floor(window.innerWidth - reserved.right - left - glassDock.right),
+      );
       const h = Math.max(
         1,
         Math.floor(
@@ -301,17 +314,26 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
       // Idempotent: `setSize` writes the canvas's inline style, which the
       // observer below sees as a resize. Without this the two would ping-pong
       // forever at one frame per bounce.
-      if (w === lastW && h === lastH && reserved.top === lastTop) {
+      if (
+        w === lastW &&
+        h === lastH &&
+        reserved.top === lastTop &&
+        left === lastLeft
+      ) {
         return;
       }
       lastW = w;
       lastH = h;
       lastTop = reserved.top;
-      // Art §10 docks the portrait HUD along the TOP (the bottom is Phase 9's
-      // touch zone), so the board has to start below it. `index.html` pins the
-      // canvas at `top: 0`; this is the only thing that ever moves it, and it
-      // is written before `resize` so the two land in one layout pass.
+      lastLeft = left;
+      // Art §10 docks the portrait HUD along the TOP (the bottom is the touch
+      // strip), so the board has to start below it; a landscape touch layout
+      // puts a control column on the left, so it also has to start right of
+      // that. `index.html` pins the canvas at `left: 0; top: 0`; this is the
+      // only thing that ever moves it, and both are written before `resize` so
+      // they land in one layout pass.
       opts.canvas.style.top = `${reserved.top}px`;
+      opts.canvas.style.left = `${left}px`;
       view.resize(w, h);
     };
     fit();

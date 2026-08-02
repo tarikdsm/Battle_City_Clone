@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T20:34:06.441Z",
+  "capturedAt": "2026-08-02T20:56:45.682Z",
   "note": "Emulated touch (Playwright device descriptors) on a desktop GPU — NOT a phone. Boxes are live getBoundingClientRect values; the three overlap fields are rectangle intersections in px² and must all be 0.",
   "layouts": {
     "pixel5-portrait": {
@@ -23,24 +23,30 @@
         "w": 394,
         "h": 70
       },
-      "touch": {
-        "x": 0,
-        "y": 509,
-        "w": 394,
-        "h": 218
+      "zones": {
+        "main": {
+          "x": 0,
+          "y": 509,
+          "w": 394,
+          "h": 218
+        },
+        "aux": null
       },
-      "overlapCanvasTouch": 0,
+      "touchLayout": "bottom",
+      "overlapCanvasZoneMain": 0,
+      "overlapCanvasZoneAux": 0,
       "overlapCanvasHud": 0,
-      "overlapHudTouch": 0,
+      "overlapHudZoneMain": 0,
+      "overlapHudZoneAux": 0,
       "controls": {
         "stick": {
-          "x": 14,
+          "x": 12,
           "y": 531,
           "w": 165,
           "h": 174
         },
         "fire": {
-          "x": 245,
+          "x": 247,
           "y": 551,
           "w": 135,
           "h": 135
@@ -52,7 +58,8 @@
           "h": 34
         }
       },
-      "boardAreaFraction": 0.604
+      "boardAreaFraction": 0.604,
+      "tileCssPx": 25.4
     },
     "pixel5-landscape": {
       "viewport": {
@@ -64,10 +71,10 @@
       "device": "Pixel 5 landscape",
       "orientation": "landscape",
       "canvas": {
-        "x": 0,
+        "x": 160,
         "y": 0,
-        "w": 663,
-        "h": 178
+        "w": 343,
+        "h": 294
       },
       "hud": {
         "x": 664,
@@ -75,36 +82,48 @@
         "w": 139,
         "h": 294
       },
-      "touch": {
-        "x": 0,
-        "y": 178,
-        "w": 663,
-        "h": 116
+      "zones": {
+        "main": {
+          "x": 0,
+          "y": 0,
+          "w": 160,
+          "h": 294
+        },
+        "aux": {
+          "x": 503,
+          "y": 0,
+          "w": 160,
+          "h": 294
+        }
       },
-      "overlapCanvasTouch": 0,
+      "touchLayout": "columns",
+      "overlapCanvasZoneMain": 0,
+      "overlapCanvasZoneAux": 0,
       "overlapCanvasHud": 0,
-      "overlapHudTouch": 0,
+      "overlapHudZoneMain": 0,
+      "overlapHudZoneAux": 0,
       "controls": {
         "stick": {
-          "x": 28,
-          "y": 186,
-          "w": 100,
-          "h": 100
+          "x": 10,
+          "y": 145,
+          "w": 141,
+          "h": 141
         },
         "fire": {
-          "x": 552,
-          "y": 194,
-          "w": 84,
-          "h": 84
+          "x": 521,
+          "y": 154,
+          "w": 125,
+          "h": 125
         },
         "pause": {
-          "x": 317,
-          "y": 219,
+          "x": 57,
+          "y": 8,
           "w": 46,
           "h": 34
         }
       },
-      "boardAreaFraction": 0.501
+      "boardAreaFraction": 0.428,
+      "tileCssPx": 21.1
     },
     "iphone13-portrait": {
       "viewport": {
@@ -127,24 +146,30 @@
         "w": 390,
         "h": 70
       },
-      "touch": {
-        "x": 0,
-        "y": 465,
-        "w": 390,
-        "h": 199
+      "zones": {
+        "main": {
+          "x": 0,
+          "y": 465,
+          "w": 390,
+          "h": 199
+        },
+        "aux": null
       },
-      "overlapCanvasTouch": 0,
+      "touchLayout": "bottom",
+      "overlapCanvasZoneMain": 0,
+      "overlapCanvasZoneAux": 0,
       "overlapCanvasHud": 0,
-      "overlapHudTouch": 0,
+      "overlapHudZoneMain": 0,
+      "overlapHudZoneAux": 0,
       "controls": {
         "stick": {
-          "x": 14,
+          "x": 12,
           "y": 485,
           "w": 159,
           "h": 159
         },
         "fire": {
-          "x": 253,
+          "x": 255,
           "y": 503,
           "w": 123,
           "h": 123
@@ -156,7 +181,8 @@
           "h": 34
         }
       },
-      "boardAreaFraction": 0.595
+      "boardAreaFraction": 0.595,
+      "tileCssPx": 25.2
     },
     "desktop-control": {
       "viewport": {
@@ -179,16 +205,23 @@
         "w": 139,
         "h": 800
       },
-      "touch": null,
-      "overlapCanvasTouch": 0,
+      "zones": {
+        "main": null,
+        "aux": null
+      },
+      "touchLayout": "none",
+      "overlapCanvasZoneMain": 0,
+      "overlapCanvasZoneAux": 0,
       "overlapCanvasHud": 0,
-      "overlapHudTouch": 0,
+      "overlapHudZoneMain": 0,
+      "overlapHudZoneAux": 0,
       "controls": {
         "stick": null,
         "fire": null,
         "pause": null
       },
-      "boardAreaFraction": 0.891
+      "boardAreaFraction": 0.891,
+      "tileCssPx": 57.5
     },
     "flow-pixel5-portrait": {
       "viewport": {
@@ -211,24 +244,30 @@
         "w": 394,
         "h": 70
       },
-      "touch": {
-        "x": 0,
-        "y": 509,
-        "w": 394,
-        "h": 218
+      "zones": {
+        "main": {
+          "x": 0,
+          "y": 509,
+          "w": 394,
+          "h": 218
+        },
+        "aux": null
       },
-      "overlapCanvasTouch": 0,
+      "touchLayout": "bottom",
+      "overlapCanvasZoneMain": 0,
+      "overlapCanvasZoneAux": 0,
       "overlapCanvasHud": 0,
-      "overlapHudTouch": 0,
+      "overlapHudZoneMain": 0,
+      "overlapHudZoneAux": 0,
       "controls": {
         "stick": {
-          "x": 14,
+          "x": 12,
           "y": 531,
           "w": 165,
           "h": 174
         },
         "fire": {
-          "x": 245,
+          "x": 247,
           "y": 551,
           "w": 135,
           "h": 135
@@ -240,7 +279,8 @@
           "h": 34
         }
       },
-      "boardAreaFraction": 0.604
+      "boardAreaFraction": 0.604,
+      "tileCssPx": 25.4
     },
     "pwa-offline-portrait": {
       "viewport": {
@@ -263,36 +303,43 @@
         "w": 420,
         "h": 70
       },
-      "touch": {
-        "x": 0,
-        "y": 650,
-        "w": 420,
-        "h": 250
+      "zones": {
+        "main": {
+          "x": 0,
+          "y": 650,
+          "w": 420,
+          "h": 250
+        },
+        "aux": null
       },
-      "overlapCanvasTouch": 0,
+      "touchLayout": "bottom",
+      "overlapCanvasZoneMain": 0,
+      "overlapCanvasZoneAux": 0,
       "overlapCanvasHud": 0,
-      "overlapHudTouch": 0,
+      "overlapHudZoneMain": 0,
+      "overlapHudZoneAux": 0,
       "controls": {
         "stick": {
-          "x": 15,
+          "x": 13,
           "y": 675,
           "w": 176,
           "h": 200
         },
         "fire": {
-          "x": 253,
+          "x": 252,
           "y": 698,
           "w": 155,
           "h": 155
         },
         "pause": {
-          "x": 199,
+          "x": 198,
           "y": 758,
           "w": 46,
           "h": 34
         }
       },
-      "boardAreaFraction": 0.644
+      "boardAreaFraction": 0.644,
+      "tileCssPx": 27.1
     }
   },
   "touchGate": {
@@ -304,23 +351,28 @@
   "mobileQuality": {
     "pixel5-cpu1x": {
       "cpuThrottleRate": 1,
-      "bootProbe": "auto quality low {fps: 0, dpr: 1.0000000149011612, cores: 16}",
-      "steadyStateFps": 165.6
+      "bootProbe": "auto quality high {fps: 120.39800995024876, dpr: 1.0000000149011612, cores: 16, warmupFrames: 60, warmupMs: 2276}",
+      "steadyStateFps": 134.6
     },
     "pixel5-cpu4x": {
       "cpuThrottleRate": 4,
-      "bootProbe": "auto quality low {fps: 1.986886548495702, dpr: 1.0000000149011612, cores: 16}",
-      "steadyStateFps": 47.7
+      "bootProbe": "auto quality low {fps: 32.72510908060203, dpr: 1.0000000149011612, cores: 16, warmupFrames: 60, warmupMs: 2391}",
+      "steadyStateFps": 135.1
     },
     "pixel5-cpu6x": {
       "cpuThrottleRate": 6,
-      "bootProbe": "auto quality low {fps: 0, dpr: 1.0000000149011612, cores: 16}",
-      "steadyStateFps": 28.4
+      "bootProbe": "auto quality low {fps: 27.83300198807157, dpr: 1.0000000149011612, cores: 16, warmupFrames: 29, warmupMs: 3051}",
+      "steadyStateFps": 56.3
     },
     "desktop-cpu1x": {
       "cpuThrottleRate": 1,
-      "bootProbe": "auto quality low {fps: 32.692688730609, dpr: 1.0000000149011612, cores: 16}",
-      "steadyStateFps": 94
+      "bootProbe": "auto quality medium {fps: 47.55771326886726, dpr: 1.0000000149011612, cores: 16, warmupFrames: 60, warmupMs: 1495}",
+      "steadyStateFps": 60.8
+    },
+    "desktop-cpu4x": {
+      "cpuThrottleRate": 4,
+      "bootProbe": "auto quality low {fps: 25.318921022091146, dpr: 1.0000000149011612, cores: 16, warmupFrames: 50, warmupMs: 3017}",
+      "steadyStateFps": 73.2
     }
   },
   "gamepad": {
@@ -378,10 +430,10 @@
     },
     "caches": {
       "workbox-precache-v2-http://localhost:4173/Battle_City_Clone/": [
-        "/Battle_City_Clone/assets/customLevels-DxHSJ75T.js",
-        "/Battle_City_Clone/assets/editor-DPV00_2y.js",
-        "/Battle_City_Clone/assets/index-BGmee5Mh.js",
-        "/Battle_City_Clone/assets/index-C0gu3X7w.css",
+        "/Battle_City_Clone/assets/customLevels-CWbEbWFV.js",
+        "/Battle_City_Clone/assets/editor-HrGwQMQQ.js",
+        "/Battle_City_Clone/assets/index-CH7-44Pk.css",
+        "/Battle_City_Clone/assets/index-DKcYJ5Y1.js",
         "/Battle_City_Clone/assets/inter-latin-var-Dx4kXJAl.woff2",
         "/Battle_City_Clone/assets/orbitron-latin-var-Du7j2Vp2.woff2",
         "/Battle_City_Clone/icons/apple-touch-icon-180.png",
@@ -397,17 +449,17 @@
     "offline": {
       "online": false,
       "controlled": true,
-      "navigationWorkerStart": 5,
+      "navigationWorkerStart": 6,
       "navigationTransferSize": 0,
       "fonts": [
         {
           "name": "/Battle_City_Clone/assets/orbitron-latin-var-Du7j2Vp2.woff2",
-          "workerStart": 47,
+          "workerStart": 62,
           "transferSize": 0
         },
         {
           "name": "/Battle_City_Clone/assets/inter-latin-var-Dx4kXJAl.woff2",
-          "workerStart": 47,
+          "workerStart": 63,
           "transferSize": 0
         }
       ],

@@ -34,6 +34,7 @@
 //   this machine's cores rather than a phone's thermals and GPU.
 
 import { chromium, devices, type Browser, type Page } from '@playwright/test';
+import { tileCssPx } from '../src/render/sceneRoot';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -82,15 +83,32 @@ interface LayoutSample {
   device: string;
   canvas: Box;
   hud: Box;
-  touch: Box | null;
-  /** px² of intersection. All three must be 0. */
-  overlapCanvasTouch: number;
+  /**
+   * The reserved control boxes. `main` is the bottom strip or the left column;
+   * `aux` is the right column and exists only in the columns layout. The ROOT
+   * element is not measured — it is a full-viewport pointer-transparent wrapper,
+   * and in the columns layout the reserved space is two disjoint rectangles that
+   * no single element could describe.
+   */
+  zones: { main: Box | null; aux: Box | null };
+  /** Which shape `touchLayout` chose, inferred from the boxes. */
+  touchLayout: 'bottom' | 'columns' | 'none';
+  /** px² of intersection. Every one of these must be 0. */
+  overlapCanvasZoneMain: number;
+  overlapCanvasZoneAux: number;
   overlapCanvasHud: number;
-  overlapHudTouch: number;
+  overlapHudZoneMain: number;
+  overlapHudZoneAux: number;
   /** The three controls' hit boxes — a control smaller than a thumb is a bug. */
   controls: Record<string, Box | null>;
   /** Fraction of the viewport the board still gets. */
   boardAreaFraction: number;
+  /**
+   * **The readability number.** CSS pixels one of the 13x13 field's tiles spans,
+   * computed by `sceneRoot.tileCssPx` — the camera's own contain-fit, so this is
+   * what the renderer will do with this box rather than a re-statement of it.
+   */
+  tileCssPx: number;
 }
 
 interface Results {
@@ -123,7 +141,8 @@ interface Results {
 const SELECTORS = [
   ['canvas', 'canvas#game'],
   ['hud', '[data-hud="root"]'],
-  ['touch', '[data-touch="root"]'],
+  ['zoneMain', '[data-touch="zone-main"]'],
+  ['zoneAux', '[data-touch="zone-aux"]'],
   ['stick', '[data-touch="stick"]'],
   ['fire', '[data-touch="fire"]'],
   ['pause', '[data-touch="pause"]'],
@@ -152,6 +171,17 @@ function overlap(a: Box | null, b: Box | null): number {
 
 const ZERO: Box = { x: 0, y: 0, w: 0, h: 0 };
 
+/** The largest of a sample's five intersections. Must be 0. */
+function worstOverlap(s: LayoutSample): number {
+  return Math.max(
+    s.overlapCanvasZoneMain,
+    s.overlapCanvasZoneAux,
+    s.overlapCanvasHud,
+    s.overlapHudZoneMain,
+    s.overlapHudZoneAux,
+  );
+}
+
 async function measure(
   page: Page,
   label: string,
@@ -168,6 +198,14 @@ async function measure(
           continue;
         }
         const r = el.getBoundingClientRect();
+        if (r.width * r.height === 0) {
+          // A hidden element still answers with a zero rect, and a zero-area
+          // box is not a reserved box — the aux column does not exist in the
+          // bottom layout, and reporting it would make every portrait row read
+          // as "columns".
+          out[pair[0]] = null;
+          continue;
+        }
         out[pair[0]] = {
           x: Math.round(r.left),
           y: Math.round(r.top),
@@ -186,17 +224,22 @@ async function measure(
   const at = (key: BoxKey): Box | null => raw.boxes[key] ?? null;
   const canvas = at('canvas');
   const hud = at('hud');
-  const touch = at('touch');
+  const zoneMain = at('zoneMain');
+  const zoneAux = at('zoneAux');
   const sample: LayoutSample = {
     viewport: raw.viewport,
     device,
     orientation: raw.viewport.w >= raw.viewport.h ? 'landscape' : 'portrait',
     canvas: canvas ?? ZERO,
     hud: hud ?? ZERO,
-    touch,
-    overlapCanvasTouch: overlap(canvas, touch),
+    zones: { main: zoneMain, aux: zoneAux },
+    touchLayout:
+      zoneMain === null ? 'none' : zoneAux === null ? 'bottom' : 'columns',
+    overlapCanvasZoneMain: overlap(canvas, zoneMain),
+    overlapCanvasZoneAux: overlap(canvas, zoneAux),
     overlapCanvasHud: overlap(canvas, hud),
-    overlapHudTouch: overlap(hud, touch),
+    overlapHudZoneMain: overlap(hud, zoneMain),
+    overlapHudZoneAux: overlap(hud, zoneAux),
     controls: {
       stick: at('stick'),
       fire: at('fire'),
@@ -208,12 +251,19 @@ async function measure(
         : +((canvas.w * canvas.h) / (raw.viewport.w * raw.viewport.h)).toFixed(
             3,
           ),
+    tileCssPx: canvas === null ? 0 : +tileCssPx(canvas.w, canvas.h).toFixed(1),
   };
   results.layouts[label] = sample;
+  const zoneText =
+    zoneMain === null
+      ? '(none)'
+      : zoneAux === null
+        ? `strip ${zoneMain.w}x${zoneMain.h}`
+        : `columns ${zoneMain.w}+${zoneAux.w}`;
   console.log(
     `  ${label}: canvas ${sample.canvas.w}x${sample.canvas.h}` +
-      ` · touch ${sample.touch === null ? '(none)' : `${sample.touch.w}x${sample.touch.h}`}` +
-      ` · overlaps ${sample.overlapCanvasTouch}/${sample.overlapCanvasHud}/${sample.overlapHudTouch} px²`,
+      ` · ${zoneText} · ${sample.tileCssPx} px/tile` +
+      ` · worst overlap ${worstOverlap(sample)} px²`,
   );
   return sample;
 }
@@ -443,11 +493,19 @@ async function walkQualityProbe(
     { label: 'pixel5-cpu1x', rate: 1, device: devices['Pixel 5'] },
     { label: 'pixel5-cpu4x', rate: 4, device: devices['Pixel 5'] },
     { label: 'pixel5-cpu6x', rate: 6, device: devices['Pixel 5'] },
-    // The control. Without it "the probe picks Low" is ambiguous between "this
-    // emulated phone is weak" and "the probe measures the wrong second".
+    // The controls. Without a desktop row "the probe picks Low" is ambiguous
+    // between "this emulated phone is weak" and "the probe measures the wrong
+    // second" — which is exactly the ambiguity that hid the warm-up bug. The
+    // throttled desktop is the third profile the T9 follow-up asks for: same
+    // pixels, less CPU, so it isolates capability from resolution.
     {
       label: 'desktop-cpu1x',
       rate: 1,
+      device: { viewport: { width: 1280, height: 800 } },
+    },
+    {
+      label: 'desktop-cpu4x',
+      rate: 4,
       device: { viewport: { width: 1280, height: 800 } },
     },
   ] as const;
@@ -1015,11 +1073,7 @@ async function main(): Promise<void> {
 
   let failed = false;
   for (const [label, sample] of Object.entries(results.layouts)) {
-    const worst = Math.max(
-      sample.overlapCanvasTouch,
-      sample.overlapCanvasHud,
-      sample.overlapHudTouch,
-    );
+    const worst = worstOverlap(sample);
     if (worst > 0) {
       console.error(`overlap in ${label}: ${worst} px²`);
       failed = true;

@@ -9,13 +9,18 @@
 import { describe, expect, it } from 'vitest';
 import type { Dir } from '../../src/core/types';
 import {
+  COLUMN_MAX_PX,
+  COLUMN_MIN_PX,
   TOUCH_DEAD_ZONE,
   ZONE_MAX_PX,
   ZONE_MIN_PX,
+  columnWidth,
   createTouchModel,
   isTouchDevice,
+  touchLayout,
   zoneHeight,
 } from '../../src/input/touch';
+import { tileCssPx } from '../../src/render/sceneRoot';
 import { TURBO_PERIOD_TICKS } from '../../src/input/latch';
 
 const UP: Dir = 0;
@@ -247,5 +252,100 @@ describe('createTouchModel — the buttons (GDD §7)', () => {
     // …and it is not a one-shot: the next press still works.
     m.firePress();
     expect(m.poll()[P1].fire).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Where the controls go (T9 follow-up)
+// ---------------------------------------------------------------------------
+
+/** The measured Pixel 5 landscape viewport, and what the HUD docks right. */
+const LANDSCAPE_W = 802;
+const LANDSCAPE_H = 294;
+const HUD_RIGHT = 139;
+
+describe('touchLayout — a strip or two columns', () => {
+  it('always takes the bottom in portrait', () => {
+    expect(touchLayout(394, 727)).toBe('bottom');
+    expect(touchLayout(420, 900, 0)).toBe('bottom');
+  });
+
+  it('takes the side columns on a phone in landscape', () => {
+    expect(touchLayout(LANDSCAPE_W, LANDSCAPE_H, HUD_RIGHT)).toBe('columns');
+  });
+
+  it('falls back to the strip when there is no horizontal slack', () => {
+    // A near-square landscape viewport — a tablet. Columns would start eating
+    // the board, and there the strip really is better.
+    expect(touchLayout(760, 700, HUD_RIGHT)).toBe('bottom');
+  });
+
+  it('counts the HUD dock against the slack', () => {
+    // The HUD takes the right in landscape, so the space the board can occupy
+    // is narrower than the viewport — measuring slack against the viewport
+    // would hand the columns room that is not theirs.
+    const w = LANDSCAPE_H + 2 * COLUMN_MIN_PX + HUD_RIGHT;
+    expect(touchLayout(w, LANDSCAPE_H, HUD_RIGHT)).toBe('columns');
+    expect(touchLayout(w - 1, LANDSCAPE_H, HUD_RIGHT)).toBe('bottom');
+  });
+});
+
+describe('columnWidth', () => {
+  it('clamps to something a thumb can use', () => {
+    expect(columnWidth(LANDSCAPE_W, LANDSCAPE_H, HUD_RIGHT)).toBe(
+      COLUMN_MAX_PX,
+    );
+    expect(columnWidth(400, 390, HUD_RIGHT)).toBe(COLUMN_MIN_PX);
+  });
+
+  it('is a whole number of pixels — the caller subtracts it from a layout', () => {
+    expect(Number.isInteger(columnWidth(901, 400, 139))).toBe(true);
+  });
+});
+
+/**
+ * The readability claim, as arithmetic.
+ *
+ * `tileCssPx` comes from `sceneRoot.ts` and is the camera's own contain-fit, so
+ * this is not a re-statement of the layout's intent — it is what the renderer
+ * will actually do with the box the layout hands it.
+ */
+describe('the landscape board is playable (T9 follow-up)', () => {
+  const available = LANDSCAPE_W - HUD_RIGHT; // 663
+
+  it('is bound by HEIGHT, which is why a bottom strip was the wrong shape', () => {
+    // Taking width away changes nothing until it starts to bind; taking height
+    // away costs immediately. That asymmetry is the whole argument.
+    expect(tileCssPx(available, LANDSCAPE_H)).toBeCloseTo(
+      tileCssPx(available - 2 * COLUMN_MAX_PX, LANDSCAPE_H),
+      5,
+    );
+    expect(tileCssPx(available, LANDSCAPE_H - 116)).toBeLessThan(
+      tileCssPx(available, LANDSCAPE_H) * 0.7,
+    );
+  });
+
+  it('gives the columns layout a materially bigger tile than the strip', () => {
+    const strip = tileCssPx(
+      available,
+      LANDSCAPE_H - zoneHeight(LANDSCAPE_W, LANDSCAPE_H),
+    );
+    const columns = tileCssPx(
+      available - 2 * columnWidth(LANDSCAPE_W, LANDSCAPE_H, HUD_RIGHT),
+      LANDSCAPE_H,
+    );
+    expect(strip).toBeLessThan(13);
+    expect(columns).toBeGreaterThan(20);
+    expect(columns / strip).toBeGreaterThan(1.6);
+  });
+
+  it('costs nothing against reserving no space at all', () => {
+    // The columns take space a square board could not have used. If this ever
+    // stops being true, the clamp has drifted past the slack.
+    const columns = tileCssPx(
+      available - 2 * columnWidth(LANDSCAPE_W, LANDSCAPE_H, HUD_RIGHT),
+      LANDSCAPE_H,
+    );
+    expect(columns).toBeCloseTo(tileCssPx(available, LANDSCAPE_H), 5);
   });
 });

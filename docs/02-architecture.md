@@ -133,7 +133,12 @@ Unknown/corrupt payloads are discarded field-wise with defaults (never crash on 
   **⚠️ Never add an `OutputPass`, and do not move the beauty render into a composer target** (measured, T2.5). three 0.185.1 disables `material.toneMapped` inside any render target, so a `RenderPass` + `OutputPass` arrangement applies ACES to the *whole* frame and crushes art §3.0's flat graphics — the board token `#10121b` was measured collapsing to `#020202`. The shipped arrangement renders the beauty pass to the drawing buffer and the chain copies it out; that copy was verified **bit-identical** at DPR 2 with MSAA.
 - **Camera FX:** trauma-based shake (art doc §2), stage fly-in, base-destruction slow-mo (presentation-side time dilation of *interpolation only* — simulation ticks are unaffected except the scripted lock in fidelity §11).
 - **Resize/DPR:** letterboxed board + HUD dock; `devicePixelRatio` capped by preset (High 2, Med 1.5, Low 1).
-- **Quality presets:** Low/Med/High + Auto (probe: DPR, `navigator.hardwareConcurrency`, 1-s FPS sample on title screen → pick preset; user override persists).
+- **Quality presets:** Low/Med/High + Auto (probe: DPR, `navigator.hardwareConcurrency`, 1-s FPS sample → pick preset; user override persists).
+  **Amended twice, both times because the fps term was measuring the wrong thing.** The sample is *not* taken on the title screen and *not* taken immediately:
+  1. **Sample while drawing, at High** (T3.2). On the boot screen rAF is vsync-locked with nothing to draw, so `fps` read ≈60 on every machine and the decision collapsed to DPR + cores — which is how Auto could hand High to a device that cannot run it. The probe now samples a live board rendering at the High preset, because the viability of High is the actual question.
+  2. **Discard a warm-up first** (T9). Sampling from the moment the entry module finishes evaluating measures the renderer's *first* draws — shader compilation, pipeline warm-up — i.e. the most expensive second of the app's life. Measured: a viewport sustaining 94 fps scored 32.7, one sustaining 165 fps scored **0.0**, so every device fell below `lowFps` and Auto meant Low universally. `sampleDevice` now discards `WARMUP_FRAMES` (60) frames, capped at `WARMUP_MAX_MS` (3 s), and opens the measurement window after them. Evidence: `docs/calibration/touch-layout.json` → `mobileQuality`.
+
+  The cost is that a weak device runs at High for up to ~3 s before being demoted, once per run. The alternative was every device running at Low for ever.
 
 ## 6. Audio (audio/)
 

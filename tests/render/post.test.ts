@@ -19,10 +19,14 @@ import {
   GRADE,
   POST_PRESETS,
   concreteQuality,
+  WARMUP_FRAMES,
+  WARMUP_MAX_MS,
   createSlot,
   decideAutoQuality,
   passChain,
+  sampleDevice,
   type DeviceSample,
+  type SampleHost,
   type PassKind,
   type PostPreset,
 } from '../../src/render/post';
@@ -376,5 +380,153 @@ describe('createSlot — a preset switch must not leak', () => {
       slot.set(null);
     }).toThrow('boom');
     expect(slot.current).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The sampler (arch §5) — the half that used to be untestable
+// ---------------------------------------------------------------------------
+
+/**
+ * A fake frame scheduler and clock.
+ *
+ * `sampleDevice` used to take a `Window`, so the one part of the probe with a
+ * real failure mode was the one part no test could reach — and it shipped
+ * measuring the wrong second. `SampleHost` is the seam that fixes that; this rig
+ * is what drives it.
+ */
+interface FakeHost extends SampleHost {
+  /** Run up to `max` frames, taking each frame's duration from `frameMs(i)`. */
+  pump(max: number, frameMs: (i: number) => number): void;
+}
+
+function fakeHost(cores = 8, dpr = 1): FakeHost {
+  let now = 0;
+  let pending: ((t: number) => void)[] = [];
+  return {
+    devicePixelRatio: dpr,
+    navigator: { hardwareConcurrency: cores },
+    performance: {
+      now: () => now,
+    },
+    requestAnimationFrame(cb: (t: number) => void): number {
+      pending.push(cb);
+      return pending.length;
+    },
+    pump(max: number, frameMs: (i: number) => number): void {
+      for (let i = 0; i < max && pending.length > 0; i++) {
+        const due = pending;
+        pending = [];
+        now += frameMs(i);
+        for (const cb of due) {
+          cb(now);
+        }
+      }
+    },
+  };
+}
+
+/**
+ * The boot second, as measured: ~100 ms per frame while shaders compile, for
+ * roughly a second and a half, then the device settles into its real rate.
+ */
+const BOOT_JANK_MS = 100;
+const BOOT_JANK_FRAMES = 15;
+const VSYNC_MS = 1000 / 60;
+
+/** `frameMs` for a device that janks through boot and then holds `steady`. */
+const boots = (steady: number) => (i: number) =>
+  i < BOOT_JANK_FRAMES ? BOOT_JANK_MS : steady;
+
+describe('sampleDevice — warm-up (arch §5)', () => {
+  it('measures the steady state, not the shader-compilation second', async () => {
+    // THE regression test. The first 60 frames are boot jank at ~10 fps; the
+    // device then holds 60. Before the warm-up this reported ~10 fps and
+    // `decideAutoQuality` answered `low` for every machine ever made.
+    const host = fakeHost();
+    const done = sampleDevice(host, 1000, WARMUP_FRAMES, WARMUP_MAX_MS);
+    host.pump(400, boots(VSYNC_MS));
+    const sample = await done;
+
+    expect(sample.fps).toBeGreaterThan(55);
+    expect(sample.fps).toBeLessThan(65);
+    expect(decideAutoQuality(sample)).toBe('high');
+    expect(sample.warmupFrames).toBe(WARMUP_FRAMES);
+  });
+
+  it('reports the boot second when the warm-up is switched off', async () => {
+    // The control. Same host, no warm-up — so the improvement above is
+    // attributable to the warm-up and to nothing else.
+    const host = fakeHost();
+    const done = sampleDevice(host, 1000, 0, WARMUP_MAX_MS);
+    host.pump(400, boots(VSYNC_MS));
+    const sample = await done;
+
+    expect(sample.fps).toBeLessThan(15);
+    expect(decideAutoQuality(sample)).toBe('low');
+  });
+
+  it('still calls a genuinely slow device slow', async () => {
+    // The warm-up must not launder a weak device into High: a machine that is
+    // slow *after* it has warmed up still reads slow. This is the G4 failure
+    // mode — a weak phone receiving the High preset — and it stays impossible.
+    const host = fakeHost();
+    const done = sampleDevice(host, 1000, WARMUP_FRAMES, WARMUP_MAX_MS);
+    host.pump(400, () => 40); // 25 fps, for ever
+    const sample = await done;
+
+    expect(sample.fps).toBeGreaterThan(20);
+    expect(sample.fps).toBeLessThan(30);
+    expect(decideAutoQuality(sample)).toBe('low');
+  });
+
+  it('lands on medium between the two thresholds', async () => {
+    const host = fakeHost();
+    const done = sampleDevice(host, 1000, WARMUP_FRAMES, WARMUP_MAX_MS);
+    host.pump(400, boots(20)); // 50 fps once warm
+    const sample = await done;
+
+    expect(sample.fps).toBeGreaterThan(AUTO_THRESHOLDS.lowFps);
+    expect(sample.fps).toBeLessThan(AUTO_THRESHOLDS.highFps);
+    expect(decideAutoQuality(sample)).toBe('medium');
+  });
+
+  it('gives up warming after WARMUP_MAX_MS rather than waiting for frames', async () => {
+    // A device delivering one frame a second would otherwise spend a minute in
+    // warm-up. The cap is what makes a frame-count warm-up safe.
+    const host = fakeHost();
+    const done = sampleDevice(host, 1000, WARMUP_FRAMES, WARMUP_MAX_MS);
+    host.pump(400, () => 1000);
+    const sample = await done;
+
+    expect(sample.warmupFrames).toBeLessThan(WARMUP_FRAMES);
+    expect(sample.warmupMs).toBeGreaterThanOrEqual(WARMUP_MAX_MS);
+    expect(sample.fps).toBeLessThan(5);
+    expect(decideAutoQuality(sample)).toBe('low');
+  });
+
+  it('survives a first frame that arrives after the whole cap', async () => {
+    // The literal shape of the measured failure: on the Pixel 5 profile the
+    // first rAF callback landed more than a second after the call, so the old
+    // sampler resolved having counted zero frames.
+    const host = fakeHost();
+    const done = sampleDevice(host, 1000, WARMUP_FRAMES, WARMUP_MAX_MS);
+    host.pump(400, (i) => (i === 0 ? 4000 : VSYNC_MS));
+    const sample = await done;
+
+    expect(sample.warmupFrames).toBe(1);
+    expect(sample.fps).toBeGreaterThan(55);
+  });
+
+  it('passes DPR and cores through, with the documented fallback', async () => {
+    const host = fakeHost(16, 2);
+    const done = sampleDevice(host, 100, 2, WARMUP_MAX_MS);
+    host.pump(50, () => VSYNC_MS);
+    expect(await done).toMatchObject({ dpr: 2, cores: 16 });
+
+    const noCores = fakeHost(0, 0);
+    const done2 = sampleDevice(noCores, 100, 2, WARMUP_MAX_MS);
+    noCores.pump(50, () => VSYNC_MS);
+    expect(await done2).toMatchObject({ dpr: 1, cores: ASSUMED_CORES });
   });
 });

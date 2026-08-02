@@ -196,37 +196,48 @@ test.describe('touch controls', () => {
     await expect(hud(page, 'root')).toBeVisible();
     await page.waitForTimeout(1500);
 
-    const touch = page.locator('[data-touch="root"]');
-    await expect(touch).toBeVisible();
+    await expect(page.locator('[data-touch="zone-main"]')).toBeVisible();
     await expect(page.locator('[data-touch="stick"]')).toBeVisible();
     await expect(page.locator('[data-touch="fire"]')).toBeVisible();
 
-    // The whole claim of the layout, as a number: the control zone and the
-    // board are disjoint boxes, so no thumb can rest on the playfield.
+    // The whole claim of the layout, as a number: every reserved control box
+    // and the board are disjoint, so no thumb can rest on the playfield.
     const geometry = await page.evaluate(() => {
-      const r = (sel: string): DOMRect =>
-        (document.querySelector(sel) as HTMLElement).getBoundingClientRect();
-      const c = r('canvas#game');
-      const t = r('[data-touch="root"]');
+      // A hidden element still answers `getBoundingClientRect` — with a zero
+      // rect — so "absent" has to mean zero AREA, not a missing node.
+      const r = (sel: string): DOMRect | null => {
+        const box = document.querySelector(sel)?.getBoundingClientRect();
+        return box === undefined || box.width * box.height === 0 ? null : box;
+      };
+      const over = (a: DOMRect | null, b: DOMRect | null): number =>
+        a === null || b === null
+          ? 0
+          : Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+            Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      const c = r('canvas#game') as DOMRect;
+      const main = r('[data-touch="zone-main"]') as DOMRect;
+      const aux = r('[data-touch="zone-aux"]');
       const h = r('[data-hud="root"]');
-      const over = (a: DOMRect, b: DOMRect): number =>
-        Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
-        Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
       return {
-        canvasTouch: over(c, t),
+        canvasMain: over(c, main),
+        canvasAux: over(c, aux),
         canvasHud: over(c, h),
-        touchBottom: Math.round(t.bottom),
+        mainBottom: Math.round(main.bottom),
+        mainTop: Math.round(main.top),
         canvasBottom: Math.round(c.bottom),
-        touchTop: Math.round(t.top),
         viewportH: window.innerHeight,
-        fire: r('[data-touch="fire"]').width,
+        fire: (r('[data-touch="fire"]') as DOMRect).width,
+        hasAux: aux !== null,
       };
     });
-    expect(geometry.canvasTouch, 'controls overlap the board').toBe(0);
+    expect(geometry.canvasMain, 'controls overlap the board').toBe(0);
+    expect(geometry.canvasAux, 'controls overlap the board').toBe(0);
     expect(geometry.canvasHud, 'HUD overlaps the board').toBe(0);
-    // The strip is at the bottom and the board stops where it starts.
-    expect(geometry.touchBottom).toBe(geometry.viewportH);
-    expect(geometry.canvasBottom).toBe(geometry.touchTop);
+    // Portrait viewport, so this is the bottom strip: it reaches the bottom of
+    // the screen and the board stops exactly where it starts.
+    expect(geometry.hasAux).toBe(false);
+    expect(geometry.mainBottom).toBe(geometry.viewportH);
+    expect(geometry.canvasBottom).toBe(geometry.mainTop);
     // A fire button smaller than a thumb is a fire button that does not work.
     expect(geometry.fire).toBeGreaterThanOrEqual(44);
 
@@ -236,6 +247,73 @@ test.describe('touch controls', () => {
     await expect(screen(page, 'pause')).toBeVisible({ timeout: 10_000 });
     await page.locator('[data-item="resume"]').tap();
     await expect(screen(page, 'pause')).toHaveCount(0);
+
+    expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+  });
+
+  test('landscape puts the controls in columns beside the board', async ({
+    page,
+  }) => {
+    // The T9 follow-up. A bottom strip in landscape came straight off a board
+    // that is bound by height: 12.8 CSS px per tile, at which five tank
+    // silhouettes are not tellable apart. The columns take space the square
+    // board could never have used, so they cost nothing.
+    test.setTimeout(60_000);
+    const consoleErrors = watchErrors(page);
+
+    await page.setViewportSize({ width: 802, height: 294 });
+    await page.goto(`/?quality=low&seed=20260802${AUTOSTART}`);
+    await expect(hud(page, 'root')).toBeVisible();
+    await page.waitForTimeout(1500);
+
+    const geometry = await page.evaluate(() => {
+      // A hidden element still answers `getBoundingClientRect` — with a zero
+      // rect — so "absent" has to mean zero AREA, not a missing node.
+      const r = (sel: string): DOMRect | null => {
+        const box = document.querySelector(sel)?.getBoundingClientRect();
+        return box === undefined || box.width * box.height === 0 ? null : box;
+      };
+      const over = (a: DOMRect | null, b: DOMRect | null): number =>
+        a === null || b === null
+          ? 0
+          : Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+            Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      const c = r('canvas#game') as DOMRect;
+      const main = r('[data-touch="zone-main"]') as DOMRect;
+      const aux = r('[data-touch="zone-aux"]') as DOMRect | null;
+      const h = r('[data-hud="root"]');
+      return {
+        canvas: { left: c.left, right: c.right, w: c.width, h: c.height },
+        main: { left: main.left, right: main.right, w: main.width },
+        aux:
+          aux === null
+            ? null
+            : { left: aux.left, right: aux.right, w: aux.width },
+        canvasMain: over(c, main),
+        canvasAux: over(c, aux),
+        canvasHud: over(c, h),
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      };
+    });
+
+    // Two columns, not a strip.
+    expect(geometry.aux, 'landscape should use two columns').not.toBeNull();
+    expect(geometry.canvasMain, 'left column overlaps the board').toBe(0);
+    expect(geometry.canvasAux, 'right column overlaps the board').toBe(0);
+    expect(geometry.canvasHud, 'HUD overlaps the board').toBe(0);
+
+    // Left column, then the board, then the right column, then the HUD.
+    expect(Math.round(geometry.main.left)).toBe(0);
+    expect(Math.round(geometry.canvas.left)).toBe(
+      Math.round(geometry.main.right),
+    );
+    expect(Math.round(geometry.canvas.right)).toBe(
+      Math.round(geometry.aux?.left ?? -1),
+    );
+
+    // …and the board keeps the FULL height, which is the point: a strip would
+    // have taken 116 px of 294 off the one axis that binds.
+    expect(Math.round(geometry.canvas.h)).toBe(geometry.viewport.h);
 
     expect(consoleErrors, 'expected no console/page errors').toEqual([]);
   });

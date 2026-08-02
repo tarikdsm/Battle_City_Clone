@@ -605,37 +605,70 @@
 /* --- touch controls (GDD §7, art §10) ----------------------------------- */
 
 /*
-  The bottom control zone.
+  The controls are **reserved boxes**, not an overlay: `src/input/touch.ts`
+  reports what they take and the play screen subtracts it from the viewport
+  before sizing the board, so the stick and the button sit BESIDE the playfield
+  in every layout rather than on top of it.
 
-  It is a **reserved box**, not an overlay: `src/input/touch.ts` reports its
-  height and the play screen subtracts it from the viewport before sizing the
-  board, so the stick and the button sit BESIDE the playfield in both
-  orientations rather than on top of it. `right` is set inline to whatever the
-  HUD already took (landscape docks it right), which is what keeps the strip
-  exactly as wide as the board above it.
+  Two shapes, and the reason is measured (see `touchLayout`):
 
-  `z-index: 5` puts it over the canvas (0) and under the screen panels (10), so
-  a pause menu covers the controls rather than fighting them for the same taps.
+  - **Portrait — a bottom strip.** The board is square and a portrait viewport
+    is tall, so height is the axis with slack.
+  - **Landscape — two side columns.** The board is bound by HEIGHT, so a bottom
+    strip comes straight off the board: it measured 12.8 CSS px per tile on a
+    phone in landscape, against 21.1 with columns. The columns take space the
+    board could not have used, so they cost nothing at all.
+
+  The root is a full-viewport, pointer-transparent wrapper: it is not a reserved
+  box and nothing measures it. The zones inside it are, and they carry
+  `data-touch="zone-main"` / `zone-aux` for exactly that reason.
+
+  `z-index: 5` puts them over the canvas (0) and under the screen panels (10),
+  so a pause menu covers the controls rather than fighting them for taps.
 */
 .bc-touch {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 5;
+  pointer-events: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* No scroll, no pinch, no double-tap zoom anywhere in the controls. */
+  touch-action: none;
+}
+
+.bc-touch-zone {
+  position: fixed;
   box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0 clamp(0.6rem, 3.5vw, 1.75rem);
-  /* The container is inert; only the three controls take a touch. */
+  padding: 0 clamp(0.5rem, 3vw, 1.25rem);
   pointer-events: none;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  /* No scroll, no pinch, no double-tap zoom anywhere in the strip. */
   touch-action: none;
+  /* A scrim so a light board tile never swallows a control's outline. */
   background: linear-gradient(to top, rgb(6 7 11 / 82%), rgb(6 7 11 / 0%));
+}
+
+.bc-touch-zone[hidden] {
+  display: none;
+}
+
+/* A column stacks instead, and its scrim runs sideways off the board edge. */
+.bc-touch-zone.is-column {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: clamp(0.5rem, 2.5vh, 1rem) 0;
+  background: none;
+}
+
+/* Pause sits at the top of the left column, the stick at the bottom, so a
+   thumb reaching for the stick cannot catch pause on the way. */
+.bc-touch-zone.is-column[data-touch='zone-main'] {
+  justify-content: space-between;
 }
 
 .bc-touch-stick,
@@ -653,6 +686,21 @@
   min-width: 84px;
   min-height: 84px;
   max-width: 42vw;
+}
+
+/* In a column the stick is bound by WIDTH, not height. */
+.bc-touch-zone.is-column .bc-touch-stick {
+  width: 88%;
+  height: auto;
+  max-width: none;
+}
+
+.bc-touch-zone.is-column .bc-touch-fire {
+  width: 78%;
+  height: auto;
+  /* The column is the only place the fire button has room to be generous, and
+     it is the control a thumb hits hardest and most often. */
+  margin-bottom: 4%;
 }
 
 .bc-touch-stick-base {
@@ -756,14 +804,11 @@
   border-color: rgb(255 215 107 / 55%);
 }
 
-/* Landscape: the same three controls, smaller, because every pixel of height
-   the strip takes is taken from both sides of a square board. */
-.bc-touch.landscape .bc-touch-stick {
-  height: 86%;
-}
-
-.bc-touch.landscape .bc-touch-fire {
-  height: 72%;
+/* A bottom strip in landscape (near-square viewports, where columns would start
+   eating the board): the same three controls, smaller, because every pixel of
+   height the strip takes comes off both sides of a square board. */
+.bc-touch.is-bottom .bc-touch-zone:not(.is-column) .bc-touch-stick {
+  max-height: 86%;
 }
 
 /* --- construction mode (arch §9) ---------------------------------------- */

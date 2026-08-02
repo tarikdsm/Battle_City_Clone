@@ -48,7 +48,7 @@ import type { IntentSource } from './input';
  */
 export const TOUCH_DEAD_ZONE = 0.4;
 
-/** Fraction of the viewport height the control zone takes, by orientation. */
+/** Fraction of the viewport height the bottom control strip takes. */
 export const ZONE_FRACTION_PORTRAIT = 0.3;
 export const ZONE_FRACTION_LANDSCAPE = 0.28;
 /** Clamps. Below the minimum a thumb has no room; above it the board suffers. */
@@ -56,11 +56,12 @@ export const ZONE_MIN_PX = 116;
 export const ZONE_MAX_PX = 250;
 
 /**
- * The height the control zone reserves for a viewport, in CSS pixels.
+ * The height the bottom control strip reserves, in CSS pixels.
  *
  * Landscape gets a smaller fraction of a smaller number — a phone on its side
- * is ~390 px tall and the board is square, so every pixel taken from the height
- * is taken from both sides of the board.
+ * is ~294 px tall and the board is square, so every pixel taken from the height
+ * is taken from both sides of the board. That is *also* why landscape usually
+ * does not use this layout at all: see {@link touchLayout}.
  */
 export function zoneHeight(viewportW: number, viewportH: number): number {
   const fraction =
@@ -68,6 +69,74 @@ export function zoneHeight(viewportW: number, viewportH: number): number {
   return Math.round(
     Math.min(ZONE_MAX_PX, Math.max(ZONE_MIN_PX, viewportH * fraction)),
   );
+}
+
+/** Narrowest column a thumb can work in; widest worth giving it. */
+export const COLUMN_MIN_PX = 104;
+export const COLUMN_MAX_PX = 160;
+
+/**
+ * Where the controls live. Portrait always takes the bottom; landscape takes
+ * the two columns beside the board when there is room for them.
+ */
+export type TouchLayout = 'bottom' | 'columns';
+
+/**
+ * **Why landscape reserves columns and not a strip** (T9 follow-up).
+ *
+ * The board is square and landscape viewports are wide, so in landscape the
+ * board is bound by HEIGHT and the space to its left and right is space it can
+ * never use. A bottom strip takes 116 px out of a 294 px phone-landscape
+ * viewport and every one of those pixels comes off the board: measured, the
+ * 13 × 13 field fell to **12.8 CSS px per tile**, at which five tank
+ * silhouettes and six terrain types are not tellable apart.
+ *
+ * Columns take the dead space instead. Measured at the same viewport, columns
+ * up to 160 px wide cost **nothing at all** — the board stays at 21.1 px per
+ * tile, identical to reserving no space whatsoever — because the binding
+ * constraint is the height, which columns do not touch. So this is not a
+ * trade-off between board size and controls; it is the strip layout having been
+ * the wrong shape.
+ *
+ * The fall-back matters for tablets: a near-square landscape viewport has no
+ * horizontal slack, columns would start eating the board, and the strip is
+ * genuinely better. `2 × COLUMN_MIN_PX` of slack is the threshold.
+ */
+export function touchLayout(
+  viewportW: number,
+  viewportH: number,
+  insetRight = 0,
+): TouchLayout {
+  if (viewportW < viewportH) {
+    return 'bottom';
+  }
+  const slack = viewportW - insetRight - viewportH;
+  return slack >= 2 * COLUMN_MIN_PX ? 'columns' : 'bottom';
+}
+
+/**
+ * How wide each side column is, in CSS pixels.
+ *
+ * Half the horizontal slack, clamped. `insetRight` is what the HUD has already
+ * taken (it docks right in landscape), so the slack is measured against the
+ * space the board can actually occupy.
+ */
+export function columnWidth(
+  viewportW: number,
+  viewportH: number,
+  insetRight = 0,
+): number {
+  const slack = viewportW - insetRight - viewportH;
+  return Math.round(
+    Math.min(COLUMN_MAX_PX, Math.max(COLUMN_MIN_PX, slack / 2)),
+  );
+}
+
+/** What the controls reserve on each edge, in CSS pixels. */
+export interface TouchDock {
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
 }
 
 /** The slice of `Window` {@link isTouchDevice} reads. */
@@ -207,17 +276,18 @@ export interface TouchControls {
   /** The intents this overlay produces. Hand it to `createInput`. */
   readonly source: TouchModel;
   /**
-   * Re-lay-out for the current viewport and report the space reserved at the
-   * bottom, in CSS pixels. The caller subtracts it from the viewport, exactly
-   * as it does for the HUD — the controls are *beside* the board, never over it.
+   * Re-lay-out for the current viewport and report the space reserved on each
+   * edge, in CSS pixels. The caller subtracts it from the viewport, exactly as
+   * it does for the HUD — the controls are *beside* the board, never over it,
+   * in both layouts and both orientations.
    *
-   * @param insetRight what the HUD has already taken on the right (landscape).
-   *        The strip is inset by it so the fire button does not end up under the
-   *        HUD column, and so the strip's box is exactly the width of the board
-   *        above it — which is what makes "no overlap" a measurable claim rather
+   * @param insetRight what the HUD has already taken on the right (it docks
+   *        right in landscape). The zones are inset by it, so a control never
+   *        lands under the HUD and each zone's box is exactly adjacent to the
+   *        board — which is what makes "no overlap" a measurable claim rather
    *        than a visual impression.
    */
-  dock(insetRight?: number): { bottom: number };
+  dock(insetRight?: number): TouchDock;
   dispose(): void;
 }
 
@@ -298,8 +368,18 @@ export function createTouchControls(
 ): TouchControls {
   const model = createTouchModel();
 
+  // The root is a full-viewport, pointer-transparent wrapper and is deliberately
+  // NOT the thing anybody measures: the reserved boxes are the two zones, and in
+  // the columns layout they are two disjoint rectangles that no single element
+  // could describe. `dock()` keeps them positioned; `data-touch="zone-*"` is
+  // what the e2e suite and the capture script assert against the canvas.
   const node = el('div', 'bc-touch');
   node.dataset.touch = 'root';
+  const main = el('div', 'bc-touch-zone');
+  main.dataset.touch = 'zone-main';
+  const aux = el('div', 'bc-touch-zone');
+  aux.dataset.touch = 'zone-aux';
+  aux.hidden = true;
 
   const stick = el('div', 'bc-touch-stick');
   stick.dataset.touch = 'stick';
@@ -320,10 +400,9 @@ export function createTouchControls(
     el('span', 'bc-touch-pause-bar'),
   );
 
-  // Stick, pause, fire — left, centre, right. The DOM order IS the layout
-  // order (`justify-content: space-between`), so it is also the tab order, and
-  // putting the two thumbs at the two ends is the whole ergonomic argument.
-  node.append(stick, pause, fire);
+  // Populated by the first `dock()`, which is also the only thing that knows
+  // which layout is in force.
+  node.append(main, aux);
   root.append(node);
 
   /** The active stick pointer, its origin, and the radius in CSS pixels. */
@@ -444,29 +523,60 @@ export function createTouchControls(
     },
   );
 
-  let lastHeight = -1;
-  let lastInset = -1;
+  /** Everything `dock` wrote last time, as one string. */
+  let lastSignature = '';
+  let lastLayout: TouchLayout | null = null;
 
   return {
     source: model,
 
-    dock(insetRight = 0): { bottom: number } {
-      const landscape = window.innerWidth >= window.innerHeight;
-      node.classList.toggle('landscape', landscape);
-      node.classList.toggle('portrait', !landscape);
-      const height = zoneHeight(window.innerWidth, window.innerHeight);
-      // Written only when it moves: the play screen's `fit` runs from a
-      // ResizeObserver on the document element, and an unconditional style
-      // write would be a resize that re-triggers it for ever.
-      if (height !== lastHeight) {
-        lastHeight = height;
-        node.style.height = `${height}px`;
+    dock(insetRight = 0): TouchDock {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const layout = touchLayout(vw, vh, insetRight);
+      const height = zoneHeight(vw, vh);
+      const col = columnWidth(vw, vh, insetRight);
+
+      // Every style write below is a layout change the play screen's
+      // ResizeObserver will see, so nothing is written unless something moved —
+      // an unconditional write is a resize that re-triggers itself for ever.
+      const signature = `${layout}:${String(insetRight)}:${String(height)}:${String(col)}`;
+      if (signature === lastSignature) {
+        return layout === 'columns'
+          ? { bottom: 0, left: col, right: col }
+          : { bottom: height, left: 0, right: 0 };
       }
-      if (insetRight !== lastInset) {
-        lastInset = insetRight;
-        node.style.right = `${insetRight}px`;
+      lastSignature = signature;
+
+      if (layout !== lastLayout) {
+        lastLayout = layout;
+        node.classList.toggle('is-columns', layout === 'columns');
+        node.classList.toggle('is-bottom', layout === 'bottom');
+        main.classList.toggle('is-column', layout === 'columns');
+        aux.classList.toggle('is-column', layout === 'columns');
+        if (layout === 'columns') {
+          // Left column: pause at the top, stick at the bottom, so a thumb
+          // reaching for the stick cannot catch pause on the way.
+          main.append(pause, stick);
+          aux.append(fire);
+        } else {
+          // Bottom strip: stick, pause, fire — left, centre, right. The DOM
+          // order IS the layout order (`justify-content: space-between`), so it
+          // is also the tab order, and putting the two thumbs at the two ends
+          // is the whole ergonomic argument.
+          main.append(stick, pause, fire);
+        }
+        aux.hidden = layout !== 'columns';
       }
-      return { bottom: height };
+
+      if (layout === 'columns') {
+        main.style.cssText = `left:0;top:0;bottom:0;width:${col}px`;
+        aux.style.cssText = `right:${insetRight}px;top:0;bottom:0;width:${col}px`;
+        return { bottom: 0, left: col, right: col };
+      }
+      main.style.cssText = `left:0;right:${insetRight}px;bottom:0;height:${height}px`;
+      aux.style.cssText = '';
+      return { bottom: height, left: 0, right: 0 };
     },
 
     dispose(): void {

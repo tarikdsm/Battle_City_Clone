@@ -86,7 +86,16 @@ import { originalStage } from '../levels/campaign';
  * at High — the preset whose viability is the actual question. A device that
  * holds ≥55 fps under the heaviest chain has earned it; one that drops below 45
  * has answered "not even close" with a measurement rather than a core count.
- * The cost is up to one second of a heavy preset on a weak device, paid once.
+ *
+ * **And it is taken after a warm-up** (T9 follow-up, `post.ts`'s
+ * `WARMUP_FRAMES`). Drawing is necessary but not sufficient: sampling from the
+ * instant this module finishes evaluating measured the renderer's first draws —
+ * shader compilation and pipeline warm-up — so a machine that sustains 94 fps
+ * scored 32.7 and one that sustains 165 scored **0**. Every device fell under
+ * `lowFps` and Auto meant Low, universally. Sixty frames are now discarded
+ * first (capped at 3 s), so the window holds the steady state.
+ *
+ * The cost is up to ~3 s of a heavy preset on a weak device, paid once per run.
  */
 const PROBE_QUALITY: Quality = 'high';
 
