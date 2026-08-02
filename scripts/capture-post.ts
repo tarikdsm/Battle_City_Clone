@@ -54,15 +54,46 @@ interface Delta {
 interface Results {
   note: string;
   viewport: { width: number; height: number };
-  /** Art §7's bloom threshold against what this scene can actually reach. */
+  /**
+   * The claim the whole architecture rests on: `copyFramebufferToTexture` +
+   * the composer's `TexturePass` reproduce the drawing buffer **exactly**, so
+   * art §6's calibration cannot move because of the transport. Measured through
+   * the shipped chain with every effect switched off, at DPR 2 with MSAA on —
+   * the case a DPR-1 `chain:low` row in `lighting.json` does not cover.
+   */
+  copyFidelity: {
+    dpr: number;
+    drawingBuffer: [number, number];
+    /** Largest per-channel difference, beauty frame vs chain output. */
+    maxChannelDelta: number;
+    changedPx: number;
+  };
+  /** Art §7's authored bloom threshold against what this scene can reach. */
   bloomThreshold: {
-    art7: number;
+    supersededArt7: number;
     shipped: number;
     /** Emissive luminance of each material, linear — what the high-pass sees. */
     sourceLuminanceLinear: Record<string, number>;
     /** Peak luminance in the finished High frame, display sRGB. */
     screenPeak: Record<string, number>;
     verdict: string;
+  };
+  /**
+   * The star's core, bloom off vs on. Compositing the pass's OUTPUT buffer
+   * instead of its glow added the emissive source twice and drove `#7fc4ff` to
+   * pure white here (T2.5 review); this is the field that says whether the core
+   * still reads as its token.
+   */
+  starCore: {
+    tokenHex: string;
+    tokenHue: number;
+    bloomOffHex: string;
+    bloomOffHue: number;
+    bloomOnHex: string;
+    bloomOnHue: number;
+    /** Screen area of the star's own silhouette, bloom off vs on. */
+    coreAreaOffPx: number;
+    coreAreaOnPx: number;
   };
   /** The proof: bloom on vs off, same frame, same chain. */
   bloomProof: {
@@ -328,6 +359,14 @@ async function installRig(): Promise<void> {
       P.chain.setSize(innerWidth, innerHeight);
     },
 
+    /** Forces a pixel ratio the host page would not otherwise provide. */
+    setPixelRatio(r: number): void {
+      P.gl.setPixelRatio(r);
+      P.gl.setSize(innerWidth, innerHeight, true);
+      P.root.setViewport(innerWidth, innerHeight);
+      P.chain.setSize(innerWidth, innerHeight);
+    },
+
     /** Patches the current preset — used to isolate one effect at a time. */
     setPostOverride(patch: Record<string, unknown> | null): void {
       const base = postMod.POST_PRESETS[P.quality];
@@ -429,6 +468,7 @@ async function installRig(): Promise<void> {
 interface Rig {
   init(q: string, t?: [number, number, string][]): void;
   setQuality(q: string): void;
+  setPixelRatio(r: number): void;
   setPostOverride(p: Record<string, unknown> | null): void;
   tank(o: TankSpec): TankSpec;
   bullet(x: number, y: number, d: number): void;
@@ -623,6 +663,51 @@ async function main(): Promise<void> {
     }
   }
 
+  // --- 1b. the copy is bit-identical, at DPR 2, through the shipped chain ---
+  results.copyFidelity = await page.evaluate(
+    (board: [number, number, string][]) => {
+      const P = (globalThis as unknown as { P: Rig }).P;
+      P.init('high', board);
+      for (const t of [
+        { kind: 'player', playerIndex: 0, tx: 6, ty: 11, id: 0, tier: 3 },
+        { enemyType: 'basic', tx: 0, ty: 0, ordinal: 1, spawningT: 1.3 },
+      ]) {
+        P.tank(t);
+      }
+      // DPR 2 with `antialias: true`: the drawing buffer is multisampled, and
+      // whether an implicit resolve survives `copyTexSubImage2D` is exactly the
+      // thing being claimed.
+      P.setPixelRatio(2);
+      // Every effect off, so the chain is beauty-copy → TexturePass → screen and
+      // nothing but the transport can change a pixel.
+      P.setPostOverride({ bloom: null, aa: 'none', vignette: 0, grade: 0 });
+
+      P.frame(0, false);
+      const before = P.pixels();
+      P.frame(0, true);
+      const after = P.pixels();
+
+      let maxDelta = 0;
+      let changed = 0;
+      for (let i = 0; i < before.data.length; i += 4) {
+        const d = Math.max(
+          Math.abs(before.data[i] - after.data[i]),
+          Math.abs(before.data[i + 1] - after.data[i + 1]),
+          Math.abs(before.data[i + 2] - after.data[i + 2]),
+        );
+        if (d > 0) changed++;
+        if (d > maxDelta) maxDelta = d;
+      }
+      return {
+        dpr: 2,
+        drawingBuffer: [before.w, before.h] as [number, number],
+        maxChannelDelta: maxDelta,
+        changedPx: changed,
+      };
+    },
+    FULL_BOARD,
+  );
+
   // --- 2. the bloom proof --------------------------------------------------
   results.bloomProof = await page.evaluate(
     (a: {
@@ -751,6 +836,96 @@ async function main(): Promise<void> {
   );
   await shot(page, 'bloom-on-nothing-emissive');
 
+  // --- 2b. the star's core keeps its token ---------------------------------
+  results.starCore = await page.evaluate(
+    (a: { tanks: TankSpec[]; terrain: [number, number, string][] }) => {
+      const P = (globalThis as unknown as { P: Rig }).P;
+      P.init('high', a.terrain);
+      for (const t of a.tanks) P.tank(t);
+      P.frame(200);
+
+      P.setPostOverride({ bloom: null });
+      P.frame(0);
+      const off = P.pixels();
+      P.setPostOverride(null);
+      P.frame(0);
+      const on = P.pixels();
+
+      const hueOf = (r: number, g: number, b: number): number => {
+        const mx = Math.max(r, g, b);
+        const mn = Math.min(r, g, b);
+        const d = mx - mn;
+        if (d < 0.02 * 255) return -1; // achromatic — i.e. blown to white
+        let h: number;
+        if (mx === r) h = ((g - b) / d) % 6;
+        else if (mx === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+        return +(h < 0 ? h + 360 : h).toFixed(1);
+      };
+      const hex = (c: number[]): string =>
+        '#' +
+        c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+
+      // The star's centre, 5×5 mean, at the spawning enemy's tile.
+      const [cx, cy] = P.project(9 * 16 + 8, 8, 6 * 16 + 8);
+      const meanAt = (px: { w: number; data: Uint8Array }): number[] => {
+        const acc = [0, 0, 0];
+        let n = 0;
+        for (let y = cy - 2; y <= cy + 2; y++) {
+          for (let x = cx - 2; x <= cx + 2; x++) {
+            const i = (y * px.w + x) * 4;
+            acc[0] += px.data[i];
+            acc[1] += px.data[i + 1];
+            acc[2] += px.data[i + 2];
+            n++;
+          }
+        }
+        return acc.map((v) => v / n);
+      };
+
+      /**
+       * The star's silhouette: pixels within 90 px of its centre that are at
+       * least half as bright as the core. Bloom widens the halo, so this is
+       * counted at a threshold the halo cannot reach — if the SHAPE survived,
+       * the two areas stay close.
+       */
+      const area = (
+        px: { w: number; data: Uint8Array },
+        core: number,
+      ): number => {
+        let n = 0;
+        for (let y = cy - 90; y <= cy + 90; y++) {
+          for (let x = cx - 90; x <= cx + 90; x++) {
+            const i = (y * px.w + x) * 4;
+            const l =
+              0.2126 * px.data[i] +
+              0.7152 * px.data[i + 1] +
+              0.0722 * px.data[i + 2];
+            if (l >= core * 0.5) n++;
+          }
+        }
+        return n;
+      };
+
+      const offMean = meanAt(off);
+      const onMean = meanAt(on);
+      const lumOff =
+        0.2126 * offMean[0] + 0.7152 * offMean[1] + 0.0722 * offMean[2];
+      return {
+        tokenHex: '#7fc4ff',
+        tokenHue: hueOf(0x7f, 0xc4, 0xff),
+        bloomOffHex: hex(offMean),
+        bloomOffHue: hueOf(offMean[0], offMean[1], offMean[2]),
+        bloomOnHex: hex(onMean),
+        bloomOnHue: hueOf(onMean[0], onMean[1], onMean[2]),
+        coreAreaOffPx: area(off, lumOff),
+        coreAreaOnPx: area(on, lumOff),
+      };
+    },
+    { tanks: EMISSIVE_SCENE, terrain: PROOF_TERRAIN },
+  );
+
   // --- 3. what the bloom threshold can actually reach ----------------------
   // Two questions, both answered in the BEAUTY frame — the image a full-frame
   // bloom (art §7's reading) would run its high-pass over:
@@ -832,7 +1007,7 @@ async function main(): Promise<void> {
   const starLum = sourceLuminanceLinear.spawnStar;
   const tipLum = sourceLuminanceLinear.tierTip;
   results.bloomThreshold = {
-    art7: 0.85,
+    supersededArt7: 0.85,
     shipped: 0,
     sourceLuminanceLinear,
     screenPeak,
@@ -1099,6 +1274,8 @@ async function main(): Promise<void> {
     { scene: 'with emissives', ...results.bloomProof.withEmissives },
     { scene: 'without emissives', ...results.bloomProof.withoutEmissives },
   ]);
+  console.log('star core:', results.starCore);
+  console.log('copy fidelity:', results.copyFidelity);
   console.log('vignette:', results.vignette);
   console.log('preset switch:', results.presetSwitch);
   console.log('steady-state Object3D.add:', results.steadyStateAdds);

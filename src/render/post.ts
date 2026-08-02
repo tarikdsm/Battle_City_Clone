@@ -144,7 +144,8 @@ export interface PostPreset {
  * the selector anyway, so it drops to a value that only rejects blend edges.
  */
 export const ART7_BLOOM = Object.freeze({
-  threshold: 0.85,
+  /** What art §7 authored, kept as history — **not** what the chain uses. */
+  supersededThreshold: 0.85,
   shipped: 0.0,
   reason:
     'nothing in the art §6 calibrated scene reaches 0.85 luminance; ' +
@@ -269,13 +270,24 @@ const VIGNETTE_GRADE_SHADER = {
 };
 
 /**
- * Additive composite of the bloom source (already blurred) over the beauty.
+ * Additive composite of the **glow alone** over the beauty.
+ *
+ * `tBloom` is `UnrealBloomPass.renderTargetsHorizontal[0]` — the composited mip
+ * chain with `strength` and `radius` already applied, and **without** the
+ * emissive source it was extracted from. That distinction is the whole of this
+ * comment: the pass's own output buffer (the `readBuffer` it is handed) holds
+ * `source + glow`, because with `renderToScreen === false` it blends its result
+ * additively back into its input (`UnrealBloomPass.js:351-368`). Compositing
+ * *that* over a beauty frame which already contains the source adds the emissive
+ * core a second time at full strength — measured: it is what drove `#7fc4ff` to
+ * pure white at the star's core, and no amount of tuning art §7's 0.55 fixes a
+ * double-count.
  *
  * The add happens in **display space** while the blur happened in linear: light
- * spreads linearly, but an LDR add is what gives bloom its falloff — a core
- * measured at 3.45 linear saturates to white, while the far-field halo at
- * 0.0037 adds one 255th and disappears. Encoding the halo to sRGB first would
- * turn that same 0.0037 into 12/255 of haze across the whole board.
+ * spreads linearly, but an LDR add is what gives bloom its falloff — a bright
+ * core saturates, while the far-field halo at 0.0037 adds one 255th and
+ * disappears. Encoding the halo to sRGB first would turn that same 0.0037 into
+ * 12/255 of haze across the whole board.
  */
 const BLOOM_COMPOSITE_SHADER = {
   name: 'BloomCompositeShader',
@@ -321,22 +333,26 @@ export interface Slot<T extends Disposable> {
 
 export function createSlot<T extends Disposable>(): Slot<T> {
   let held: T | null = null;
+  // A closure, not a method: `clear()` used to call `this.set(null)`, which
+  // silently depends on the slot never being destructured — `const { clear } =
+  // slot` would have thrown on `this`.
+  const set = (next: T | null): void => {
+    if (held === next) {
+      return;
+    }
+    // Ordered: drop the reference before disposing, so a dispose() that throws
+    // cannot leave the slot pointing at a dead object.
+    const previous = held;
+    held = next;
+    previous?.dispose();
+  };
   return {
     get current(): T | null {
       return held;
     },
-    set(next: T | null): void {
-      if (held === next) {
-        return;
-      }
-      // Ordered: drop the reference before disposing, so a dispose() that
-      // throws cannot leave the slot pointing at a dead object.
-      const previous = held;
-      held = next;
-      previous?.dispose();
-    },
+    set,
     clear(): void {
-      this.set(null);
+      set(null);
     },
   };
 }
@@ -404,65 +420,93 @@ export function createPostChain(
     ];
   }
 
+  function buildBloom(config: BloomConfig): ShaderPass {
+    const [w, h] = bloomSourceSize();
+    // Half float: the source is a linear, un-tone-mapped render of the emissive
+    // layer, and UnrealBloom's composite pushes a bright core well past 1.0
+    // before the additive composite clips it.
+    bloomSourceSlot.set(
+      new WebGLRenderTarget(w, h, { type: HalfFloatType, depthBuffer: true }),
+    );
+    const bloom = new UnrealBloomPass(
+      new Vector2(w, h),
+      config.strength,
+      config.radius,
+      config.threshold,
+    );
+    bloomSlot.set(bloom);
+
+    const composite = new ShaderPass(BLOOM_COMPOSITE_SHADER);
+    // The GLOW, not the pass's output buffer — see BLOOM_COMPOSITE_SHADER. The
+    // binding survives a resize: `UnrealBloomPass.setSize` calls `setSize` on
+    // its existing targets rather than replacing them.
+    composite.uniforms.tBloom.value = bloom.renderTargetsHorizontal[0].texture;
+    bloomCompositeSlot.set(composite);
+    return composite;
+  }
+
+  function buildGrade(): ShaderPass {
+    const grade = new ShaderPass(VIGNETTE_GRADE_SHADER);
+    grade.uniforms.vignette.value = preset.vignette;
+    grade.uniforms.grade.value = preset.grade;
+    gradeSlot.set(grade);
+    return grade;
+  }
+
+  /**
+   * Assembles the composer from {@link passChain} — the same ordered data the
+   * test asserts against art §7. Driving the build from it rather than from a
+   * parallel set of `if`s is the point: a chain that reordered AA and the grade
+   * would otherwise leave every test green, because the test would be pinning a
+   * re-statement of these conditionals instead of the chain itself.
+   */
   function rebuildPasses(): void {
-    // Order matters and is art §7's: bloom, then AA, then vignette + grade.
     // Passes are removed rather than disabled so the composer's ping-pong does
     // not spend a buffer swap on a pass that does nothing.
     for (const pass of [...composer.passes]) {
-      if (pass !== beautyPass) {
-        composer.removePass(pass);
-      }
+      composer.removePass(pass);
     }
 
-    if (preset.bloom === null) {
+    const kinds = passChain(preset);
+    // Anything this preset does not use is disposed, not merely detached.
+    if (!kinds.includes('bloom')) {
       bloomSlot.clear();
       bloomSourceSlot.clear();
       bloomCompositeSlot.clear();
-    } else {
-      const [w, h] = bloomSourceSize();
-      // Half float: the source is a linear, un-tone-mapped render of the
-      // emissive layer, and UnrealBloom's composite pushes a bright core well
-      // past 1.0 (measured 3.45) before the additive composite clips it.
-      const source = new WebGLRenderTarget(w, h, {
-        type: HalfFloatType,
-        depthBuffer: true,
-      });
-      bloomSourceSlot.set(source);
-      bloomSlot.set(
-        new UnrealBloomPass(
-          new Vector2(w, h),
-          preset.bloom.strength,
-          preset.bloom.radius,
-          preset.bloom.threshold,
-        ),
-      );
-
-      const composite = new ShaderPass(BLOOM_COMPOSITE_SHADER);
-      composite.uniforms.tBloom.value = source.texture;
-      bloomCompositeSlot.set(composite);
-      composer.addPass(composite);
     }
-
-    if (preset.aa === 'smaa') {
-      aaSlot.set(new SMAAPass());
-    } else if (preset.aa === 'fxaa') {
-      aaSlot.set(new FXAAPass());
-    } else {
+    if (!kinds.includes('smaa') && !kinds.includes('fxaa')) {
       aaSlot.clear();
     }
-    const aa = aaSlot.current;
-    if (aa !== null) {
-      composer.addPass(aa);
+    if (!kinds.includes('grade')) {
+      gradeSlot.clear();
     }
 
-    if (preset.vignette > 0 || preset.grade > 0) {
-      const grade = new ShaderPass(VIGNETTE_GRADE_SHADER);
-      grade.uniforms.vignette.value = preset.vignette;
-      grade.uniforms.grade.value = preset.grade;
-      gradeSlot.set(grade);
-      composer.addPass(grade);
-    } else {
-      gradeSlot.clear();
+    for (const kind of kinds) {
+      switch (kind) {
+        case 'beauty':
+          composer.addPass(beautyPass);
+          break;
+        case 'bloom':
+          if (preset.bloom !== null) {
+            composer.addPass(buildBloom(preset.bloom));
+          }
+          break;
+        case 'smaa': {
+          const smaa = new SMAAPass();
+          aaSlot.set(smaa);
+          composer.addPass(smaa);
+          break;
+        }
+        case 'fxaa': {
+          const fxaa = new FXAAPass();
+          aaSlot.set(fxaa);
+          composer.addPass(fxaa);
+          break;
+        }
+        case 'grade':
+          composer.addPass(buildGrade());
+          break;
+      }
     }
 
     applySize();
@@ -490,9 +534,8 @@ export function createPostChain(
     if (source !== null) {
       const [bw, bh] = bloomSourceSize();
       source.setSize(bw, bh);
-      // A bloom pass's `setSize` rebuilds its own mip targets; the composite's
-      // uniform still points at `source`, whose texture object survives a
-      // resize, so nothing has to be re-bound here.
+      // `UnrealBloomPass.setSize` resizes its existing mip targets rather than
+      // replacing them, so the composite's `tBloom` binding stays valid.
       bloomSlot.current?.setSize(bw, bh);
     }
   }
@@ -521,9 +564,14 @@ export function createPostChain(
     gl.render(scene, camera);
     gl.setRenderTarget(null);
 
-    // Extract → blur → composite, additively back into `target`, which the
-    // composite pass then reads. `writeBuffer` is unused when the pass is not
-    // rendering to screen, hence the same target twice.
+    // Extract → blur → composite the mips. The composite pass reads the mip
+    // result (`renderTargetsHorizontal[0]`), **not** `target`: the last thing
+    // this call does is blend the glow additively back into its own input, so
+    // `target` ends the call holding `source + glow` and using it would add the
+    // emissive core to a beauty frame that already has it. `writeBuffer` is
+    // unused when the pass is not rendering to screen, hence the same target
+    // twice. The blend-back is one wasted half-res quad; `target` is cleared and
+    // re-rendered at the top of the next frame, so nothing carries over.
     bloom.render(gl, target, target, 0, false);
 
     gl.setRenderTarget(null);

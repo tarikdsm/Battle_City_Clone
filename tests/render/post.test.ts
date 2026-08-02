@@ -139,10 +139,10 @@ describe('POST_PRESETS — art §7', () => {
 });
 
 describe('the bloom threshold deviates from art §7, on purpose', () => {
-  it('records the doc value and the shipped one, and they differ', () => {
-    expect(ART7_BLOOM.threshold).toBe(0.85);
+  it('records the superseded doc value and the shipped one, and they differ', () => {
+    expect(ART7_BLOOM.supersededThreshold).toBe(0.85);
     expect(ART7_BLOOM.shipped).toBe(0);
-    expect(ART7_BLOOM.shipped).not.toBe(ART7_BLOOM.threshold);
+    expect(ART7_BLOOM.shipped).not.toBe(ART7_BLOOM.supersededThreshold);
     expect(ART7_BLOOM.reason).toMatch(/BLOOM_LAYER/);
   });
 
@@ -165,6 +165,9 @@ describe('the bloom threshold deviates from art §7, on purpose', () => {
   });
 });
 
+// `createPostChain` assembles the composer by iterating `passChain(preset)`, so
+// these are assertions about the chain that ships rather than about a parallel
+// re-statement of the same conditionals (T2.5 review).
 describe('passChain — art §7 order', () => {
   const chains: Record<Quality, readonly PassKind[]> = {
     high: ['beauty', 'bloom', 'smaa', 'grade'],
