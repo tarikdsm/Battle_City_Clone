@@ -25,20 +25,6 @@ const screen = (page: Page, name: string) =>
  */
 const AUTOSTART = '&stage=1';
 
-/**
- * A key press aimed at the **simulation**, held for a realistic 90 ms.
- *
- * Menus listen to `keydown`, so an instantaneous `press()` reaches them. The
- * input layer does not: `keyboard.poll()` samples the held set once per 60 Hz
- * tick, so a synthetic down+up that lands inside one 16.7 ms tick is never
- * observed. A human cannot press that fast; Playwright can.
- */
-async function gameKey(page: Page, code: string, holdMs = 90): Promise<void> {
-  await page.keyboard.down(code);
-  await page.waitForTimeout(holdMs);
-  await page.keyboard.up(code);
-}
-
 test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
   const consoleErrors = watchErrors(page);
   let sawBootOk = false;
@@ -224,7 +210,8 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
   // the board can animate), but everything on the board zeroes it, so two
   // screenshots a second apart are byte-identical. Until T3.3 the tracks kept
   // scrolling and this was simply not true.
-  await gameKey(page, 'Escape');
+  // An instantaneous press: the sub-tick latch is what makes this reliable.
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
   const frozenA = await canvas.screenshot();
   await page.waitForTimeout(700);
@@ -237,7 +224,7 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
   // version *meant* to make and could not: while the picture kept moving
   // through a pause, a loop that had stopped polling the pad — which is what it
   // did, so the pause was a one-way door — still looked alive.
-  await gameKey(page, 'Escape');
+  await page.keyboard.press('Escape');
   const resumed = await canvas.screenshot();
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(800);
@@ -285,9 +272,11 @@ test('loops: title → play → death → game over → high scores → title', 
   await expect(screen(page, 'intro')).toHaveCount(0, { timeout: 10_000 });
 
   // --- pause round-trip, over a live run -----------------------------------
-  await gameKey(page, 'Escape');
+  // Both instantaneous. These two presses are the end-to-end guard for T6.3's
+  // press latch: without it they land inside a tick and vanish.
+  await page.keyboard.press('Escape');
   await expect(screen(page, 'pause')).toBeVisible();
-  await gameKey(page, 'Escape'); // core unpauses; the overlay follows
+  await page.keyboard.press('Escape'); // resumes from the pause menu
   await expect(screen(page, 'pause')).toHaveCount(0);
 
   // --- death ---------------------------------------------------------------
@@ -295,7 +284,7 @@ test('loops: title → play → death → game over → high scores → title', 
   // PLAYER's bullet destroys the eagle. P1 spawns at tile (4,12) and the eagle
   // sits at (6,12) on the same row, behind two brick subcell-pairs — so facing
   // right and holding fire ends the run in a few seconds, every time.
-  await gameKey(page, 'KeyD', 200);
+  await page.keyboard.press('KeyD');
   await page.keyboard.down('KeyJ');
   await expect(screen(page, 'gameOver')).toBeVisible({ timeout: 30_000 });
   await page.keyboard.up('KeyJ');

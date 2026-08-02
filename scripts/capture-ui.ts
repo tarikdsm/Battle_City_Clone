@@ -89,22 +89,6 @@ async function press(page: Page, code: string, settleMs = 320): Promise<void> {
   await sleep(settleMs);
 }
 
-/**
- * A key press aimed at the **simulation** rather than at a menu, held for a
- * realistic 90 ms.
- *
- * Menus listen to `keydown`, so an instantaneous press reaches them. The input
- * layer does not: `keyboard.poll()` samples the held set once per 60 Hz tick
- * (`src/input/keyboard.ts`), so a synthetic down+up that lands inside one 16.7
- * ms tick is never observed at all. A human cannot press that fast; Playwright
- * can, and does. Reported in the T6.1/T6.2 report as a latent input defect.
- */
-async function gameKey(page: Page, code: string, holdMs = 90): Promise<void> {
-  await page.keyboard.down(code);
-  await sleep(holdMs);
-  await page.keyboard.up(code);
-}
-
 interface Results {
   capturedAt: string;
   url: string;
@@ -306,8 +290,7 @@ async function walkShell(browser: Browser, results: Results): Promise<void> {
   await sleep(INTRO_MS + 600);
   await shot(page, 'play-high-contrast-on');
 
-  await gameKey(page, 'Escape');
-  await sleep(500);
+  await press(page, 'Escape', 500);
   await waitForScreen(page, 'pause');
   results.loop.push('pause');
   await shot(page, 'pause');
@@ -329,7 +312,7 @@ async function walkShell(browser: Browser, results: Results): Promise<void> {
   await sleep(400);
   await press(page, 'Escape'); // settings → pause
   await waitForScreen(page, 'pause');
-  await gameKey(page, 'Escape'); // pause → back to the board
+  await press(page, 'Escape'); // pause → back to the board
   await sleep(1200);
   await shot(page, 'play-high-contrast-off');
 
@@ -352,7 +335,7 @@ async function endTheRun(page: Page, budgetMs = 40_000): Promise<boolean> {
   if ((await currentScreen(page)) === 'gameOver') {
     return true; // the enemies got there first, which is also a game over
   }
-  await gameKey(page, 'KeyD', 220);
+  await press(page, 'KeyD', 220);
   await page.keyboard.down('KeyJ');
   const ended = await page
     .locator('[data-screen="gameOver"]')
