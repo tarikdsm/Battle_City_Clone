@@ -3,6 +3,13 @@ dist/
 coverage/
 playwright-report/
 test-results/
+
+# `npm run capture:*` output (screenshots + measurements).
+# Anchored with a leading slash on purpose: a bare `screens/` matches a
+# directory of that name at ANY depth, and it was silently swallowing
+# `src/ui/screens/` — the play screen would have been left out of its own
+# commit with no warning (caught in T3.2 by `git check-ignore`).
+/screens/
 *.local
 .DS_Store
 Thumbs.db

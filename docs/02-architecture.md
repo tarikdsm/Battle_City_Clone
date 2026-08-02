@@ -96,7 +96,9 @@ Each tick, `stepGame` clears `events`, handles the pause edge (a paused tick ret
 
 ### 3.4 Fixed timestep loop (app layer)
 
-Accumulator pattern: `dt` clamped at 250 ms (tab-switch safety), sim stepped at 60 Hz, render interpolates entity transforms between previous and current tick (`alpha`). Pause stops stepping entirely (fidelity §11).
+Accumulator pattern: `dt` clamped at 250 ms (tab-switch safety), sim stepped at 60 Hz, render interpolates entity transforms between previous and current tick (`alpha`).
+
+**Pause (corrected 2026-08-02, T3.3 — the previous wording of this line was implemented literally and produced a bug).** A paused frame stops *accumulating* and pins `alpha` to exactly 1, but it still calls `step()` **once**. It has to: §3.2's tick preamble resolves the pause edge from the real pad and then returns having advanced nothing, and that preamble is the only code that can ever clear `state.paused`. A loop that "stops stepping entirely" therefore never polls the pad again and the pause becomes a one-way door — which is what shipped, undetected, because the renderer kept animating through the pause and every liveness check was a pixel comparison. Freezing presentation animation while paused (art §9) is what exposed it; `tests/app/loop.test.ts` and the e2e smoke now pin both halves.
 
 ### 3.5 Determinism & replay
 
@@ -127,7 +129,8 @@ Unknown/corrupt payloads are discarded field-wise with defaults (never crash on 
 - **TerrainRenderer:** one `InstancedMesh` per terrain material (brick subcells, steel subcells, water tiles, tree canopies, ice decals); dirty-set updates on `brickDestroyed` etc. — no per-frame rebuilds.
 - **Entity views:** pooled `TankView` (player/enemy variants assembled from shared geometries) and `BulletView`; positions read from sim with interpolation alpha; facing/track/turret animation driven by state deltas.
 - **FxSystem:** pooled GPU-friendly particle batches (debris, sparks, smoke, rings) + pooled point lights (cap 8), consuming `GameEvent`s; budgets per art doc §8.
-- **Post chain:** EffectComposer — Render → UnrealBloom → SMAA/FXAA → vignette/grade shader pass; assembled per quality preset (art doc §7). Renderer uses ACES tone mapping.
+- **Post chain:** EffectComposer — Render → selective bloom → SMAA/FXAA → vignette/grade shader pass; assembled per quality preset (art doc §7). Renderer uses ACES tone mapping.
+  **⚠️ Never add an `OutputPass`, and do not move the beauty render into a composer target** (measured, T2.5). three 0.185.1 disables `material.toneMapped` inside any render target, so a `RenderPass` + `OutputPass` arrangement applies ACES to the *whole* frame and crushes art §3.0's flat graphics — the board token `#10121b` was measured collapsing to `#020202`. The shipped arrangement renders the beauty pass to the drawing buffer and the chain copies it out; that copy was verified **bit-identical** at DPR 2 with MSAA.
 - **Camera FX:** trauma-based shake (art doc §2), stage fly-in, base-destruction slow-mo (presentation-side time dilation of *interpolation only* — simulation ticks are unaffected except the scripted lock in fidelity §11).
 - **Resize/DPR:** letterboxed board + HUD dock; `devicePixelRatio` capped by preset (High 2, Med 1.5, Low 1).
 - **Quality presets:** Low/Med/High + Auto (probe: DPR, `navigator.hardwareConcurrency`, 1-s FPS sample on title screen → pick preset; user override persists).

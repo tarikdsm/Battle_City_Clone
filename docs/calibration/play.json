@@ -1,0 +1,541 @@
+{
+  "capturedAt": "2026-08-02T11:11:19.293Z",
+  "url": "http://localhost:5173/",
+  "viewport": {
+    "w": 1600,
+    "h": 900,
+    "devicePixelRatio": 1.0000000149011612
+  },
+  "gpu": {
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics (0x00009A60) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "headless": false
+  },
+  "autoProbe": {
+    "picked": "low",
+    "fps": 23.764729178862876,
+    "dpr": 1.0000000149011612,
+    "cores": 16
+  },
+  "loop": {
+    "high": {
+      "frames": 228,
+      "meanMs": 2.027,
+      "medianMs": 1.9,
+      "p95Ms": 3.5,
+      "maxMs": 4.4,
+      "fps": 28.5,
+      "drawCalls": {
+        "min": 41,
+        "median": 43,
+        "max": 45
+      }
+    },
+    "medium": {
+      "frames": 290,
+      "meanMs": 1.748,
+      "medianMs": 1.7,
+      "p95Ms": 2.7,
+      "maxMs": 3.8,
+      "fps": 36.2,
+      "drawCalls": {
+        "min": 39,
+        "median": 41,
+        "max": 43
+      }
+    },
+    "low": {
+      "frames": 365,
+      "meanMs": 0.773,
+      "medianMs": 0.7,
+      "p95Ms": 1.4,
+      "maxMs": 1.9,
+      "fps": 45.6,
+      "drawCalls": {
+        "min": 14,
+        "median": 16,
+        "max": 17
+      }
+    }
+  },
+  "scene": {
+    "high": {
+      "enemiesLeftAtEnd": 14,
+      "scoreAtEnd": 200
+    },
+    "medium": {
+      "enemiesLeftAtEnd": 16,
+      "scoreAtEnd": 0
+    },
+    "low": {
+      "enemiesLeftAtEnd": 16,
+      "scoreAtEnd": 0
+    }
+  },
+  "budget": {
+    "renderCpuMs": 6,
+    "drawCalls": 120
+  },
+  "consoleErrors": [],
+  "failedRequests": [],
+  "viewportExpectations": {
+    "minLimitingFill": 0.8,
+    "boardAspect": 1.16,
+    "boardAspectTol": 0.05,
+    "maxCenterOffsetX": 3,
+    "maxCenterOffsetYFrac": 0.06,
+    "maxHudOverlapPx2": 0,
+    "maxFillDrift": 0.01
+  },
+  "viewports": [
+    {
+      "label": "1600x900@1 high",
+      "canvasBox": [
+        0,
+        0,
+        1480,
+        900
+      ],
+      "hudBox": [
+        1480,
+        0,
+        120,
+        900
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1600,
+        900
+      ],
+      "board": {
+        "buffer": [
+          1480,
+          900
+        ],
+        "rect": [
+          286,
+          70,
+          908,
+          782
+        ],
+        "fillW": 0.6135,
+        "fillH": 0.8689,
+        "centerOffsetX": 0,
+        "centerOffsetY": -22
+      },
+      "boardAspect": 1.1611,
+      "baselineFill": null,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1280x720@1.5 low",
+      "canvasBox": [
+        0,
+        0,
+        1160,
+        720
+      ],
+      "hudBox": [
+        1160,
+        0,
+        120,
+        720
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1280,
+        720
+      ],
+      "board": {
+        "buffer": [
+          1160,
+          720
+        ],
+        "rect": [
+          217,
+          56,
+          726,
+          625
+        ],
+        "fillW": 0.6259,
+        "fillH": 0.8681,
+        "centerOffsetX": 0,
+        "centerOffsetY": -17
+      },
+      "boardAspect": 1.1616,
+      "baselineFill": null,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "770x587@1.5 low",
+      "canvasBox": [
+        0,
+        0,
+        650,
+        587
+      ],
+      "hudBox": [
+        650.4000244140625,
+        0,
+        120,
+        587.2000122070312
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        770,
+        587
+      ],
+      "board": {
+        "buffer": [
+          650,
+          587
+        ],
+        "rect": [
+          31,
+          47,
+          588,
+          507
+        ],
+        "fillW": 0.9046,
+        "fillH": 0.8637,
+        "centerOffsetX": 0,
+        "centerOffsetY": -14
+      },
+      "boardAspect": 1.1598,
+      "baselineFill": null,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1024x1024@1 medium",
+      "canvasBox": [
+        0,
+        0,
+        904,
+        1024
+      ],
+      "hudBox": [
+        904,
+        0,
+        120,
+        1024
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1024,
+        1024
+      ],
+      "board": {
+        "buffer": [
+          904,
+          1024
+        ],
+        "rect": [
+          43,
+          169,
+          818,
+          705
+        ],
+        "fillW": 0.9049,
+        "fillH": 0.6885,
+        "centerOffsetX": 0,
+        "centerOffsetY": -19
+      },
+      "boardAspect": 1.1603,
+      "baselineFill": null,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "480x900@2 low",
+      "canvasBox": [
+        0,
+        0,
+        480,
+        806
+      ],
+      "hudBox": [
+        0,
+        806.9000244140625,
+        480,
+        93.0999984741211
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        480,
+        900
+      ],
+      "board": {
+        "buffer": [
+          480,
+          806
+        ],
+        "rect": [
+          23,
+          221,
+          434,
+          374
+        ],
+        "fillW": 0.9042,
+        "fillH": 0.464,
+        "centerOffsetX": 0,
+        "centerOffsetY": -10
+      },
+      "boardAspect": 1.1604,
+      "baselineFill": null,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1200x400@1 medium",
+      "canvasBox": [
+        0,
+        0,
+        1080,
+        400
+      ],
+      "hudBox": [
+        1080,
+        0,
+        120,
+        400
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1200,
+        400
+      ],
+      "board": {
+        "buffer": [
+          1080,
+          400
+        ],
+        "rect": [
+          338,
+          31,
+          404,
+          348
+        ],
+        "fillW": 0.3741,
+        "fillH": 0.87,
+        "centerOffsetX": 0,
+        "centerOffsetY": -10
+      },
+      "boardAspect": 1.1609,
+      "baselineFill": null,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1280x720@1.5 (resized) low",
+      "canvasBox": [
+        0,
+        0,
+        1160,
+        720
+      ],
+      "hudBox": [
+        1160,
+        0,
+        120,
+        720
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1280,
+        720
+      ],
+      "board": {
+        "buffer": [
+          1160,
+          720
+        ],
+        "rect": [
+          217,
+          56,
+          726,
+          625
+        ],
+        "fillW": 0.6259,
+        "fillH": 0.8681,
+        "centerOffsetX": 0,
+        "centerOffsetY": -17
+      },
+      "boardAspect": 1.1616,
+      "baselineFill": 0.8681,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1024x1024@1 (resized) medium",
+      "canvasBox": [
+        0,
+        0,
+        904,
+        1024
+      ],
+      "hudBox": [
+        904,
+        0,
+        120,
+        1024
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1024,
+        1024
+      ],
+      "board": {
+        "buffer": [
+          904,
+          1024
+        ],
+        "rect": [
+          43,
+          169,
+          818,
+          705
+        ],
+        "fillW": 0.9049,
+        "fillH": 0.6885,
+        "centerOffsetX": 0,
+        "centerOffsetY": -19
+      },
+      "boardAspect": 1.1603,
+      "baselineFill": 0.9049,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "480x900@2 (resized) low",
+      "canvasBox": [
+        0,
+        0,
+        480,
+        806
+      ],
+      "hudBox": [
+        0,
+        806.9000244140625,
+        480,
+        93.0999984741211
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        480,
+        900
+      ],
+      "board": {
+        "buffer": [
+          480,
+          806
+        ],
+        "rect": [
+          23,
+          221,
+          434,
+          374
+        ],
+        "fillW": 0.9042,
+        "fillH": 0.464,
+        "centerOffsetX": 0,
+        "centerOffsetY": -10
+      },
+      "boardAspect": 1.1604,
+      "baselineFill": 0.9042,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1280x720@1.5 (refronted) low",
+      "canvasBox": [
+        0,
+        0,
+        1160,
+        720
+      ],
+      "hudBox": [
+        1160,
+        0,
+        120,
+        720
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1280,
+        720
+      ],
+      "board": {
+        "buffer": [
+          1160,
+          720
+        ],
+        "rect": [
+          217,
+          56,
+          726,
+          625
+        ],
+        "fillW": 0.6259,
+        "fillH": 0.8681,
+        "centerOffsetX": 0,
+        "centerOffsetY": -17
+      },
+      "boardAspect": 1.1616,
+      "baselineFill": 0.8681,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1600x900@1 (refronted) high",
+      "canvasBox": [
+        0,
+        0,
+        1480,
+        900
+      ],
+      "hudBox": [
+        1480,
+        0,
+        120,
+        900
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1600,
+        900
+      ],
+      "board": {
+        "buffer": [
+          1480,
+          900
+        ],
+        "rect": [
+          286,
+          70,
+          908,
+          782
+        ],
+        "fillW": 0.6135,
+        "fillH": 0.8689,
+        "centerOffsetX": 0,
+        "centerOffsetY": -22
+      },
+      "boardAspect": 1.1611,
+      "baselineFill": 0.8689,
+      "matchesBaseline": true,
+      "pass": true
+    }
+  ],
+  "shaderWarnings": {
+    "high": [],
+    "medium": [
+      "THREE.WebGLProgram: Program Info Log: (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (375,1): warning X4000: use of potentially uninitialized variable (f_ApplyFXAA) \u0000"
+    ],
+    "low": [
+      "THREE.WebGLProgram: Program Info Log: (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (375,1): warning X4000: use of potentially uninitialized variable (f_ApplyFXAA) \u0000"
+    ]
+  }
+}

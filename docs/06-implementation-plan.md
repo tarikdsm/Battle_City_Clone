@@ -292,32 +292,32 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 2 — Render foundation (Lane main)
 
-### - [ ] T2.1 App loop, screen skeleton, error handling & debug flags
+### - [x] T2.1 App loop, screen skeleton, error handling & debug flags
 **Files:** create `src/app/{loop,screens,session,storage,debug}.ts`; tests `tests/app/{loop,storage,debug}.test.ts`.
 **Spec:** arch §3.4, §4.2, §8, §12; GDD §5.
-**Tests:** loop (injected clock): 100ms elapsed ⇒ 6 steps + alpha∈[0,1); 400ms spike clamps to 250ms (15 steps max); pause stops stepping; storage: versioned get/set roundtrip, corrupt JSON ⇒ defaults (no throw), unknown fields preserved-then-dropped per key policy; debug: URL params `?stage=n&seed=n&quality=low&overlay=1` parsed in dev builds only (prod build ignores them).
+**Tests:** loop (injected clock): 100 ms ⇒ 6 steps + alpha ∈ [0,1); spikes clamp to 250 ms and the per-call step cap is **10** (note: at `TICK_MS = 1000/60`, 250 ms divides to 14, not 15 — the cap fires first either way); sub-tick remainder carries across calls (8/8/8 ms ⇒ 0/0/1 — two 8 ms calls can never step, 16 < 16.667); pause ⇒ zero steps, alpha exactly 1, accumulator not advanced (no catch-up burst on resume); storage: versioned get/set roundtrip, corrupt JSON ⇒ defaults (no throw), field-wise fallback, throwing/missing `localStorage` ⇒ defaults; debug: URL params `?stage=n&seed=n&quality=low&overlay=1` parsed in dev builds only (prod build ignores them).
 **Build notes:** screens = typed registry `show(name)` swapping DOM roots + enter/leave hooks; play screen owns loop. Global error handler → friendly error screen (reload + copy details) per arch §12; WebGL context-loss listener rebuilds renderer from state. **Pause + interpolation (contract from T1.6/T1.7):** a paused tick advances nothing in the core, so the loop must pin the interpolation alpha (to 1) while paused — a cycling alpha would visibly jitter every tank between `prevX/prevY` and `x/y`. Cover it with a loop test.
 **Commit:** `feat(app): fixed-timestep loop, screen machine, storage, error/debug rails`
 
-### - [ ] T2.2 Scene root: board, camera, lights, quality plumbing
+### - [x] T2.2 Scene root: board, camera, lights, quality plumbing
 **Files:** create `src/render/{renderer,sceneRoot,materials}.ts`; test `tests/render/materials.test.ts` (palette tokens exact hexes from art §3 — data-only test).
 **Spec:** art §2–3, §6–7; arch §5. **Produces:** `createRenderer` per Contract Zero (renders board + placeholder tanks as boxes reading GameState).
 **Build notes:** ortho camera pitch 32°, yaw 0; board plane + frame; key/hemi lights + shadow config per preset; ACES, exposure 1.1; DPR caps; resize letterboxing. Visual check: `npm run dev` shows lit board with placeholder entities on fixture level (orchestrator eyeballs screenshot in report).
 **Commit:** `feat(render): scene root with tilted ortho rig, lighting, presets`
 
-### - [ ] T2.3 Terrain renderer
+### - [x] T2.3 Terrain renderer
 **Files:** create `src/render/terrainView.ts`; extend renderer. Test `tests/render/terrainView.test.ts` (instance-count bookkeeping with mocked three via lightweight fake — count instances per kind for fixture level; dirty update removes exactly the subcells of a `brickHit` mask).
 **Spec:** art §5; arch §5.
 **Build notes:** InstancedMesh per material (brick/steel subcell boxes, water plane shader from materials.ts, tree canopies above tank layer, ice decals); event-driven dirty updates (`brickHit`/`steelHit`/shovel phases rebuild ring tiles).
 **Commit:** `feat(render): instanced terrain with event-driven damage updates`
 
-### - [ ] T2.4 Tank & bullet views, procedural models
+### - [x] T2.4 Tank & bullet views, procedural models
 **Files:** create `src/render/{models,tankView,bulletView}.ts`. Test `tests/render/models.test.ts` (geometry factories return per-type part counts/dimensions per art §4 table; tier ring count === tier).
 **Spec:** art §4, §9 (animation specs).
 **Build notes:** silhouettes per type; pooled views keyed by tank id; interpolate prevX/prevY→x/y with alpha; track stepping, turret recoil on `shotFired`, 2.5° turn lean, spawn-star billboard while `spawningT>0`, carrier 4Hz emissive pulse, armor HP tint crossfade, shield shimmer while `shieldT>0`, stun stars while `stunT>0`.
 **Commit:** `feat(render): procedural tank/bullet models with animation states`
 
-### - [ ] T2.5 Post chain & auto quality
+### - [x] T2.5 Post chain & auto quality
 **Files:** create `src/render/post.ts`; extend renderer; modify `src/app/main.ts` (auto-probe on title: DPR/cores/1s FPS sample → preset; override persisted).
 **Spec:** art §7; arch §5.
 **Tests:** preset table data test (post.ts exports per-preset config matching art §7 exactly); probe unit test with injected samples (30fps sample ⇒ 'low', 60fps+DPR2+8cores ⇒ 'high').
@@ -325,12 +325,12 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 3 — First playable (Lane main)
 
-### - [ ] T3.1 Keyboard input
+### - [x] T3.1 Keyboard input
 **Files:** create `src/input/{keyboard,input}.ts`; test `tests/input/keyboard.test.ts` (fake KeyboardEvents: WASD+J → P1 intent; arrows+Numpad0 → P2; dominant-axis latch — pressing D while W held keeps last-pressed axis; fire edge + hold; pause edge; rebinding map applied).
 **Spec:** GDD §7; arch §7.
 **Commit:** `feat(input): remappable 2-player keyboard with 4-way latch`
 
-### - [ ] T3.2 Playable stage integration + smoke E2E
+### - [x] T3.2 Playable stage integration + smoke E2E
 **Files:** modify `src/app/{main,screens,session}.ts`; create `src/ui/hud.ts` (minimal: enemies-left icons, lives, score, stage — DOM, event-driven), `src/levels/original/stage01.json` (**provisional** hand-made approximation clearly marked `"name":"Stage 1 (provisional)"` — replaced in Phase 7), `e2e/smoke.spec.ts` (extend): boot → title → start 1P → 10 s of scripted keys → expect canvas pixels changing, HUD counters, zero console errors; editor route stub excluded.
 **Spec:** GDD §5–6, §9.
 **Steps:** standard cycle + run `npm run e2e` locally green.

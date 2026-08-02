@@ -1,0 +1,16 @@
+# Repo is LF-canonical. Without this, a Windows checkout with core.autocrlf=true
+# writes CRLF into the worktree while blobs stay LF, so `prettier --check` (part of
+# `npm run check`, the DoD gate) fails on files nobody touched.
+* text=auto eol=lf
+
+# Binary-ish assets are never line-ending converted. (`text=auto` already
+# auto-detects binary; these are belt-and-braces for formats we expect.)
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.mp3 binary
+*.ogg binary
+*.glb binary
+*.gltf binary
+*.ktx2 binary
+*.basis binary
