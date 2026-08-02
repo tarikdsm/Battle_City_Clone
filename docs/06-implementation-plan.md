@@ -292,14 +292,14 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 2 — Render foundation (Lane main)
 
-### - [ ] T2.1 App loop, screen skeleton, error handling & debug flags
+### - [x] T2.1 App loop, screen skeleton, error handling & debug flags
 **Files:** create `src/app/{loop,screens,session,storage,debug}.ts`; tests `tests/app/{loop,storage,debug}.test.ts`.
 **Spec:** arch §3.4, §4.2, §8, §12; GDD §5.
 **Tests:** loop (injected clock): 100 ms ⇒ 6 steps + alpha ∈ [0,1); spikes clamp to 250 ms and the per-call step cap is **10** (note: at `TICK_MS = 1000/60`, 250 ms divides to 14, not 15 — the cap fires first either way); sub-tick remainder carries across calls (8/8/8 ms ⇒ 0/0/1 — two 8 ms calls can never step, 16 < 16.667); pause ⇒ zero steps, alpha exactly 1, accumulator not advanced (no catch-up burst on resume); storage: versioned get/set roundtrip, corrupt JSON ⇒ defaults (no throw), field-wise fallback, throwing/missing `localStorage` ⇒ defaults; debug: URL params `?stage=n&seed=n&quality=low&overlay=1` parsed in dev builds only (prod build ignores them).
 **Build notes:** screens = typed registry `show(name)` swapping DOM roots + enter/leave hooks; play screen owns loop. Global error handler → friendly error screen (reload + copy details) per arch §12; WebGL context-loss listener rebuilds renderer from state. **Pause + interpolation (contract from T1.6/T1.7):** a paused tick advances nothing in the core, so the loop must pin the interpolation alpha (to 1) while paused — a cycling alpha would visibly jitter every tank between `prevX/prevY` and `x/y`. Cover it with a loop test.
 **Commit:** `feat(app): fixed-timestep loop, screen machine, storage, error/debug rails`
 
-### - [ ] T2.2 Scene root: board, camera, lights, quality plumbing
+### - [x] T2.2 Scene root: board, camera, lights, quality plumbing
 **Files:** create `src/render/{renderer,sceneRoot,materials}.ts`; test `tests/render/materials.test.ts` (palette tokens exact hexes from art §3 — data-only test).
 **Spec:** art §2–3, §6–7; arch §5. **Produces:** `createRenderer` per Contract Zero (renders board + placeholder tanks as boxes reading GameState).
 **Build notes:** ortho camera pitch 32°, yaw 0; board plane + frame; key/hemi lights + shadow config per preset; ACES, exposure 1.1; DPR caps; resize letterboxing. Visual check: `npm run dev` shows lit board with placeholder entities on fixture level (orchestrator eyeballs screenshot in report).
