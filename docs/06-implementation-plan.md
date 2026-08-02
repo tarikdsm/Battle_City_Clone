@@ -311,7 +311,7 @@ e2e/smoke.spec.ts             · Playwright
 **Build notes:** InstancedMesh per material (brick/steel subcell boxes, water plane shader from materials.ts, tree canopies above tank layer, ice decals); event-driven dirty updates (`brickHit`/`steelHit`/shovel phases rebuild ring tiles).
 **Commit:** `feat(render): instanced terrain with event-driven damage updates`
 
-### - [ ] T2.4 Tank & bullet views, procedural models
+### - [x] T2.4 Tank & bullet views, procedural models
 **Files:** create `src/render/{models,tankView,bulletView}.ts`. Test `tests/render/models.test.ts` (geometry factories return per-type part counts/dimensions per art §4 table; tier ring count === tier).
 **Spec:** art §4, §9 (animation specs).
 **Build notes:** silhouettes per type; pooled views keyed by tank id; interpolate prevX/prevY→x/y with alpha; track stepping, turret recoil on `shotFired`, 2.5° turn lean, spawn-star billboard while `spawningT>0`, carrier 4Hz emissive pulse, armor HP tint crossfade, shield shimmer while `shieldT>0`, stun stars while `stunT>0`.
