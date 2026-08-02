@@ -50,6 +50,59 @@ const INTRO_MS = 2000;
 type Quality = 'low' | 'medium' | 'high';
 const QUALITIES: readonly Quality[] = ['high', 'medium', 'low'];
 
+/**
+ * The viewport sweep. Wide, square-ish, tall/portrait, a HiDPI case, a tiny
+ * one, and one that is RESIZED after load — the path that broke.
+ */
+const VIEWPORTS: readonly {
+  w: number;
+  h: number;
+  dpr: number;
+  quality: Quality;
+  resizeTo?: [number, number];
+}[] = [
+  { w: 1600, h: 900, dpr: 1, quality: 'high' },
+  { w: 1280, h: 720, dpr: 1.5, quality: 'low' },
+  { w: 770, h: 587, dpr: 1.5, quality: 'low' },
+  { w: 1024, h: 1024, dpr: 1, quality: 'medium' },
+  { w: 480, h: 900, dpr: 2, quality: 'low' }, // portrait: HUD docks to the bottom
+  { w: 1200, h: 400, dpr: 1, quality: 'medium' }, // letterbox
+  { w: 770, h: 587, dpr: 1.5, quality: 'low', resizeTo: [1280, 720] },
+];
+
+/**
+ * Pass/fail bounds, in the artifact so it carries its own verdict.
+ *
+ * The frustum is a **contain-fit**, so the right invariant is not "the board
+ * fills the height" — on a tall canvas it fills the *width* instead and the
+ * height fraction is legitimately low (0.46 in portrait). What must hold at
+ * every aspect is:
+ *
+ * - `minLimitingFill` — the board spans ≥ 80% of whichever axis is limiting.
+ *   The geometric value is 0.87 (the drawn content is `BOARD_U` wide by
+ *   `BOARD_U·cos32 + SCENE_H·sin32` tall against a frustum with `MARGIN_U` of
+ *   slack); the margin absorbs frame pixels too dark to clear the brightness
+ *   threshold. **The bug this guards against measured 0.58**, so the bound is
+ *   nowhere near the failure it has to catch.
+ * - `boardAspect` — the drawn box keeps the board's own on-screen aspect. A
+ *   board scaled by a stale blit keeps its aspect, which is why this alone is
+ *   not sufficient and the fill bound above is the primary guard.
+ * - `maxCenterOffsetX` — horizontal framing is symmetric, always.
+ * - `maxCenterOffsetYFrac` — vertical framing is deliberately NOT symmetric:
+ *   `CAMERA_TARGET_Y` reserves `SCENE_H·sin32 / 2` of headroom upward so tall
+ *   pieces are not clipped, which biases the content box down by ~2.4% of the
+ *   frame. Bounded rather than zeroed, because zeroing it would be asserting
+ *   the opposite of what `sceneRoot.ts` documents.
+ */
+const EXPECT = {
+  minLimitingFill: 0.8,
+  boardAspect: 1.16,
+  boardAspectTol: 0.05,
+  maxCenterOffsetX: 3,
+  maxCenterOffsetYFrac: 0.06,
+  maxHudOverlapPx2: 0,
+};
+
 interface FrameSample {
   ms: number;
   calls: number;
@@ -81,6 +134,23 @@ interface Results {
   consoleErrors: string[];
   /** Any HTTP response ≥ 400, with its URL. Must stay empty. */
   failedRequests: string[];
+  /** Board framing + HUD docking at every viewport. Every row must pass. */
+  viewportExpectations: typeof EXPECT;
+  viewports: {
+    label: string;
+    viewport: number[];
+    canvasBox: number[];
+    hudBox: number[];
+    hudOverlapPx2: number;
+    board: BoardBox | null;
+    boardAspect: number;
+    pass: boolean;
+  }[];
+  /**
+   * Shader compile warnings per preset, with their origin. Recorded because the
+   * DoD forbids three.js warnings and these come from upstream (see the report).
+   */
+  shaderWarnings: Record<string, string[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +161,24 @@ interface Results {
 interface PerfHook {
   start(): void;
   stop(): FrameSample[];
+  /** Ask for a board bounding box on the next frame that draws. */
+  wantBox(): void;
+  /** The box from the last `wantBox`, or null if no frame has drawn yet. */
+  box(): BoardBox | null;
+}
+
+/** The board's on-screen extent, measured from the pixels the GPU produced. */
+interface BoardBox {
+  /** Drawing-buffer size the box was measured in. */
+  buffer: [number, number];
+  /** x, y (top-down), w, h in drawing-buffer pixels. */
+  rect: [number, number, number, number];
+  /** Fraction of the drawing buffer the board spans. */
+  fillW: number;
+  fillH: number;
+  /** Left margin − right margin, in pixels. 0 = perfectly centred. */
+  centerOffsetX: number;
+  centerOffsetY: number;
 }
 
 /**
@@ -139,6 +227,54 @@ function instrument(): void {
 
   const samples: FrameSample[] = [];
   let recording = false;
+  let wantBox = false;
+  let lastBox: BoardBox | null = null;
+
+  // The board's extent, read back from the finished frame. Done here — inside
+  // the rAF callback, before the compositor swaps — because the canvas has no
+  // `preserveDrawingBuffer`, so this is the only moment the pixels exist.
+  const measure = (): void => {
+    const canvas = document.querySelector('canvas#game') as HTMLCanvasElement;
+    const gl = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+    if (gl === null) {
+      return;
+    }
+    const W = gl.drawingBufferWidth;
+    const H = gl.drawingBufferHeight;
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    // The clear colour is 0x0a0a0a (renderer.ts). Anything brighter is drawn.
+    let x0 = W;
+    let y0 = H;
+    let x1 = -1;
+    let y1 = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4;
+        if (px[i] > 16 || px[i + 1] > 16 || px[i + 2] > 16) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+    if (x1 < 0) {
+      return; // nothing drawn yet
+    }
+    const w = x1 - x0 + 1;
+    const h = y1 - y0 + 1;
+    lastBox = {
+      buffer: [W, H],
+      // GL's origin is bottom-left; report the rect top-down like the screen.
+      rect: [x0, H - 1 - y1, w, h],
+      fillW: +(w / W).toFixed(4),
+      fillH: +(h / H).toFixed(4),
+      centerOffsetX: x0 - (W - 1 - x1),
+      centerOffsetY: y0 - (H - 1 - y1),
+    };
+  };
+
   const raf = g.requestAnimationFrame.bind(globalThis);
   g.requestAnimationFrame = (cb: (t: number) => void): number =>
     raf((t: number) => {
@@ -148,8 +284,15 @@ function instrument(): void {
       const ms = performance.now() - t0;
       // Only callbacks that actually DREW are loop frames: the auto probe's own
       // rAF chain issues no draw calls, and counting it would halve the mean.
-      if (recording && draws.n > c0) {
+      if (draws.n === c0) {
+        return;
+      }
+      if (recording) {
         samples.push({ ms, calls: draws.n - c0 });
+      }
+      if (wantBox) {
+        wantBox = false;
+        measure();
       }
     });
 
@@ -161,6 +304,12 @@ function instrument(): void {
     stop(): FrameSample[] {
       recording = false;
       return samples.slice();
+    },
+    wantBox(): void {
+      wantBox = true;
+    },
+    box(): BoardBox | null {
+      return lastBox;
     },
   };
 }
@@ -235,8 +384,12 @@ function stats(samples: FrameSample[]): LoopStats {
 async function newInstrumentedPage(
   browser: Browser,
   results: Results,
+  size?: { width: number; height: number; dpr: number },
 ): Promise<Page> {
-  const page = await browser.newPage({ viewport: { width: W, height: H } });
+  const page = await browser.newPage({
+    viewport: { width: size?.width ?? W, height: size?.height ?? H },
+    deviceScaleFactor: size?.dpr ?? 1,
+  });
   page.on('pageerror', (e) => {
     results.consoleErrors.push(`pageerror: ${e.message}`);
   });
@@ -270,6 +423,14 @@ async function measure(
   shots: boolean,
 ): Promise<void> {
   const page = await newInstrumentedPage(browser, results);
+  // Shader compile warnings are a per-preset fact (SMAA vs FXAA), so they are
+  // collected against the preset rather than lumped into one list.
+  const warnings: string[] = [];
+  page.on('console', (msg: ConsoleMessage) => {
+    if (msg.type() === 'warning') {
+      warnings.push(msg.text().replace(/\s+/g, ' ').trim());
+    }
+  });
   await page.goto(`${BASE}?quality=${quality}&seed=${SEED}`);
   await page.locator('[data-hud="root"]').waitFor();
   await sleep(INTRO_MS + 500);
@@ -303,6 +464,7 @@ async function measure(
   const row = stats(samples);
   row.fps = +((samples.length * 1000) / elapsed).toFixed(1);
   results.loop[quality] = row;
+  results.shaderWarnings[quality] = warnings;
   results.scene[quality] = {
     enemiesLeftAtEnd: await hudNumber(page, 'enemies-left'),
     scoreAtEnd: await hudNumber(page, 'p1-score'),
@@ -338,6 +500,84 @@ async function measure(
   }
 
   await page.close();
+}
+
+/**
+ * The regression the coordinator's G2 blocker asked for: at every viewport the
+ * board must fill the frame and the HUD must not sit on top of it.
+ *
+ * Both facts are measured from what the GPU actually produced, not from the
+ * numbers the app believes — the failure mode being guarded against had
+ * `canvas.width`, the drawing buffer and the GL viewport all reading correct
+ * while the board drew small and off-centre, so anything short of the pixels
+ * would have called it green.
+ */
+async function sweep(browser: Browser, results: Results): Promise<void> {
+  for (const v of VIEWPORTS) {
+    const page = await newInstrumentedPage(browser, results, {
+      width: v.w,
+      height: v.h,
+      dpr: v.dpr,
+    });
+    await page.goto(`${BASE}?quality=${v.quality}&seed=${SEED}`);
+    await page.locator('[data-hud="root"]').waitFor();
+    await sleep(1200);
+
+    // A resized case re-runs the sizing path the way a real window drag does,
+    // rather than only ever testing a fresh load.
+    if (v.resizeTo) {
+      await page.setViewportSize({
+        width: v.resizeTo[0],
+        height: v.resizeTo[1],
+      });
+      await sleep(1200);
+    }
+
+    await page.evaluate(() => {
+      (globalThis as unknown as { __bcperf: PerfHook }).__bcperf.wantBox();
+    });
+    await sleep(300);
+    const box = await page.evaluate(() =>
+      (globalThis as unknown as { __bcperf: PerfHook }).__bcperf.box(),
+    );
+    const layout = await page.evaluate(() => {
+      const c = (
+        document.querySelector('canvas#game') as HTMLCanvasElement
+      ).getBoundingClientRect();
+      const h = (
+        document.querySelector('[data-hud="root"]') as HTMLElement
+      ).getBoundingClientRect();
+      const overlap =
+        Math.max(0, Math.min(c.right, h.right) - Math.max(c.left, h.left)) *
+        Math.max(0, Math.min(c.bottom, h.bottom) - Math.max(c.top, h.top));
+      return {
+        canvasBox: [c.left, c.top, c.width, c.height] as number[],
+        hudBox: [h.left, h.top, h.width, h.height] as number[],
+        hudOverlapPx2: Math.round(overlap),
+        viewport: [window.innerWidth, window.innerHeight] as number[],
+      };
+    });
+    await page.close();
+
+    const size = v.resizeTo
+      ? `${v.resizeTo[0]}x${v.resizeTo[1]}`
+      : `${v.w}x${v.h}`;
+    const aspect = box === null ? 0 : box.rect[2] / box.rect[3];
+    results.viewports.push({
+      label: `${size}@${v.dpr}${v.resizeTo ? ' (resized)' : ''} ${v.quality}`,
+      ...layout,
+      board: box,
+      boardAspect: +aspect.toFixed(4),
+      pass:
+        box !== null &&
+        Math.max(box.fillW, box.fillH) >= EXPECT.minLimitingFill &&
+        Math.abs(aspect - EXPECT.boardAspect) <= EXPECT.boardAspectTol &&
+        Math.abs(box.centerOffsetX) <= EXPECT.maxCenterOffsetX &&
+        Math.abs(box.centerOffsetY) <=
+          EXPECT.maxCenterOffsetYFrac * box.buffer[1] &&
+        layout.hudOverlapPx2 <= EXPECT.maxHudOverlapPx2,
+    });
+  }
 }
 
 /** A load with no `?quality`, so the Auto path runs and prints its decision. */
@@ -399,6 +639,9 @@ async function main(): Promise<void> {
     budget: { renderCpuMs: 6, drawCalls: 120 },
     consoleErrors: [],
     failedRequests: [],
+    viewportExpectations: EXPECT,
+    viewports: [],
+    shaderWarnings: {},
   };
 
   // Headed: Playwright's headless Chromium renders through SwiftShader, and a
@@ -408,6 +651,7 @@ async function main(): Promise<void> {
     for (const quality of QUALITIES) {
       await measure(browser, quality, results, quality === 'high');
     }
+    await sweep(browser, results);
     await probeAuto(browser, results);
   } finally {
     await browser.close();
@@ -419,6 +663,23 @@ async function main(): Promise<void> {
   console.log(`GPU: ${results.gpu.vendor} / ${results.gpu.renderer}`);
   console.table(results.loop);
   console.log('auto probe:', results.autoProbe);
+  console.table(
+    results.viewports.map((v) => ({
+      viewport: v.label,
+      board: v.board === null ? '—' : `${v.board.rect[2]}x${v.board.rect[3]}`,
+      limitFill: v.board === null ? 0 : Math.max(v.board.fillW, v.board.fillH),
+      aspect: v.boardAspect,
+      offX: v.board?.centerOffsetX ?? 0,
+      hudOverlap: v.hudOverlapPx2,
+      pass: v.pass,
+    })),
+  );
+  const failures = results.viewports.filter((v) => !v.pass);
+  if (failures.length > 0) {
+    // A non-zero exit so this can never be "green" in a log nobody read.
+    console.error(`\n${failures.length} viewport(s) FAILED framing/docking`);
+    process.exitCode = 1;
+  }
 }
 
 void main();

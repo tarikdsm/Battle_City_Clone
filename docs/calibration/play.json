@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T07:10:57.601Z",
+  "capturedAt": "2026-08-02T09:54:41.356Z",
   "url": "http://localhost:5173/",
   "viewport": {
     "w": 1600,
@@ -13,59 +13,59 @@
   },
   "autoProbe": {
     "picked": "low",
-    "fps": 29.676525865238723,
+    "fps": 31.894747335314324,
     "dpr": 1.0000000149011612,
     "cores": 16
   },
   "loop": {
     "high": {
-      "frames": 276,
-      "meanMs": 1.876,
+      "frames": 305,
+      "meanMs": 1.907,
       "medianMs": 1.9,
-      "p95Ms": 2.8,
-      "maxMs": 3.8,
-      "fps": 34.4,
+      "p95Ms": 3,
+      "maxMs": 4.8,
+      "fps": 38.1,
       "drawCalls": {
-        "min": 37,
-        "median": 39,
-        "max": 41
+        "min": 41,
+        "median": 43,
+        "max": 45
       }
     },
     "medium": {
-      "frames": 345,
-      "meanMs": 1.522,
-      "medianMs": 1.4,
-      "p95Ms": 2.5,
-      "maxMs": 3.7,
-      "fps": 43,
+      "frames": 378,
+      "meanMs": 1.58,
+      "medianMs": 1.5,
+      "p95Ms": 2.6,
+      "maxMs": 5.1,
+      "fps": 47.2,
       "drawCalls": {
-        "min": 35,
-        "median": 37,
-        "max": 39
+        "min": 39,
+        "median": 41,
+        "max": 43
       }
     },
     "low": {
-      "frames": 431,
-      "meanMs": 0.796,
-      "medianMs": 0.7,
-      "p95Ms": 1.5,
-      "maxMs": 2.5,
-      "fps": 53.8,
+      "frames": 486,
+      "meanMs": 0.69,
+      "medianMs": 0.6,
+      "p95Ms": 1.3,
+      "maxMs": 2.2,
+      "fps": 60.6,
       "drawCalls": {
-        "min": 12,
-        "median": 14,
-        "max": 15
+        "min": 14,
+        "median": 16,
+        "max": 17
       }
     }
   },
   "scene": {
     "high": {
-      "enemiesLeftAtEnd": 14,
-      "scoreAtEnd": 200
+      "enemiesLeftAtEnd": 15,
+      "scoreAtEnd": 100
     },
     "medium": {
-      "enemiesLeftAtEnd": 16,
-      "scoreAtEnd": 0
+      "enemiesLeftAtEnd": 15,
+      "scoreAtEnd": 100
     },
     "low": {
       "enemiesLeftAtEnd": 16,
@@ -77,5 +77,290 @@
     "drawCalls": 120
   },
   "consoleErrors": [],
-  "failedRequests": []
+  "failedRequests": [],
+  "viewportExpectations": {
+    "minLimitingFill": 0.8,
+    "boardAspect": 1.16,
+    "boardAspectTol": 0.05,
+    "maxCenterOffsetX": 3,
+    "maxCenterOffsetYFrac": 0.06,
+    "maxHudOverlapPx2": 0
+  },
+  "viewports": [
+    {
+      "label": "1600x900@1 high",
+      "canvasBox": [
+        0,
+        0,
+        1480,
+        900
+      ],
+      "hudBox": [
+        1480,
+        0,
+        120,
+        900
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1600,
+        900
+      ],
+      "board": {
+        "buffer": [
+          1480,
+          900
+        ],
+        "rect": [
+          286,
+          70,
+          908,
+          782
+        ],
+        "fillW": 0.6135,
+        "fillH": 0.8689,
+        "centerOffsetX": 0,
+        "centerOffsetY": -22
+      },
+      "boardAspect": 1.1611,
+      "pass": true
+    },
+    {
+      "label": "1280x720@1.5 low",
+      "canvasBox": [
+        0,
+        0,
+        1160,
+        720
+      ],
+      "hudBox": [
+        1160,
+        0,
+        120,
+        720
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1280,
+        720
+      ],
+      "board": {
+        "buffer": [
+          1160,
+          720
+        ],
+        "rect": [
+          217,
+          56,
+          726,
+          625
+        ],
+        "fillW": 0.6259,
+        "fillH": 0.8681,
+        "centerOffsetX": 0,
+        "centerOffsetY": -17
+      },
+      "boardAspect": 1.1616,
+      "pass": true
+    },
+    {
+      "label": "770x587@1.5 low",
+      "canvasBox": [
+        0,
+        0,
+        650,
+        587
+      ],
+      "hudBox": [
+        650.4000244140625,
+        0,
+        120,
+        587.2000122070312
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        770,
+        587
+      ],
+      "board": {
+        "buffer": [
+          650,
+          587
+        ],
+        "rect": [
+          31,
+          47,
+          588,
+          507
+        ],
+        "fillW": 0.9046,
+        "fillH": 0.8637,
+        "centerOffsetX": 0,
+        "centerOffsetY": -14
+      },
+      "boardAspect": 1.1598,
+      "pass": true
+    },
+    {
+      "label": "1024x1024@1 medium",
+      "canvasBox": [
+        0,
+        0,
+        904,
+        1024
+      ],
+      "hudBox": [
+        904,
+        0,
+        120,
+        1024
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1024,
+        1024
+      ],
+      "board": {
+        "buffer": [
+          904,
+          1024
+        ],
+        "rect": [
+          43,
+          169,
+          818,
+          705
+        ],
+        "fillW": 0.9049,
+        "fillH": 0.6885,
+        "centerOffsetX": 0,
+        "centerOffsetY": -19
+      },
+      "boardAspect": 1.1603,
+      "pass": true
+    },
+    {
+      "label": "480x900@2 low",
+      "canvasBox": [
+        0,
+        0,
+        480,
+        806
+      ],
+      "hudBox": [
+        0,
+        806.9000244140625,
+        480,
+        93.0999984741211
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        480,
+        900
+      ],
+      "board": {
+        "buffer": [
+          480,
+          806
+        ],
+        "rect": [
+          23,
+          221,
+          434,
+          374
+        ],
+        "fillW": 0.9042,
+        "fillH": 0.464,
+        "centerOffsetX": 0,
+        "centerOffsetY": -10
+      },
+      "boardAspect": 1.1604,
+      "pass": true
+    },
+    {
+      "label": "1200x400@1 medium",
+      "canvasBox": [
+        0,
+        0,
+        1080,
+        400
+      ],
+      "hudBox": [
+        1080,
+        0,
+        120,
+        400
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1200,
+        400
+      ],
+      "board": {
+        "buffer": [
+          1080,
+          400
+        ],
+        "rect": [
+          338,
+          31,
+          404,
+          348
+        ],
+        "fillW": 0.3741,
+        "fillH": 0.87,
+        "centerOffsetX": 0,
+        "centerOffsetY": -10
+      },
+      "boardAspect": 1.1609,
+      "pass": true
+    },
+    {
+      "label": "1280x720@1.5 (resized) low",
+      "canvasBox": [
+        0,
+        0,
+        1160,
+        720
+      ],
+      "hudBox": [
+        1160,
+        0,
+        120,
+        720
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1280,
+        720
+      ],
+      "board": {
+        "buffer": [
+          1160,
+          720
+        ],
+        "rect": [
+          217,
+          56,
+          726,
+          625
+        ],
+        "fillW": 0.6259,
+        "fillH": 0.8681,
+        "centerOffsetX": 0,
+        "centerOffsetY": -17
+      },
+      "boardAspect": 1.1616,
+      "pass": true
+    }
+  ],
+  "shaderWarnings": {
+    "high": [],
+    "medium": [
+      "THREE.WebGLProgram: Program Info Log: (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (375,1): warning X4000: use of potentially uninitialized variable (f_ApplyFXAA) \u0000"
+    ],
+    "low": [
+      "THREE.WebGLProgram: Program Info Log: (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (375,1): warning X4000: use of potentially uninitialized variable (f_ApplyFXAA) \u0000"
+    ]
+  }
 }

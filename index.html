@@ -23,8 +23,18 @@
         background: #0a0a0a;
         overflow: hidden;
       }
+      /*
+        Taken out of flow and pinned to the top-left. The renderer sets this
+        element's pixel size (`WebGLRenderer.setSize` writes the inline width
+        and height), and the play screen sizes it to the viewport MINUS the
+        HUD dock — so the board area and the HUD are disjoint boxes rather
+        than one box with the other painted over it (GDD §9, art §10).
+      */
       #game {
         display: block;
+        position: fixed;
+        left: 0;
+        top: 0;
       }
     </style>
   </head>

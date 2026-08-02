@@ -21,6 +21,18 @@ import type { GameState } from '../core/types';
 export interface Hud {
   /** Reflect `state` into the DOM, writing only the nodes that changed. */
   sync(state: GameState): void;
+  /**
+   * Re-dock for the current viewport and report the space the HUD occupies, in
+   * CSS pixels. The caller subtracts this from the viewport to get the board
+   * area — the HUD is *docked* beside the board (GDD §9, art §10), never
+   * painted over it.
+   *
+   * Measured from the live element rather than assumed from a constant: the
+   * blocks are text, so a different font or a five-digit score changes the
+   * width, and a dock that is one glyph too narrow puts a tank behind the
+   * word LIVES.
+   */
+  dock(): { right: number; bottom: number };
   /** Remove everything this HUD added to the document. */
   dispose(): void;
 }
@@ -37,22 +49,39 @@ const STYLE_ID = 'bc-hud-style';
 const CSS = `
 .bc-hud {
   position: fixed;
-  top: 0;
-  right: 0;
-  height: 100%;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1.5rem;
-  padding: 1rem 1.5rem;
-  min-width: 8rem;
   /* The overlay must never eat a click meant for the game. */
   pointer-events: none;
   user-select: none;
   font: 13px/1.35 ui-monospace, "Cascadia Mono", "Courier New", monospace;
   letter-spacing: 0.06em;
   color: #e8e8e8;
+}
+/* Landscape: docked right, a column beside the board. */
+.bc-hud.landscape {
+  top: 0;
+  right: 0;
+  height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 1rem 1.25rem;
+  min-width: 7.5rem;
+}
+/* Portrait: docked bottom, a row under the board (GDD §9). */
+.bc-hud.portrait {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+}
+.bc-hud.portrait .bc-hud-icons {
+  grid-template-columns: repeat(10, 8px);
 }
 .bc-hud-label {
   font-size: 10px;
@@ -191,6 +220,19 @@ export function createHud(root: HTMLElement): Hud {
   };
 
   return {
+    dock(): { right: number; bottom: number } {
+      // Orientation decides the edge. Chosen from the viewport rather than
+      // from a media query so the play screen and the HUD can never disagree
+      // about which one is in force on the frame that matters.
+      const landscape = window.innerWidth >= window.innerHeight;
+      hud.classList.toggle('landscape', landscape);
+      hud.classList.toggle('portrait', !landscape);
+      const box = hud.getBoundingClientRect();
+      return landscape
+        ? { right: Math.ceil(box.width), bottom: 0 }
+        : { right: 0, bottom: Math.ceil(box.height) };
+    },
+
     sync(state: GameState): void {
       // The queue IS the "left to spawn" count: the spawner shifts an entry on
       // the tick it emits `enemySpawnStarted`, which is the event GDD §9 pins
