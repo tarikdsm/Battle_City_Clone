@@ -134,6 +134,8 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 
 Global cap ~180 live particles (High); FxSystem drops lowest-priority when exceeded.
 
+**Emissive budget (ruled 2026-08-02).** §1 pillar 2 rations emissive surfaces so bloom stays special, and T2.4 found `emissive` is a *material* property, so per-instance glow is impossible without extra materials. The ruling: the **spawn star** and the **tier-3 barrel tip** each get **one shared emissive material** (both are uniform in colour across every tank that shows them), and the **carrier pulse stays diffuse** because it tints a whole tank per instance and already reads as the strongest overlay on the board. That is +2 materials, not +6. The entity draw-call budget rises from 8 to **12** to absorb them — arch §11 caps the whole scene near 120 and a full board currently measures 24, so the constraint was a brief's round number, not an architectural limit. Bullets and tracers blooming while the spawn star does not would have inverted §4's intent exactly.
+
 ## 9. Animation
 
 | Thing | Spec |
@@ -159,8 +161,8 @@ Global cap ~180 live particles (High); FxSystem drops lowest-priority when excee
 
 ## 11. Readability & accessibility rules
 
-- Type silhouettes distinct in grayscale (§4); carrier flash also modulates scale ±4% for colorblind visibility.
-- Optional high-contrast mode: 1 px dark outlines on all tanks + brighter bullet tracers.
+- Type silhouettes distinct in grayscale (§4); carrier flash also modulates scale +4% for colorblind visibility.
+- **High-contrast mode is required, not optional** (upgraded 2026-08-02): 1 px dark outlines on all tanks + brighter bullet tracers. T2.4 measured player-gold `#d99c2b` against enemy-gunmetal `#8a8f9c` at only ~18 luminance points, and Basic-vs-P1 at 14.6% strongly-different area at its worst facing. Type silhouettes clear the bar among *enemies*; player-vs-enemy separation currently leans on hue, which is exactly what a colourblind player does not get. This mode is the fallback that makes that acceptable — ship it in Phase 6 with the other settings.
 - Effects never cover the player's own tank for >100 ms; smoke max alpha 0.35 over playfield.
 - `prefers-reduced-motion` or settings toggle: no shake, no slow-mo, no screen flash; all gameplay information preserved.
 - Minimum contrast for HUD text 4.5:1 against its panel.
