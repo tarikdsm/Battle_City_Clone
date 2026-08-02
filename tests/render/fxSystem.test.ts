@@ -1,11 +1,11 @@
 // tests/render/fxSystem.test.ts — the pooled particle/light machinery (T4.1),
 // in the Vitest **node** environment. Same reach as `propView.test.ts`: no DOM
-// and no WebGL, so everything here is either a pure table, a pure curve or a
-// `PointLight` — none of which needs a GL context.
+// and no WebGL, so everything here is either a pure table, a pure curve, an
+// `InstancedMesh` or a `PointLight` — none of which needs a GL context.
 //
 // What is deliberately NOT here: whether an explosion *looks* like an
-// explosion. This commit draws nothing at all — T4.2 adds the view and the
-// recipes — and even once it does, pixels are the only honest way to ask.
+// explosion. That is `scripts/capture-fx.ts`'s question, and pixels are the
+// only honest way to ask it.
 //
 // What IS here is the machinery a screenshot cannot check: that the pool never
 // reallocates, that a full pool evicts the lowest-priority particle instead of
@@ -15,21 +15,36 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { PointLight } from 'three';
+import { InstancedMesh, PointLight } from 'three';
 
+import { createGame } from '../../src/core/game';
+import type { GameState, LevelData } from '../../src/core/types';
+import { createMaterials, type Materials } from '../../src/render/materials';
+import { createSceneRoot, type SceneRoot } from '../../src/render/sceneRoot';
 import {
+  DEFAULT_FX_FLAGS,
   FX_KINDS,
   FX_LIGHTS,
   LIGHT_CAP,
   PARTICLE_CAP,
+  createFxSystem,
   createLightPool,
   createParticlePool,
   hash01,
   sizeFactorAt,
   tintFactorAt,
   type FxKind,
+  type FxSystem,
   type ParticlePool,
 } from '../../src/render/fx/fxSystem';
+
+import open from '../fixtures/level-open.json' with { type: 'json' };
+
+const OPEN = open as LevelData;
+
+function game(): GameState {
+  return createGame(OPEN, { players: 1, seed: 1, stageNumber: 1 });
+}
 
 /** Spawns one particle of `kind` at `priority`, with a life of `lifeMs`. */
 function push(
@@ -51,6 +66,38 @@ function priorities(pool: ParticlePool): number[] {
   }
   return out.sort((a, b) => a - b);
 }
+
+interface Mounted {
+  fx: FxSystem;
+  materials: Materials;
+  root: SceneRoot;
+  meshes: InstancedMesh[];
+  dispose(): void;
+}
+
+function mount(): Mounted {
+  const materials = createMaterials();
+  const root = createSceneRoot(materials);
+  const fx = createFxSystem(materials, root, { ...DEFAULT_FX_FLAGS });
+  const meshes: InstancedMesh[] = [];
+  root.entities.traverse((o) => {
+    if (o instanceof InstancedMesh) meshes.push(o);
+  });
+  return {
+    fx,
+    materials,
+    root,
+    meshes,
+    dispose(): void {
+      fx.dispose();
+      root.dispose();
+      materials.dispose();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+
 describe('particle pool — capacity and eviction (art §8)', () => {
   it('fills to its cap without evicting anything', () => {
     const pool = createParticlePool(8);
@@ -262,11 +309,16 @@ describe('deterministic randomness', () => {
 });
 
 describe('dynamic light pool (art §6)', () => {
-  it('caps at 8 — art §6’s "max 8"', () => {
-    expect(LIGHT_CAP.high).toBe(8);
-    expect(LIGHT_CAP.medium).toBe(8);
+  it('stays inside art §6’s "max 8" and halves for Low (art §7)', () => {
+    // Six, not eight: the eighth resident light is a measured cliff on the
+    // reference machine (+1.1 ms of frame CPU, ~half the delivered frame rate)
+    // and "max 8" is a ceiling. The table is in `LIGHT_CAP`'s own doc and in
+    // `docs/calibration/fx.json`.
+    expect(LIGHT_CAP.high).toBeLessThanOrEqual(8);
+    expect(LIGHT_CAP.high).toBe(6);
+    expect(LIGHT_CAP.medium).toBe(LIGHT_CAP.high);
     // Art §7's Low row: "lights pool halved".
-    expect(LIGHT_CAP.low).toBe(4);
+    expect(LIGHT_CAP.low).toBe(LIGHT_CAP.high / 2);
   });
 
   it('carries art §6’s ranges and durations verbatim', () => {
@@ -293,11 +345,29 @@ describe('dynamic light pool (art §6)', () => {
     const base = pool.acquire('baseExplosion', 99, 0, 0, 1, 1, 1, true);
     expect(base).not.toBeNull();
     expect(pool.count).toBe(8); // still 8 — one muzzle flash lost its slot
-    const live = pool.lights.filter((l) => l.visible);
+    const live = pool.lights.filter((l) => l.intensity > 0);
     expect(live).toHaveLength(8);
     expect(live.some((l) => l.distance === FX_LIGHTS.baseExplosion.range)).toBe(
       true,
     );
+  });
+
+  it('never hides a light — it darkens it (the 1.4 s stall)', () => {
+    // `WebGLRenderer.projectObject` skips an invisible object, so a hidden
+    // light leaves `lights.state` and `numPointLights` drops — and that number
+    // is part of `programCacheKey`, so every material recompiles on the
+    // flicker. Measured: mean frame time 2.0 ms → 11.9 ms with a **1394 ms**
+    // worst frame, on the first `capture:fx` run. Intensity is a uniform;
+    // visibility is a program.
+    const pool = createLightPool(4);
+    const before = pool.lights.map((l) => l.visible);
+    pool.acquire('explosion', 0, 0, 0, 1, 1, 1, true);
+    pool.advance(FX_LIGHTS.explosion.ms + 1);
+    pool.acquire('muzzle', 0, 0, 0, 1, 1, 1, true);
+    pool.clear();
+    expect(pool.lights.map((l) => l.visible)).toEqual(before);
+    expect(pool.lights.every((l) => l.visible)).toBe(true);
+    expect(pool.lights.every((l) => l.intensity === 0)).toBe(true);
   });
 
   it('lets the attached lights take a free slot but never steal one', () => {
@@ -315,11 +385,9 @@ describe('dynamic light pool (art §6)', () => {
   it('releases a light at the end of its life and darkens it', () => {
     const pool = createLightPool(2);
     const light = pool.acquire('muzzle', 0, 0, 0, 1, 1, 1, true) as PointLight;
-    expect(light.visible).toBe(true);
     expect(light.intensity).toBeGreaterThan(0);
     pool.advance(FX_LIGHTS.muzzle.ms + 1);
     expect(pool.count).toBe(0);
-    expect(light.visible).toBe(false);
     expect(light.intensity).toBe(0);
   });
 
@@ -360,16 +428,328 @@ describe('dynamic light pool (art §6)', () => {
   });
 
   it('evicts down when the budget halves', () => {
-    const pool = createLightPool(8);
-    for (let i = 0; i < 8; i++) {
-      pool.acquire(i < 4 ? 'bulletGlow' : 'explosion', i, 0, 0, 1, 1, 1, true);
+    const full = LIGHT_CAP.high;
+    const half = LIGHT_CAP.low;
+    const pool = createLightPool(full);
+    for (let i = 0; i < full; i++) {
+      // The weakest half are bullet glows, so the survivors are predictable.
+      pool.acquire(
+        i < full - half ? 'bulletGlow' : 'explosion',
+        i,
+        0,
+        0,
+        1,
+        1,
+        1,
+        true,
+      );
     }
-    expect(pool.count).toBe(8);
-    pool.setCap(LIGHT_CAP.low);
-    expect(pool.count).toBe(4);
-    // The four that survived are the explosions, not the glows.
-    for (const light of pool.lights.filter((l) => l.visible)) {
+    expect(pool.count).toBe(full);
+    pool.setCap(half);
+    expect(pool.count).toBe(half);
+    // What survived is the explosions, not the glows.
+    for (const light of pool.lights.filter((l) => l.intensity > 0)) {
       expect(light.distance).toBe(FX_LIGHTS.explosion.range);
     }
+  });
+});
+
+describe('FxSystem — the assembled layer', () => {
+  it('is five instanced meshes, one per particle kind', () => {
+    // Art §8's ~180-particle cap has to cost a handful of draw calls, not 180.
+    const m = mount();
+    expect(m.meshes).toHaveLength(FX_KINDS.length);
+    expect(new Set(m.meshes.map((mesh) => mesh.material)).size).toBe(
+      FX_KINDS.length,
+    );
+    for (const mesh of m.meshes) {
+      // Every one is registered, so the shadow-recompile sweep and disposal
+      // reach it (the rule `materials.test.ts` pins for the whole layer).
+      expect(m.materials.all).toContain(mesh.material);
+      // A particle that casts a shadow puts its kind in the shadow pass too.
+      expect(mesh.castShadow).toBe(false);
+      expect(mesh.receiveShadow).toBe(false);
+      expect(mesh.instanceMatrix.count).toBe(PARTICLE_CAP.high);
+    }
+    m.dispose();
+  });
+
+  it.each(['ring', 'flash'] as const)(
+    'winds the flat %s to face the camera, not the floor',
+    (kind) => {
+      // The bug this pins cost a whole capture round: both flat kinds were
+      // wound the "obvious" way — angle increasing from +x toward +z — which
+      // puts the geometric normal at **−y**, and `FrontSide` then culls them
+      // against art §2's overhead camera. Every shockwave in art §8 was simply
+      // absent, and nothing failed: the `normal` attribute said +y, but
+      // `MeshBasicMaterial` never reads it and culling does not care.
+      const m = mount();
+      const mesh = m.meshes[FX_KINDS.indexOf(kind)];
+      const p = mesh.geometry.getAttribute('position');
+      expect(p.count).toBeGreaterThan(0);
+      expect(p.count % 3).toBe(0);
+      for (let i = 0; i < p.count; i += 3) {
+        const ax = p.getX(i);
+        const az = p.getZ(i);
+        // Only the y component of the cross product matters for a flat piece.
+        const ny =
+          (p.getZ(i + 1) - az) * (p.getX(i + 2) - ax) -
+          (p.getX(i + 1) - ax) * (p.getZ(i + 2) - az);
+        expect(ny, `${kind} triangle ${i / 3}`).toBeGreaterThan(0);
+      }
+      m.dispose();
+    },
+  );
+
+  it('draws nothing at all until something happens', () => {
+    const m = mount();
+    m.fx.update(game(), 16);
+    for (const mesh of m.meshes) {
+      expect(mesh.count).toBe(0);
+    }
+    expect(m.fx.stats().activeKinds).toBe(0);
+    m.dispose();
+  });
+
+  it('puts art §6’s eight lights in the scene and no more', () => {
+    const m = mount();
+    const lights: PointLight[] = [];
+    m.root.scene.traverse((o) => {
+      if (o instanceof PointLight) lights.push(o);
+    });
+    expect(lights).toHaveLength(LIGHT_CAP.high);
+    for (const light of lights) {
+      // A shadow-casting point light is six extra render passes each.
+      expect(light.castShadow).toBe(false);
+    }
+    m.dispose();
+  });
+
+  it('drops to four resident lights on Low and back up again', () => {
+    const m = mount();
+    const count = (): number => {
+      let n = 0;
+      m.root.scene.traverse((o) => {
+        if (o instanceof PointLight) n++;
+      });
+      return n;
+    };
+    expect(count()).toBe(LIGHT_CAP.high);
+    m.fx.setQuality('low');
+    // Removed from the scene, not merely darkened: three compiles
+    // NUM_POINT_LIGHTS into every program, so eight idle lights would still
+    // cost eight iterations per fragment on the preset that can least afford it.
+    expect(count()).toBe(LIGHT_CAP.low);
+    m.fx.setQuality('high');
+    expect(count()).toBe(LIGHT_CAP.high);
+    m.dispose();
+  });
+
+  it('freezes every particle while the simulation is paused', () => {
+    const m = mount();
+    const state = game();
+    m.fx.onEvent({
+      t: 'brickHit',
+      tx: 3,
+      ty: 3,
+      removedMask: 3,
+      x: 50,
+      y: 50,
+      dir: 0,
+    });
+    m.fx.update(state, 16);
+    const live = m.fx.stats().particles;
+    expect(live).toBeGreaterThan(0);
+
+    state.paused = true;
+    for (let i = 0; i < 200; i++) {
+      m.fx.update(state, 16); // 3.2 s of real time — every particle has expired
+    }
+    expect(m.fx.stats().particles).toBe(live);
+
+    state.paused = false;
+    for (let i = 0; i < 200; i++) {
+      m.fx.update(state, 16);
+    }
+    expect(m.fx.stats().particles).toBe(0);
+    m.dispose();
+  });
+
+  it('holds the global cap however hard the board is hit', () => {
+    const m = mount();
+    const state = game();
+    for (let i = 0; i < 400; i++) {
+      m.fx.onEvent({
+        t: 'tankDestroyed',
+        tankId: 5,
+        kind: 'enemy',
+        enemyType: 'basic',
+        points: 100,
+        x: (i * 17) % 200,
+        y: (i * 29) % 200,
+      });
+      if (i % 5 === 0) m.fx.update(state, 16);
+    }
+    m.fx.update(state, 16);
+    expect(m.fx.stats().particles).toBeLessThanOrEqual(PARTICLE_CAP.high);
+    // …and it is still five meshes, not 180.
+    expect(m.fx.stats().activeKinds).toBeLessThanOrEqual(FX_KINDS.length);
+    let drawn = 0;
+    for (const mesh of m.meshes) {
+      drawn += mesh.count;
+      expect(mesh.count).toBeLessThanOrEqual(mesh.instanceMatrix.count);
+    }
+    expect(drawn).toBe(m.fx.stats().particles);
+    m.dispose();
+  });
+
+  it('lights the power-up while it is on the field, and not after', () => {
+    // Art §6's "power-up idle pulse", the seam `propView.ts` left open.
+    const m = mount();
+    const state = game();
+    state.powerup = { type: 'star', x: 64, y: 64 };
+    m.fx.update(state, 16);
+    expect(m.fx.stats().lights).toBeGreaterThan(0);
+    state.powerup = null;
+    m.fx.update(state, 16);
+    m.fx.update(state, 16);
+    expect(m.fx.stats().lights).toBe(0);
+    m.dispose();
+  });
+
+  it('smokes from the ruined eagle until a stage puts it back', () => {
+    // Art §4's "destroyed → … smoke wisps", the other seam.
+    const m = mount();
+    const state = game();
+    state.eagleAlive = false;
+    m.fx.onEvent({ t: 'baseDestroyed' });
+    // The one-shot explosion, then the continuing wisps.
+    m.fx.update(state, 16);
+    const afterBlast = m.fx.stats().particles;
+    expect(afterBlast).toBeGreaterThan(0);
+    for (let i = 0; i < 200; i++) {
+      m.fx.update(state, 16);
+    }
+    // Long past the explosion, something is still coming off the wreck.
+    expect(m.fx.stats().particles).toBeGreaterThan(0);
+
+    state.eagleAlive = true;
+    for (let i = 0; i < 200; i++) {
+      m.fx.update(state, 16);
+    }
+    expect(m.fx.stats().particles).toBe(0);
+    m.dispose();
+  });
+
+  it('suppresses the screen flash under either accessibility flag', () => {
+    // Art §11: "…no screen flash; **all gameplay information preserved**".
+    const state = game();
+    const death = {
+      t: 'tankDestroyed' as const,
+      tankId: 0,
+      kind: 'player' as const,
+      points: 0,
+      x: 80,
+      y: 80,
+    };
+
+    const plain = mount();
+    plain.fx.onEvent(death);
+    plain.fx.update(state, 16);
+    const withFlash = plain.materials.fxScreenFlash.opacity;
+    const particles = plain.fx.stats().particles;
+    expect(withFlash).toBeGreaterThan(0);
+    plain.dispose();
+
+    for (const flags of [
+      { reducedMotion: true, reducedFlash: false },
+      { reducedMotion: false, reducedFlash: true },
+    ]) {
+      const m = mount();
+      m.fx.setFlags(flags);
+      m.fx.onEvent(death);
+      m.fx.update(state, 16);
+      expect(m.materials.fxScreenFlash.opacity).toBe(0);
+      // Every particle the same recipe emits still spawns: the flag removes the
+      // full-frame blast, not the information that a tank just died.
+      expect(m.fx.stats().particles).toBe(particles);
+      m.dispose();
+    }
+  });
+
+  it('halves both budgets on Low (art §7)', () => {
+    const m = mount();
+    const state = game();
+    m.fx.setQuality('low');
+    for (let i = 0; i < 60; i++) {
+      m.fx.onEvent({
+        t: 'tankDestroyed',
+        tankId: 5,
+        kind: 'enemy',
+        enemyType: 'armor',
+        points: 400,
+        x: (i * 13) % 200,
+        y: (i * 31) % 200,
+      });
+    }
+    m.fx.update(state, 16);
+    expect(m.fx.stats().particles).toBeLessThanOrEqual(PARTICLE_CAP.low);
+    expect(m.fx.stats().lights).toBeLessThanOrEqual(LIGHT_CAP.low);
+    m.dispose();
+  });
+
+  it('gives the same event the same spray twice', () => {
+    // The property `scripts/capture-fx.ts` rests on: a screenshot harness
+    // cannot compare two runs of a frame it cannot re-derive.
+    const positions = (m: Mounted): number[] => {
+      const out: number[] = [];
+      const mesh = m.meshes[0];
+      for (let i = 0; i < mesh.count * 16; i++) {
+        out.push((mesh.instanceMatrix.array as Float32Array)[i]);
+      }
+      return out;
+    };
+    const hit = {
+      t: 'brickHit' as const,
+      tx: 4,
+      ty: 7,
+      removedMask: 5,
+      x: 70,
+      y: 118,
+      dir: 1 as const,
+    };
+    const a = mount();
+    a.fx.onEvent(hit);
+    a.fx.update(game(), 16);
+    const first = positions(a);
+    a.dispose();
+
+    const b = mount();
+    b.fx.onEvent(hit);
+    b.fx.update(game(), 16);
+    expect(positions(b)).toEqual(first);
+    b.dispose();
+
+    // …and a different brick shatters differently.
+    const c = mount();
+    c.fx.onEvent({ ...hit, tx: 5, x: 86 });
+    c.fx.update(game(), 16);
+    expect(positions(c)).not.toEqual(first);
+    c.dispose();
+  });
+
+  it('disposes cleanly, taking its lights out of the scene', () => {
+    const m = mount();
+    m.fx.dispose();
+    let lights = 0;
+    let meshes = 0;
+    m.root.scene.traverse((o) => {
+      if (o instanceof PointLight) lights++;
+      if (o instanceof InstancedMesh) meshes++;
+    });
+    expect(lights).toBe(0);
+    expect(meshes).toBe(0);
+    m.root.dispose();
+    m.materials.dispose();
   });
 });

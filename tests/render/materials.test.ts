@@ -20,6 +20,7 @@ import {
   ICE_ALPHA,
   PALETTE,
   QUALITY_PRESETS,
+  SMOKE_ALPHA,
   TERRAIN_GLOSS,
   createMaterials,
   faceTint,
@@ -79,6 +80,10 @@ const ART_PALETTE: readonly (readonly [PaletteKey, number])[] = [
   // pedestal" and §3.1 authored a colour for its emblem and none for the stone.
   ['eagleStone', 0x8d94a3],
 
+  // …and this one with T4.1/T4.2, by the same rule: art §8 asks for smoke in
+  // five of its twelve rows and §3.1 authored no colour for it.
+  ['smoke', 0x7a808f],
+
   ['powerupGold', 0xffd76b],
   ['spawnAccent', 0x7fc4ff],
   ['danger', 0xe24b4a],
@@ -125,6 +130,17 @@ describe('PALETTE (art §3)', () => {
 
   it('exports the ice alpha separately (art §3: ice @ 25%)', () => {
     expect(ICE_ALPHA).toBe(0.25);
+  });
+
+  it('caps smoke at art §11’s 0.35, in the material itself', () => {
+    // Art §11's readability rule, delivered by construction: `InstancedMesh`
+    // has no per-instance alpha, so every puff on the board shares this one
+    // number and no combination of events can push one past the cap.
+    expect(SMOKE_ALPHA).toBe(0.35);
+    const mats = createMaterials();
+    expect(mats.fxSmoke.opacity).toBe(SMOKE_ALPHA);
+    expect(mats.fxSmoke.transparent).toBe(true);
+    mats.dispose();
   });
 });
 
@@ -210,6 +226,8 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     | 'tierTip'
     | 'propStone'
     | 'propGold'
+    | 'fxDebris'
+    | 'fxSmoke'
   )[] = [
     // Art §6's definitive list puts ALL terrain on the lit path. Terrain is
     // something the light falls on, not part of the board's diagram.
@@ -231,7 +249,37 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     // Art §6's definitive list: "props and power-ups" are lit objects.
     'propStone',
     'propGold',
+    // T4.1/T4.2: debris and smoke are things the light falls on — a brick chunk
+    // is a piece of the wall it came out of, and a smoke puff lit by an
+    // explosion is the whole point of art §1's second pillar.
+    'fxDebris',
+    'fxSmoke',
   ];
+
+  /**
+   * The FX surfaces that ARE light rather than objects lit by it. Art §8's
+   * spawn-star ruling is the precedent: unlit + `toneMapped = false`, so ACES
+   * at the calibrated 0.70 exposure cannot desaturate a spark before art §7's
+   * bloom sees it.
+   */
+  const ADDITIVE: readonly (
+    'fxSpark' | 'fxRing' | 'fxFlash' | 'fxScreenFlash'
+  )[] = ['fxSpark', 'fxRing', 'fxFlash', 'fxScreenFlash'];
+
+  it.each(ADDITIVE)('%s is an unlit additive light graphic', (key) => {
+    const mats = createMaterials();
+    const m = mats[key];
+    expect(m).toBeInstanceOf(MeshBasicMaterial);
+    expect(m.toneMapped).toBe(false);
+    expect(m.blending).toBe(AdditiveBlending);
+    expect(m.transparent).toBe(true);
+    // Additive has no ordering requirement, but writing depth would let one
+    // spark occlude the next; testing depth is what keeps a spark behind a
+    // steel wall behind it.
+    expect(m.depthWrite).toBe(false);
+    expect(m.depthTest).toBe(key !== 'fxScreenFlash');
+    mats.dispose();
+  });
 
   it.each(FLAT)('%s opts out of tone mapping', (key) => {
     const mats = createMaterials();

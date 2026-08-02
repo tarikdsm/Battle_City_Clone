@@ -93,6 +93,20 @@ export const PALETTE = Object.freeze({
   // own pre-ruled outcome, measured in `docs/calibration/lighting.json`.
   eagleStone: 0x8d94a3,
 
+  // FX (art §8's smoke: dust puffs, explosion smoke, the base's column, the
+  // eagle's wisps). Added 2026-08-02 with T4.1/T4.2, by the same rule T3.3
+  // established for `eagleStone`: art §8 asks for smoke in five of its twelve
+  // rows and §3.1 authors no colour for it, so the doc gains a row rather than
+  // the code an unauthored grey.
+  //
+  // Chosen against its neighbours: 4.4× `board` in luminance so a puff is
+  // visible over the darkest thing it can sit on, and 0.83× `eagleStone` so it
+  // never reads as a piece of the pedestal it drifts off. Its saturation is
+  // 14.7%, i.e. below art §6's "≥ 55% to hold hue on a shaded face" threshold,
+  // so it reads **warm-sided by design** — the outcome §6 pre-ruled for
+  // near-neutral tokens, and the right one for smoke lit by an explosion.
+  smoke: 0x7a808f,
+
   // Emissive / signal
   powerupGold: 0xffd76b,
   spawnAccent: 0x7fc4ff,
@@ -107,6 +121,17 @@ export type PaletteKey = keyof typeof PALETTE;
  * consumer iterating it can never hand an alpha to `Color.setHex`.
  */
 export const ICE_ALPHA = 0.25;
+
+/**
+ * Art §11: "smoke max alpha **0.35** over playfield". A readability constraint,
+ * not a look — and it is delivered by *construction* here rather than by
+ * per-particle tuning, because `InstancedMesh` has no per-instance alpha in
+ * three 0.185.1: every smoke puff on the board shares this one number, so no
+ * combination of events can push a single puff past §11's cap. (Puffs still
+ * overlap, which is why they also disappear by shrinking rather than by
+ * lingering — see `sizeFactorAt` in `fx/fxSystem.ts`.)
+ */
+export const SMOKE_ALPHA = 0.35;
 
 /** The three concrete quality levels. `'auto'` is a *settings* value that the
  *  app resolves to one of these before it reaches the renderer (T2.1 report). */
@@ -226,6 +251,13 @@ export interface MaterialsByRole {
   readonly tierTip: MeshStandardMaterial;
   readonly propStone: MeshStandardMaterial;
   readonly propGold: MeshStandardMaterial;
+  // --- FX (art §8), one material per particle kind ------------------------
+  readonly fxDebris: MeshStandardMaterial;
+  readonly fxSpark: MeshBasicMaterial;
+  readonly fxSmoke: MeshStandardMaterial;
+  readonly fxRing: MeshBasicMaterial;
+  readonly fxFlash: MeshBasicMaterial;
+  readonly fxScreenFlash: MeshBasicMaterial;
 }
 
 /**
@@ -446,6 +478,30 @@ export function tankSkin(hex: number): MeshStandardMaterial {
   return litSurface(hex);
 }
 
+/**
+ * An **additive light graphic** — the FX layer's sparks, rings and flashes.
+ *
+ * Art §8's spawn-star ruling is the precedent, and the reasoning transfers
+ * exactly: a surface that *is* light must not be lit, and must not be tone
+ * mapped, or the ACES curve desaturates it before art §7's bloom can see it.
+ * `AdditiveBlending` is what makes fading to black mean fading to nothing,
+ * which is how every one of these disappears — `InstancedMesh` has no
+ * per-instance alpha in three 0.185.1, so colour is the only per-particle
+ * channel there is.
+ *
+ * `depthWrite` is off (an additive surface has no ordering requirement, but
+ * writing depth would let one spark occlude the next) while `depthTest` stays
+ * **on**, so a spark behind a steel wall is still behind it.
+ */
+export function additiveSurface(): MeshBasicMaterial {
+  const m = new MeshBasicMaterial({ color: 0xffffff });
+  m.toneMapped = false;
+  m.transparent = true;
+  m.blending = AdditiveBlending;
+  m.depthWrite = false;
+  return m;
+}
+
 export function createMaterials(): Materials {
   const board = graphicSurface(PALETTE.board);
   const boardFrame = graphicSurface(PALETTE.boardFrame);
@@ -611,6 +667,71 @@ export function createMaterials(): Materials {
     metalness: 0,
   });
 
+  // --- FX (art §8) — T4.1/T4.2 ---------------------------------------------
+  //
+  // Six materials for the whole VFX layer, and the count is the point: art §8
+  // retired the entity-material quota in favour of **total scene draw calls
+  // ≤ 60 at High**, and one material per particle *kind* is what turns §8's
+  // ~180 live-particle cap into five draws instead of 180. See the header of
+  // `fx/fxSystem.ts` for which effect lands on which kind.
+  //
+  // **Their base colour is white, deliberately, and it is the one place in this
+  // file where `material.color` is not an authored token.** Every other surface
+  // in the game wears one §3.1 colour for its whole life; a debris chunk wears
+  // `brickTop` on one frame and `enemyArmor` on the next, so there is no token
+  // for "debris" to be faithful to. The tokens ride on `instanceColor` instead
+  // — `diffuseColor = color × instanceColor`, so a white base makes the
+  // instance colour *be* the linear token rather than a ratio against one, and
+  // the palette still predicts what appears. Nothing here is probed by
+  // `scripts/calibrate-lighting.ts`; art §3.0's promise is about the surfaces
+  // that are.
+  const fxDebris = litSurface(0xffffff);
+  const fxSmoke = litSurface(0xffffff);
+  fxSmoke.transparent = true;
+  fxSmoke.opacity = SMOKE_ALPHA;
+  // A puff is a soft volume, not a solid: writing depth would let the near half
+  // of a cluster occlude the far half and turn the smoke into cut-out shapes.
+  fxSmoke.depthWrite = false;
+
+  // Sparks, rings and flashes take art §8's **spawn-star ruling** (2026-08-02),
+  // which is the closest precedent this doc has: an emissive overlay that must
+  // read as its authored token goes *unlit*, `toneMapped = false`, and stays on
+  // the bloom layer. These are light, not objects the light falls on — ACES at
+  // the calibrated 0.70 exposure would desaturate a spark before bloom ever ran
+  // — so they are `MeshBasicMaterial` on the flat-graphic path.
+  //
+  // Only two of the three go on `BLOOM_LAYER` (`fx/fxSystem.ts` decides):
+  // art §1 pillar 2 rations the glow and names "flashes" among the rationed
+  // set, so sparks and flashes bloom and the rings — which can span two tiles —
+  // do not. A blooming shockwave washes the board out at exactly the moment
+  // art §11 needs it readable.
+  const fxSpark = additiveSurface();
+  // The ring and the flash carry a **radial falloff in their vertex colours**
+  // (`fx/fxSystem.ts`), which is what makes them read as light rather than as
+  // solid shapes: an additive surface with no texture and no lighting has a
+  // hard edge, and the first capture of this task photographed a "flash sphere"
+  // as a flat gold hexagon two tiles wide. `instanceColor` multiplies on top,
+  // so a recipe's own colour and the kind's fade both still apply.
+  //
+  // The spark deliberately does NOT carry the flag: its geometry is the shared
+  // box and has no `color` attribute, and an unbound attribute reads (0, 0, 0)
+  // in WebGL2 — every spark would render black (the same trap `tankSkin`
+  // documents for tanks).
+  const fxRing = additiveSurface();
+  fxRing.vertexColors = true;
+  const fxFlash = additiveSurface();
+  fxFlash.vertexColors = true;
+
+  // Art §8's player-explosion row: "200 ms white screen-edge flash". One quad
+  // parented to the camera, so its opacity is a *material* value and needs no
+  // per-instance channel; the edge falloff is baked into vertex colours
+  // (`fx/fxSystem.ts`). `depthTest` off because it is drawn over the finished
+  // board rather than into it.
+  const fxScreenFlash = additiveSurface();
+  fxScreenFlash.vertexColors = true;
+  fxScreenFlash.depthTest = false;
+  fxScreenFlash.opacity = 0;
+
   // The single source of truth. `all` below is derived from it, so a new
   // material cannot be half-registered: adding it here without adding it to
   // `MaterialsByRole` is a compile error, and there is no third list to forget.
@@ -635,6 +756,12 @@ export function createMaterials(): Materials {
     tierTip,
     propStone,
     propGold,
+    fxDebris,
+    fxSpark,
+    fxSmoke,
+    fxRing,
+    fxFlash,
+    fxScreenFlash,
   };
 
   // Keyed rather than `Object.values`, which types a plain interface as `any[]`.

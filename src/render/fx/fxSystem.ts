@@ -1,20 +1,20 @@
 // src/render/fx/fxSystem.ts — the pooled particle and dynamic-light machinery
-// of art §8 and §6.
+// of art §8 and §6. Presentation only: it **reads** `GameState` and the event
+// stream and writes to neither (arch §3.3).
 //
-// ## What is here, and what is not (yet)
+// ## The two halves of this file
 //
-// This is **T4.1**: the pools, the eviction rule, the per-kind envelopes and
-// art §6's light table. It is deliberately pure — no scene, no meshes, no
-// `GameState` — which is why `tests/render/fxSystem.test.ts` can assert all of
-// it in the Vitest node environment where there is neither DOM nor WebGL. It
-// also means this file on its own draws nothing: T4.2 adds the view that turns
-// these pools into `InstancedMesh`es and the recipe table that fills them.
+// Everything above `--- The view ---` is **pure**: the pools, the eviction rule,
+// the per-kind curves and the light table. That is what `tests/render/
+// fxSystem.test.ts` asserts in the Vitest node environment, where there is no
+// DOM and no WebGL. Below it is the `InstancedMesh` / `PointLight` plumbing,
+// verified by `scripts/capture-fx.ts`'s screenshot checklist.
 //
 // ## Five kinds, five draw calls — never 180
 //
-// Art §8 caps the field at ~180 live particles at High. Those 180 will be
-// **five** `InstancedMesh`es, one per particle *kind*, and a kind is chosen by
-// what a particle physically is rather than by which event spawned it:
+// Art §8 caps the field at ~180 live particles at High. Those 180 are **five**
+// `InstancedMesh`es, one per particle *kind*, and a kind is chosen by what a
+// particle physically is rather than by which event spawned it:
 //
 // | kind | surface | what it is |
 // |---|---|---|
@@ -23,6 +23,10 @@
 // | `smoke` | lit, α 0.35 | dust puffs, explosion smoke, the base's column, the eagle's wisps |
 // | `ring` | additive | ground rings, shockwaves, spawn rings, the stun ring |
 // | `flash` | additive, bloomed | muzzle flash, explosion flash sphere |
+//
+// A kind draws **nothing at all** while its count is 0 (`InstancedMesh` with
+// `count === 0` issues no draw), so an idle board costs exactly what it did
+// before this file existed. Measured before/after in `docs/calibration/fx.json`.
 //
 // ## Data-oriented on purpose
 //
@@ -42,9 +46,29 @@
 // whatever the board happened to do; art §8's budgets are hard caps, and a cap
 // enforced by growing the pool is not a cap.
 
-import { PointLight } from 'three';
+import {
+  BufferGeometry,
+  Color,
+  DynamicDrawUsage,
+  Float32BufferAttribute,
+  Group,
+  IcosahedronGeometry,
+  InstancedMesh,
+  Mesh,
+  PlaneGeometry,
+  PointLight,
+  type Material,
+  type MeshBasicMaterial,
+  type MeshStandardMaterial,
+} from 'three';
 
-import type { Quality } from '../materials';
+import type { GameEvent } from '../../core/events';
+import type { GameState } from '../../core/types';
+import { PALETTE, type Materials, type Quality } from '../materials';
+import { BILLBOARD_X, animDtOf, writePartMatrix } from '../models';
+import { BLOOM_LAYER } from '../post';
+import type { SceneRoot } from '../sceneRoot';
+import { applyRecipe, seedOf } from './recipes';
 
 // ---------------------------------------------------------------------------
 // --- Vocabulary (pure) -----------------------------------------------------
@@ -84,20 +108,47 @@ export const PARTICLE_CAP: Readonly<Record<Quality, number>> = Object.freeze({
 });
 
 /**
- * Art §6: "Dynamic point-light pool (max 8, priority by proximity/importance)";
- * art §7's Low row: "lights pool halved".
+ * Art §6: "Dynamic point-light pool (**max 8**, priority by proximity/
+ * importance)"; art §7's Low row: "lights pool halved".
  *
- * The **resident** light count follows this, i.e. lights are removed from the
+ * **Six, not eight — measured, and the one place this task ships under the
+ * doc's allowance.** A resident point light costs every lit fragment a loop
+ * iteration whether it is on or off, and on the reference machine (Intel UHD
+ * ANGLE/D3D11, 1600×900, DPR 1) the eighth is not a linear step but a cliff.
+ * From `docs/calibration/fx.json`, one played stage at High:
+ *
+ * | resident | mean ms | median | p95 | delivered fps |
+ * |---|---|---|---|---|
+ * | 0 (pre-FX, `play.json`) | 2.03 | 1.9 | 3.5 | 28.5 |
+ * | 4 | 2.47 | 2.4 | 3.7 | 49.9 |
+ * | **6 (shipped)** | **2.35** | **2.2** | **3.5** | **46.4** |
+ * | 8 | 3.45 / 3.67 | 3.2 | 5.3 / 6.1 | 26.6 / 23.5 |
+ *
+ * Four and six are indistinguishable; eight costs **+1.1 ms of frame CPU and
+ * roughly half the delivered frame rate** (reproduced across two runs). Six is
+ * inside art §6's own word — "max 8" is a ceiling, not a requirement — and
+ * arch §11's first budget row is "60 FPS sustained: desktop @High", which the
+ * eighth light spends more of than every particle in this task combined.
+ * Reported for a §6 amendment; raise it back only with a measurement.
+ *
+ * The **resident** count follows the preset, i.e. lights are removed from the
  * scene on Low rather than merely left dark: three compiles `NUM_POINT_LIGHTS`
- * into every program, so eight idle lights would still cost eight iterations of
- * the direct-lighting loop per fragment on the preset that can least afford it.
- * three notices the change through `lights.state.version` and recompiles by
- * itself, and a preset switch already pays for a recompile (`renderer.ts`).
+ * into every program, so idle lights still cost the preset that can least
+ * afford them. three notices the change through `lights.state.version` and
+ * recompiles by itself, and a preset switch already pays for a recompile
+ * (`renderer.ts`). Within a preset the count never moves — see `release`.
  */
 export const LIGHT_CAP: Readonly<Record<Quality, number>> = Object.freeze({
-  high: 8,
-  medium: 8,
-  low: 4,
+  high: 6,
+  medium: 6,
+  low: 3,
+});
+
+/** Bullet glows are art §6's one "Low: off" light. */
+const BULLET_GLOW_QUALITY: Readonly<Record<Quality, boolean>> = Object.freeze({
+  high: true,
+  medium: true,
+  low: false,
 });
 
 /**
@@ -222,6 +273,12 @@ export interface FxSpawn {
    * piece unstretched; `0.02` turns a 1 u spark at 150 u/s into a 4 u streak.
    */
   stretch: number;
+  /**
+   * Depth as a multiple of width, so a piece can be a **streak** rather than a
+   * cube. 1 is square; art §5's ice skid marks are 5.5, which turns a 2.4 u
+   * decal into a 13 u track mark. Multiplies with {@link FxSpawn.stretch}.
+   */
+  lengthK: number;
   /** Art §8's brick chunks: "gravity 600 u/s², **1 bounce**". */
   bounce: boolean;
   /** Lies in the board plane and ignores `roll` — rings and skid marks. */
@@ -251,6 +308,7 @@ export interface ParticleData {
   readonly roll: Float32Array;
   readonly spin: Float32Array;
   readonly stretch: Float32Array;
+  readonly lengthK: Float32Array;
   readonly flags: Uint8Array;
   /** Dense list of occupied slots, `live[0 … count)`. */
   readonly live: Int32Array;
@@ -258,6 +316,8 @@ export interface ParticleData {
 
 const FLAG_BOUNCE = 1;
 const FLAG_FLAT = 2;
+/** How thin a `flat` piece is, as a fraction of its width. */
+const FLAT_THICKNESS = 0.14;
 /** Cleared once a bouncing particle has spent its one bounce. */
 const FLAG_BOUNCED = 4;
 
@@ -310,6 +370,7 @@ export function createParticlePool(capacity: number): ParticlePool {
     roll: f32(),
     spin: f32(),
     stretch: f32(),
+    lengthK: f32(),
     flags: new Uint8Array(n),
     live: new Int32Array(n),
   };
@@ -345,6 +406,7 @@ export function createParticlePool(capacity: number): ParticlePool {
     roll: 0,
     spin: 0,
     stretch: 0,
+    lengthK: 1,
     bounce: false,
     flat: false,
   };
@@ -418,6 +480,7 @@ export function createParticlePool(capacity: number): ParticlePool {
       spawn.roll = 0;
       spawn.spin = 0;
       spawn.stretch = 0;
+      spawn.lengthK = 1;
       spawn.bounce = false;
       spawn.flat = false;
       return spawn;
@@ -458,6 +521,7 @@ export function createParticlePool(capacity: number): ParticlePool {
       data.roll[slot] = spawn.roll;
       data.spin[slot] = spawn.spin;
       data.stretch[slot] = spawn.stretch;
+      data.lengthK[slot] = spawn.lengthK;
       data.flags[slot] =
         (spawn.bounce ? FLAG_BOUNCE : 0) | (spawn.flat ? FLAG_FLAT : 0);
       return slot;
@@ -665,7 +729,6 @@ export function createLightPool(capacity: number): LightPool {
   for (let i = 0; i < n; i++) {
     const light = new PointLight(0xffffff, 0, 1, 2);
     light.castShadow = false; // a shadow-casting point light is 6 extra draws
-    light.visible = false;
     lights.push(light);
   }
   const spec: (FxLightSpec | null)[] = new Array<FxLightSpec | null>(n).fill(
@@ -678,10 +741,26 @@ export function createLightPool(capacity: number): LightPool {
   let live = 0;
   let pulseMs = 0;
 
+  /**
+   * An idle light is **dark, never hidden** — and that distinction is worth
+   * 1.4 seconds.
+   *
+   * `WebGLRenderer.projectObject` returns early on `object.visible === false`,
+   * so an invisible light is not in `lights.state` at all and
+   * `numPointLights` — which is part of `programCacheKey` — drops. Toggling
+   * `visible` as lights come and go therefore asks three for a *different
+   * program* for every material on every flicker: measured on an Intel UHD,
+   * one played stage produced a **1394 ms** frame and a mean of 11.9 ms against
+   * a 2.0 ms baseline (`docs/calibration/fx.json`, and the reason it exists).
+   *
+   * Intensity 0 is a uniform. The count stays 8, one program set is compiled
+   * once at boot, and the cost of an idle light is the shader loop iteration it
+   * was always going to be — which is why art §7's Low row takes four of them
+   * out of the scene entirely rather than merely darkening them.
+   */
   function release(i: number): void {
     spec[i] = null;
     lights[i].intensity = 0;
-    lights[i].visible = false;
     live--;
   }
 
@@ -772,7 +851,6 @@ export function createLightPool(capacity: number): LightPool {
       light.position.set(x, y, z);
       light.color.setRGB(r, g, b);
       light.distance = s.range;
-      light.visible = true;
       light.intensity = intensityOf(index);
       return light;
     },
@@ -812,13 +890,12 @@ export function createLightPool(capacity: number): LightPool {
 // ---------------------------------------------------------------------------
 
 /**
- * Everything T4.2's recipes will be allowed to do. Deliberately narrow: a
- * recipe emits particles, asks for a light, asks for a screen flash and reads
- * the board position of a tank — it cannot see the pools, the meshes or the
- * scene.
+ * Everything `recipes.ts` is allowed to do. Deliberately narrow: a recipe emits
+ * particles, asks for a light, asks for a screen flash and reads the board
+ * position of a tank — it cannot see the pools, the meshes or the scene.
  *
- * It lives here, with the pools, so `recipes.ts` can import it **type-only**
- * and the two files never form an import cycle.
+ * `recipes.ts` imports this **type-only**, so there is no import cycle between
+ * the two files even though this one calls `applyRecipe`.
  */
 export interface FxSink {
   begin(kind: FxKind, priority: number): FxSpawn;
@@ -843,4 +920,787 @@ export interface FxSink {
   tankX(id: number): number;
   tankZ(id: number): number;
   tankDir(id: number): number;
+}
+
+// ---------------------------------------------------------------------------
+// --- The view --------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+/** Art §11's two accessibility switches, as far as the FX layer is concerned. */
+export interface FxFlags {
+  /** `prefers-reduced-motion` or the settings toggle: "no screen flash". */
+  reducedMotion: boolean;
+  /** The dedicated `reducedFlash` setting (storage.ts). */
+  reducedFlash: boolean;
+}
+
+export const DEFAULT_FX_FLAGS: FxFlags = Object.freeze({
+  reducedMotion: false,
+  reducedFlash: false,
+});
+
+/** What the capture harness reads back. One shared object; never allocated. */
+export interface FxStats {
+  particles: number;
+  lights: number;
+  /** Meshes that will actually draw this frame — the draw-call contribution. */
+  activeKinds: number;
+}
+
+export interface FxSystem extends FxSink {
+  /**
+   * One frame. `dtMs` is the loop's real frame time — including on a paused
+   * frame, which is its contract — and is zeroed here by {@link animDtOf},
+   * because a frozen board must not keep exploding.
+   */
+  update(state: GameState, dtMs: number): void;
+  onEvent(e: GameEvent): void;
+  setQuality(q: Quality): void;
+  setFlags(flags: FxFlags): void;
+  stats(): FxStats;
+  dispose(): void;
+}
+
+/** Art §4's eagle: "destroyed → … smoke wisps". One puff every this often. */
+const WISP_INTERVAL_MS = 420;
+
+/** Height the eagle's wisps rise from, and how big/slow they are. */
+const WISP_Y = 7;
+
+/** Tank ids the position cache covers — `tankView.ts`'s `TANK_ID_SPACE`. */
+const TANK_ID_SPACE = 64;
+
+export function createFxSystem(
+  materials: Materials,
+  sceneRoot: SceneRoot,
+  flags: FxFlags = DEFAULT_FX_FLAGS,
+): FxSystem {
+  const group = new Group();
+  sceneRoot.entities.add(group);
+
+  const pool = createParticlePool(PARTICLE_CAP.high);
+  const lightPool = createLightPool(LIGHT_CAP.high);
+
+  // Geometries. `debris` and `spark` share one unit box; `smoke` is a low-poly
+  // sphere, which needs no billboarding (a sphere looks the same from every
+  // angle) and is the one FX kind the rig's light actually falls on. The `ring`
+  // and the `flash` are authored **flat in XZ** and carry their falloff in
+  // vertex colours — see their factories for the hexagon that made that
+  // necessary.
+  const boxGeo = createFxBoxGeometry();
+  const smokeGeo = new IcosahedronGeometry(0.5, 1);
+  const flashGeo = createFlashGeometry();
+  const ringGeo = createRingGeometry();
+
+  const meshes: Record<FxKind, InstancedMesh> = {
+    debris: makeFxMesh(boxGeo, materials.fxDebris, false),
+    spark: makeFxMesh(boxGeo, materials.fxSpark, true),
+    smoke: makeFxMesh(smokeGeo, materials.fxSmoke, false),
+    ring: makeFxMesh(ringGeo, materials.fxRing, false),
+    flash: makeFxMesh(flashGeo, materials.fxFlash, true),
+  };
+  for (const kind of FX_KINDS) {
+    group.add(meshes[kind]);
+  }
+
+  // Art §8's player-explosion row: "200 ms white **screen-edge** flash". A quad
+  // parented to the camera, with the flash baked into its vertex colours so the
+  // edges burn and the centre — where the board is — stays clear. It is one
+  // object with one material, so its opacity is a per-material value and no
+  // per-instance alpha is needed; and it is `visible = false` unless a player
+  // has just died, so it costs no draw call at all the rest of the time.
+  const screen = new Mesh(createScreenFlashGeometry(), materials.fxScreenFlash);
+  screen.visible = false;
+  screen.frustumCulled = false;
+  screen.renderOrder = 10_000;
+  sceneRoot.camera.add(screen);
+
+  for (const light of lightPool.lights) {
+    sceneRoot.scene.add(light);
+  }
+
+  // --- scratch, reused for the life of the system --------------------------
+  const basis = new Float64Array(9);
+  const colour = new Color();
+  /**
+   * The camera-facing basis, built once — art §2 fixes the camera at yaw 0 and
+   * pitch 32°, so a billboard is `Rx(BILLBOARD_X)` and not a `lookAt`. Same
+   * construction as `tankView.ts`'s spawn star: local −z is screen up, local +y
+   * points at the camera.
+   */
+  const billboard = new Float64Array(9);
+  {
+    const c = Math.cos(BILLBOARD_X);
+    const s = Math.sin(BILLBOARD_X);
+    billboard[0] = 1;
+    billboard[4] = c;
+    billboard[7] = s;
+    billboard[5] = -s;
+    billboard[8] = c;
+  }
+  const used: Record<FxKind, number> = {
+    debris: 0,
+    spark: 0,
+    smoke: 0,
+    ring: 0,
+    flash: 0,
+  };
+  /** 1 / material colour, so a recipe's linear colour survives `instanceColor`. */
+  const inverseBase: Record<FxKind, Float64Array> = {
+    debris: inverseOf(materials.fxDebris),
+    spark: inverseOf(materials.fxSpark),
+    smoke: inverseOf(materials.fxSmoke),
+    ring: inverseOf(materials.fxRing),
+    flash: inverseOf(materials.fxFlash),
+  };
+  const statsOut: FxStats = { particles: 0, lights: 0, activeKinds: 0 };
+
+  // Tank positions, refreshed every frame. Art §8 gives three rows — ice skid,
+  // tree rustle and stun — whose events carry a `tankId` and **no position**
+  // (`core/events.ts`), so this is the one lookup the layer cannot avoid. It is
+  // a lookup and not a derivation: nothing here decides *whether* an effect
+  // happens, only where the event that already happened should be drawn.
+  const tankX = new Float32Array(TANK_ID_SPACE);
+  const tankZ = new Float32Array(TANK_ID_SPACE);
+  const tankDir = new Uint8Array(TANK_ID_SPACE);
+  const tankSeen = new Uint8Array(TANK_ID_SPACE);
+
+  let quality: Quality = 'high';
+  let currentFlags: FxFlags = flags;
+  let randSeed = 0;
+  let frame = 0;
+
+  // Screen flash (art §8) — one at a time; a second overrides the first.
+  let flashMs = -1;
+  let flashDurMs = 0;
+  let flashStrength = 0;
+
+  // The eagle's wisps (art §4) — the seam `propView.ts` left open. Armed by the
+  // event, disarmed when a state says the eagle is standing again.
+  let wispsArmed = false;
+  let wispT = 0;
+  let wispX = 0;
+  let wispZ = 0;
+
+  // The power-up's idle pulse (art §6/§9) — the other seam. Its phase is the
+  // bob's, so it is accumulated with the same re-arm rules `propView.ts` uses.
+  let powerupMs = 0;
+  let powerupArmed = false;
+
+  function inverseOf(
+    material: MeshStandardMaterial | MeshBasicMaterial,
+  ): Float64Array {
+    const out = new Float64Array(3);
+    out[0] = material.color.r > 1e-6 ? 1 / material.color.r : 1;
+    out[1] = material.color.g > 1e-6 ? 1 / material.color.g : 1;
+    out[2] = material.color.b > 1e-6 ? 1 / material.color.b : 1;
+    return out;
+  }
+
+  function makeFxMesh(
+    geometry: BufferGeometry,
+    material: Material,
+    bloom: boolean,
+  ): InstancedMesh {
+    const mesh = new InstancedMesh(geometry, material, PARTICLE_CAP.high);
+    mesh.count = 0;
+    mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    // No particle casts or receives a shadow. Casting would put every kind in
+    // the shadow pass — five more draws for silhouettes a few units across —
+    // and receiving would make a spark, which *is* light, take one.
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    if (bloom) {
+      // Art §1 pillar 2 rations emissive surfaces and names "flashes" among
+      // them. `enable`, not `set`: the mesh stays on layer 0 so the beauty pass
+      // still draws it, and gains the layer the bloom source pass renders.
+      mesh.layers.enable(BLOOM_LAYER);
+    }
+    // The bounding sphere comes from the GEOMETRY — a unit primitive at the
+    // origin — so three would cull every particle on the board.
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+
+  /** Row-major Ry(yaw)·Rx(roll) — the tumble. */
+  function setTumble(yaw: number, roll: number): void {
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const cr = Math.cos(roll);
+    const sr = Math.sin(roll);
+    basis[0] = cy;
+    basis[1] = sy * sr;
+    basis[2] = sy * cr;
+    basis[3] = 0;
+    basis[4] = cr;
+    basis[5] = -sr;
+    basis[6] = -sy;
+    basis[7] = cy * sr;
+    basis[8] = cy * cr;
+  }
+
+  /**
+   * A basis whose local **−z** points along `(vx, vy, vz)` — the entity layer's
+   * "local −z is forward" convention (models.ts), so scaling depth stretches a
+   * spark along its own flight.
+   */
+  function setAlongVelocity(vx: number, vy: number, vz: number): void {
+    const len = Math.hypot(vx, vy, vz) || 1;
+    const zx = -vx / len;
+    const zy = -vy / len;
+    const zz = -vz / len;
+    // Any up vector that is not parallel to z; near-vertical flight picks +x.
+    const ux = Math.abs(zy) > 0.99 ? 1 : 0;
+    const uy = Math.abs(zy) > 0.99 ? 0 : 1;
+    let xx = uy * zz - 0 * zy;
+    let xy = 0 * zx - ux * zz;
+    let xz = ux * zy - uy * zx;
+    const xl = Math.hypot(xx, xy, xz) || 1;
+    xx /= xl;
+    xy /= xl;
+    xz /= xl;
+    const yx = zy * xz - zz * xy;
+    const yy = zz * xx - zx * xz;
+    const yz = zx * xy - zy * xx;
+    basis[0] = xx;
+    basis[1] = yx;
+    basis[2] = zx;
+    basis[3] = xy;
+    basis[4] = yy;
+    basis[5] = zy;
+    basis[6] = xz;
+    basis[7] = yz;
+    basis[8] = zz;
+  }
+
+  function writeParticles(): void {
+    for (const kind of FX_KINDS) {
+      used[kind] = 0;
+    }
+    const d = pool.data;
+    for (let i = 0; i < pool.count; i++) {
+      const p = d.live[i];
+      const kind = FX_KINDS[d.kind[p]];
+      const mesh = meshes[kind];
+      const index = used[kind];
+      if (index >= mesh.instanceMatrix.count) continue;
+      used[kind] = index + 1;
+
+      const t = d.age[p] / d.life[p];
+      const size =
+        (d.size0[p] + (d.size1[p] - d.size0[p]) * t) * sizeFactorAt(kind, t);
+      const flat = (d.flags[p] & FLAG_FLAT) !== 0;
+      // A flat piece is a **decal**, not a cube: art §8's ice skid marks are
+      // laid on the board and a 2.4 u block standing on the ice is not a mark.
+      // The ring is unaffected — its geometry is entirely at y = 0, so any
+      // non-zero height scale renders the same thing.
+      const height = flat ? size * FLAT_THICKNESS : size;
+      let depth = size * d.lengthK[p];
+      const stretch = d.stretch[p];
+      let axes = basis;
+      if (kind === 'flash') {
+        // A flare faces the camera, always. Art §2 fixes the camera, so this is
+        // the same constant basis `tankView.ts` and `propView.ts` use for their
+        // billboards rather than a per-particle `lookAt`.
+        axes = billboard;
+      } else if (stretch > 0) {
+        const speed = Math.hypot(d.vx[p], d.vy[p], d.vz[p]);
+        depth *= 1 + stretch * speed;
+        setAlongVelocity(d.vx[p], d.vy[p], d.vz[p]);
+      } else if (flat) {
+        setTumble(d.yaw[p], 0);
+      } else {
+        setTumble(d.yaw[p], d.roll[p]);
+      }
+
+      writePartMatrix(
+        mesh,
+        index,
+        axes,
+        d.x[p],
+        d.y[p],
+        d.z[p],
+        0,
+        0,
+        0,
+        size,
+        height,
+        depth,
+      );
+
+      const k = tintFactorAt(kind, t);
+      const inv = inverseBase[kind];
+      colour.setRGB(
+        d.r[p] * k * inv[0],
+        d.g[p] * k * inv[1],
+        d.b[p] * k * inv[2],
+      );
+      mesh.setColorAt(index, colour);
+    }
+
+    let active = 0;
+    for (const kind of FX_KINDS) {
+      const mesh = meshes[kind];
+      const n = used[kind];
+      mesh.count = n;
+      if (n === 0) continue;
+      active++;
+      // Only the prefix that changed is uploaded. Without this every kind would
+      // push its whole 180-instance buffer every frame, which is 57 KB of
+      // matrices per frame to draw three sparks.
+      mesh.instanceMatrix.clearUpdateRanges();
+      mesh.instanceMatrix.addUpdateRange(0, n * 16);
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor !== null) {
+        mesh.instanceColor.clearUpdateRanges();
+        mesh.instanceColor.addUpdateRange(0, n * 3);
+        mesh.instanceColor.needsUpdate = true;
+      }
+    }
+    statsOut.activeKinds = active;
+  }
+
+  /** Art §6's two attached lights, refreshed from the board every frame. */
+  function attachedLights(state: GameState): void {
+    const item = state.powerup;
+    if (item !== null) {
+      lightPool.setPulsePhase(powerupMs);
+      lightPool.acquire(
+        'powerupPulse',
+        item.x + 8,
+        POWERUP_LIGHT_Y,
+        item.y + 8,
+        1,
+        0.78,
+        0.35,
+        false,
+      );
+    }
+    if (!BULLET_GLOW_QUALITY[quality]) return;
+    const bullets = state.bullets;
+    for (let i = 0; i < bullets.length; i++) {
+      const b = bullets[i];
+      if (!b.alive) continue;
+      if (
+        lightPool.acquire(
+          'bulletGlow',
+          b.x + 2,
+          BULLET_LIGHT_Y,
+          b.y + 2,
+          1,
+          0.84,
+          0.42,
+          false,
+        ) === null
+      ) {
+        return; // pool full of things that matter more — art §6's priority rule
+      }
+    }
+  }
+
+  const sink: FxSink = {
+    begin(kind: FxKind, priority: number): FxSpawn {
+      return pool.begin(kind, priority);
+    },
+    emit(): void {
+      pool.emit();
+    },
+    light(kind, x, y, z, r, g, b): void {
+      lightPool.acquire(kind, x, y, z, r, g, b, true);
+    },
+    screenFlash(ms: number, strength: number): void {
+      // Art §11: "`prefers-reduced-motion` or settings toggle: … no screen
+      // flash". Every particle the same recipe emits still spawns — the
+      // information is preserved, only the full-frame blast is not.
+      if (currentFlags.reducedMotion || currentFlags.reducedFlash) return;
+      flashMs = 0;
+      flashDurMs = Math.max(1, ms);
+      flashStrength = strength;
+    },
+    rand(i: number): number {
+      return hash01(randSeed, i);
+    },
+    seed(value: number): void {
+      randSeed = value >>> 0;
+    },
+    hasTank(id: number): boolean {
+      return id >= 0 && id < TANK_ID_SPACE && tankSeen[id] === 1;
+    },
+    tankX(id: number): number {
+      return tankX[id];
+    },
+    tankZ(id: number): number {
+      return tankZ[id];
+    },
+    tankDir(id: number): number {
+      return tankDir[id];
+    },
+  };
+
+  return {
+    ...sink,
+
+    update(state: GameState, dtMs: number): void {
+      const dt = animDtOf(state, dtMs);
+
+      // Positions first: an event pumped later this frame reads them, and an
+      // event pumped *before* this call read last frame's — at most one tick
+      // stale, i.e. under 4 u for the fastest tank.
+      tankSeen.fill(0);
+      const tanks = state.tanks;
+      for (let i = 0; i < tanks.length; i++) {
+        const tank = tanks[i];
+        if (!tank.alive || tank.id < 0 || tank.id >= TANK_ID_SPACE) continue;
+        tankX[tank.id] = tank.x + 8;
+        tankZ[tank.id] = tank.y + 8;
+        tankDir[tank.id] = tank.dir;
+        tankSeen[tank.id] = 1;
+      }
+
+      // The power-up's bob phase, re-armed exactly as `propView.ts` re-arms its
+      // own, so the light and the bob cannot drift apart (its header says so).
+      if (state.powerup === null) {
+        powerupMs = 0;
+        powerupArmed = false;
+      } else {
+        if (!powerupArmed) {
+          powerupMs = 0;
+          powerupArmed = true;
+        }
+        powerupMs += dt;
+      }
+
+      // The eagle's wisps. `state.eagleAlive` is read only to *disarm* — a new
+      // stage puts the bird back — while arming is the event's job.
+      if (state.eagleAlive) {
+        wispsArmed = false;
+      } else if (wispsArmed) {
+        wispT += dt;
+        while (wispT >= WISP_INTERVAL_MS) {
+          wispT -= WISP_INTERVAL_MS;
+          frame++;
+          sink.seed(frame * 2654435761);
+          const p = pool.begin('smoke', WISP_PRIORITY);
+          p.x = wispX + (sink.rand(0) - 0.5) * 7;
+          p.y = WISP_Y;
+          p.z = wispZ + (sink.rand(1) - 0.5) * 7;
+          p.vy = 9 + sink.rand(2) * 6;
+          p.vx = (sink.rand(3) - 0.5) * 4;
+          p.vz = (sink.rand(4) - 0.5) * 4;
+          p.lifeMs = 1600;
+          p.size0 = 3;
+          p.size1 = 10;
+          p.r = SMOKE_RGB[0];
+          p.g = SMOKE_RGB[1];
+          p.b = SMOKE_RGB[2];
+          pool.emit();
+        }
+      }
+
+      pool.advance(dt);
+      lightPool.advance(dt);
+      attachedLights(state);
+      writeParticles();
+
+      if (flashMs >= 0) {
+        flashMs += dt;
+        const t = flashMs / flashDurMs;
+        if (t >= 1) {
+          flashMs = -1;
+          screen.visible = false;
+        } else {
+          screen.visible = true;
+          materials.fxScreenFlash.opacity = flashStrength * (1 - t) ** 2;
+          // The frustum moves with the viewport, so the quad is re-fitted here
+          // rather than on resize: it is two multiplications on the frames it
+          // is actually visible, against a resize hook that could go stale.
+          const camera = sceneRoot.camera;
+          screen.position.set(0, 0, -(camera.near + 1));
+          screen.scale.set(
+            (camera.right - camera.left) / 2,
+            (camera.top - camera.bottom) / 2,
+            1,
+          );
+        }
+      }
+
+      statsOut.particles = pool.count;
+      statsOut.lights = lightPool.count;
+    },
+
+    onEvent(e: GameEvent): void {
+      if (e.t === 'baseDestroyed') {
+        wispsArmed = true;
+        wispT = WISP_INTERVAL_MS; // first wisp on the next frame, not in 420 ms
+        wispX = EAGLE_FX_X;
+        wispZ = EAGLE_FX_Z;
+      } else if (e.t === 'powerupSpawned' || e.t === 'powerupCollected') {
+        powerupArmed = false;
+      }
+      sink.seed(seedOf(e));
+      applyRecipe(sink, e);
+    },
+
+    setQuality(q: Quality): void {
+      if (q === quality) return;
+      const before = LIGHT_CAP[quality];
+      quality = q;
+      pool.setCap(PARTICLE_CAP[q]);
+      lightPool.setCap(LIGHT_CAP[q]);
+      // Resident count, not just budget: see LIGHT_CAP's note. three sees the
+      // change through `lights.state.version` and recompiles by itself.
+      const after = LIGHT_CAP[q];
+      if (after < before) {
+        for (let i = after; i < before; i++) {
+          sceneRoot.scene.remove(lightPool.lights[i]);
+        }
+      } else if (after > before) {
+        for (let i = before; i < after; i++) {
+          sceneRoot.scene.add(lightPool.lights[i]);
+        }
+      }
+    },
+
+    setFlags(next: FxFlags): void {
+      currentFlags = next;
+      if (next.reducedMotion || next.reducedFlash) {
+        flashMs = -1;
+        screen.visible = false;
+      }
+    },
+
+    stats(): FxStats {
+      return statsOut;
+    },
+
+    dispose(): void {
+      group.removeFromParent();
+      screen.removeFromParent();
+      screen.geometry.dispose();
+      for (const kind of FX_KINDS) {
+        meshes[kind].dispose();
+      }
+      for (const light of lightPool.lights) {
+        light.removeFromParent();
+        light.dispose();
+      }
+      boxGeo.dispose();
+      smokeGeo.dispose();
+      flashGeo.dispose();
+      ringGeo.dispose();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// --- Constants the view and the recipes share ------------------------------
+// ---------------------------------------------------------------------------
+
+/** Art §9's power-up hovers 2.5 u up and bobs ±2; the light sits mid-swing. */
+const POWERUP_LIGHT_Y = 8;
+/** Bullets are 4 u; their glow sits at the capsule's own height. */
+const BULLET_LIGHT_Y = 5;
+/** The eagle's tile centre — a constant of the board, not a state read. */
+const EAGLE_FX_X = 6 * 16 + 8;
+const EAGLE_FX_Z = 12 * 16 + 8;
+/** Wisps are scenery; anything the player is looking at outranks them. */
+const WISP_PRIORITY = 5;
+
+/**
+ * Linear RGB of the `smoke` token, resolved once. The wisp emitter lives in
+ * this file rather than in a recipe (it is continuous, not event-shaped), so it
+ * needs the one colour recipes.ts would otherwise own.
+ */
+const SMOKE_RGB: readonly number[] = (() => {
+  const c = new Color(PALETTE.smoke);
+  return Object.freeze([c.r, c.g, c.b]);
+})();
+
+// ---------------------------------------------------------------------------
+// --- Geometry --------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+/**
+ * The particle box: a plain unit cube, positions and normals only.
+ *
+ * Deliberately **not** `createPartGeometry()`'s beveled box, which is 48
+ * triangles: at 180 live particles that is 8 640 triangles of chamfer nobody
+ * can see on a 2 u chunk. 12 triangles is the same silhouette at this size.
+ */
+function createFxBoxGeometry(): BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const h = 0.5;
+  const push = (ax: number, s: number): void => {
+    // The face on axis `ax` at sign `s`, as two triangles wound outwards.
+    const o1 = (ax + 1) % 3;
+    const o2 = (ax + 2) % 3;
+    const corner = (u: number, v: number): number[] => {
+      const p = [0, 0, 0];
+      p[ax] = s * h;
+      p[o1] = u * h;
+      p[o2] = v * h;
+      return p;
+    };
+    const quad =
+      s > 0
+        ? [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)]
+        : [corner(-1, -1), corner(-1, 1), corner(1, 1), corner(1, -1)];
+    for (const [a, b, c] of [
+      [quad[0], quad[1], quad[2]],
+      [quad[0], quad[2], quad[3]],
+    ]) {
+      for (const v of [a, b, c]) {
+        pos.push(v[0], v[1], v[2]);
+        const n = [0, 0, 0];
+        n[ax] = s;
+        nrm.push(n[0], n[1], n[2]);
+      }
+    }
+  };
+  for (let ax = 0; ax < 3; ax++) {
+    push(ax, 1);
+    push(ax, -1);
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
+  return geo;
+}
+
+/** Segments around the ring and the flare. 36 is smooth at 170 u across. */
+const RADIAL_SEGMENTS = 36;
+/** The shockwave band: inner edge, bright core and outer edge, as radii. */
+const RING_BAND: readonly number[] = Object.freeze([0.3, 0.4, 0.5]);
+
+/**
+ * A flat shockwave band of outer **diameter 1**, lying in the XZ plane with its
+ * normal up, and **carrying its own falloff in vertex colours**: 0 at both
+ * edges, 1 along the bright core.
+ *
+ * Both halves of that matter. Flat, because every ring art §8 asks for — the
+ * tank explosion's ground ring, the base's double shockwave, the spawn rings,
+ * the stun ring — lies on the board, so drawing one is a scale rather than an
+ * orientation. And soft, because an additive surface with no texture and no
+ * lighting is otherwise a **hard-edged solid band**: the first capture of this
+ * task rendered exactly that and it read as a UI element drawn over the board
+ * rather than as energy moving through it. Vertex colours are the whole fix,
+ * they cost nothing, and `instanceColor` still multiplies on top so a recipe's
+ * own colour and the kind's fade both survive (`color_vertex.glsl` applies
+ * `color` and `instanceColor` in turn).
+ */
+function createRingGeometry(): BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const col: number[] = [];
+  const [inner, core, outer] = RING_BAND;
+  const push = (r: number, a: number, k: number): void => {
+    pos.push(r * Math.cos(a), 0, r * Math.sin(a));
+    nrm.push(0, 1, 0);
+    col.push(k, k, k);
+  };
+  for (let i = 0; i < RADIAL_SEGMENTS; i++) {
+    const a0 = (i / RADIAL_SEGMENTS) * Math.PI * 2;
+    const a1 = ((i + 1) / RADIAL_SEGMENTS) * Math.PI * 2;
+    // Two quads per segment: inner edge → core, core → outer edge.
+    //
+    // **Wound to face +y**, which is not a detail: angle increases from +x
+    // toward +z, so the "obvious" order (lo·a0, hi·a0, hi·a1) produces a normal
+    // pointing DOWN and `FrontSide` culls the whole ring against this camera.
+    // Every shockwave in art §8 was invisible for exactly that reason until a
+    // screenshot showed the base exploding with no shockwave at all;
+    // `tests/render/fxSystem.test.ts` now checks the winding, because a
+    // declared `normal` attribute does not fix a wound-away triangle and
+    // `MeshBasicMaterial` never reads it.
+    for (const [lo, hi, klo, khi] of [
+      [inner, core, 0, 1],
+      [core, outer, 1, 0],
+    ]) {
+      push(lo, a0, klo);
+      push(hi, a1, khi);
+      push(hi, a0, khi);
+      push(lo, a0, klo);
+      push(lo, a1, klo);
+      push(hi, a1, khi);
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
+  geo.setAttribute('color', new Float32BufferAttribute(col, 3));
+  return geo;
+}
+
+/**
+ * The flash: a **camera-facing disc of diameter 1** whose vertex colours run 1
+ * at the centre to 0 at the rim — a soft glow, built out of geometry because
+ * this project has no textures and would not add one for a flare.
+ *
+ * It replaced a low-poly sphere, and the reason is in
+ * `.superpowers/sdd/screens-T4/`: an *unlit additive* icosahedron has no
+ * shading and no falloff, so what art §8 calls a "flash sphere scale 1→2.2"
+ * rendered as a flat gold **hexagon** two tiles wide sitting on the board. A
+ * flash is light, and light has an edge you cannot see.
+ *
+ * Authored in the XZ plane like the ring, so the billboard is the constant
+ * `Rx(BILLBOARD_X)` basis the rest of this layer already uses (models.ts) —
+ * art §2 fixes the camera, so facing it is a rotation, not a `lookAt`.
+ */
+function createFlashGeometry(): BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const col: number[] = [];
+  const r = 0.5;
+  for (let i = 0; i < RADIAL_SEGMENTS; i++) {
+    const a0 = (i / RADIAL_SEGMENTS) * Math.PI * 2;
+    const a1 = ((i + 1) / RADIAL_SEGMENTS) * Math.PI * 2;
+    // Wound to face +y — see `createRingGeometry` for what the other winding
+    // costs (a flare that is culled away and never appears).
+    pos.push(0, 0, 0, r * Math.cos(a1), 0, r * Math.sin(a1), r * Math.cos(a0), 0, r * Math.sin(a0)); // prettier-ignore
+    nrm.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+    // Hot core, nothing at the rim. The 1.6 exponent is applied per-vertex by
+    // making the mid-ring implicit: a linear fan already reads as a soft blob
+    // at this size, and adding a ring of intermediate vertices only sharpens a
+    // gradient the bloom pass is about to smear anyway.
+    col.push(1, 1, 1, 0, 0, 0, 0, 0, 0);
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
+  geo.setAttribute('color', new Float32BufferAttribute(col, 3));
+  return geo;
+}
+
+/** Where the screen flash starts to burn, as a fraction of the half-diagonal. */
+const SCREEN_FLASH_INNER = 0.42;
+
+/**
+ * A 2×2 quad whose vertex colours are 0 at the centre and 1 in the corners —
+ * art §8's "screen-**edge** flash". The falloff is baked into the mesh rather
+ * than into a shader because it never changes and because a `MeshBasicMaterial`
+ * with `vertexColors` is already in the render layer's vocabulary.
+ *
+ * 24×24 so the smoothstep reads as a gradient rather than as facets.
+ */
+function createScreenFlashGeometry(): BufferGeometry {
+  const geo = new PlaneGeometry(2, 2, 24, 24);
+  const position = geo.getAttribute('position');
+  const colours = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    // 0 at the centre, 1 at a corner, at any aspect (the quad is square in
+    // local space and scaled to the frustum afterwards).
+    const r = Math.min(1, Math.hypot(x, y) / Math.SQRT2);
+    const u = Math.max(
+      0,
+      Math.min(1, (r - SCREEN_FLASH_INNER) / (1 - SCREEN_FLASH_INNER)),
+    );
+    const k = u * u * (3 - 2 * u);
+    colours[i * 3] = k;
+    colours[i * 3 + 1] = k;
+    colours[i * 3 + 2] = k;
+  }
+  geo.setAttribute('color', new Float32BufferAttribute(colours, 3));
+  return geo;
 }

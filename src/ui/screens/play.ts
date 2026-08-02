@@ -20,6 +20,7 @@ import type { LevelData } from '../../core/types';
 import { createLoop, type Loop } from '../../app/loop';
 import type { Screen } from '../../app/screens';
 import type { Session } from '../../app/session';
+import { loadSettings } from '../../app/storage';
 import { createInput, type InputSystem } from '../../input/input';
 import type { Bindings } from '../../input/keyboard';
 import {
@@ -106,6 +107,19 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
         stageNumber: opts.session.stageNumber,
       });
       const view = createRenderer(opts.canvas, quality);
+      // Art §11: "`prefers-reduced-motion` or settings toggle: no shake, no
+      // slow-mo, **no screen flash**". The render layer cannot read either
+      // source itself — `render/` may not import `app/` (arch §2), and the OS
+      // preference is a browser query — so the screen that owns both hands them
+      // down. The settings menu (T6.1) and the camera FX (T4.3) extend this
+      // call rather than adding a second path.
+      const reducedMotion =
+        globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ===
+        true;
+      view.setFxFlags({
+        reducedMotion,
+        reducedFlash: loadSettings().reducedFlash,
+      });
       const pad = createInput(opts.bindings);
       const panel = createHud(root);
       panel.sync(game);
