@@ -28,6 +28,7 @@
 // the music so that the music is only ever note data.
 
 import {
+  PATCHES,
   createNote,
   midiToFreq,
   playNote,
@@ -51,6 +52,11 @@ export const LAYER_RAMP_S = 0.25;
  * stage fanfare still feels like it starts when the stage does.
  */
 export const START_PADDING_S = 0.05;
+
+/** Most ticks one live lookahead pass may schedule. */
+const LIVE_TICKS_PER_PUMP = 512;
+/** …and one offline pass, which lays down a whole clip in one go. */
+const OFFLINE_TICKS_PER_PUMP = 200_000;
 
 /** `[tick, midi, durTicks, vel]` — audio §2, verbatim. */
 export type SongStep = readonly [
@@ -76,6 +82,107 @@ export interface Song {
 /** Seconds per tick at a tempo. A tick is a 16th note at `ppq: 4`. */
 export function secondsPerTick(bpm: number): number {
   return 60 / (bpm * PPQ);
+}
+
+/** Sixteen sixteenths to a 4/4 bar at `ppq: 4`. */
+export const TICKS_PER_BAR = PPQ * 4;
+
+/** Seconds of content in a song — the end of its last note, not its loop point. */
+export function songDurationS(song: Song): number {
+  let last = 0;
+  for (const track of song.tracks) {
+    for (const step of track.steps) {
+      const end = step[0] + step[2];
+      last = end > last ? end : last;
+    }
+  }
+  return last * secondsPerTick(song.bpm);
+}
+
+/**
+ * A song plus how it is meant to be played. The `Song` itself stays exactly the
+ * four fields audio §2 specifies — this is the wrapper that says whether the
+ * piece repeats and, for the one-shots, when the sequencer should be stopped.
+ */
+export interface MusicPiece {
+  readonly song: Song;
+  readonly loops: boolean;
+  readonly durationS: number;
+}
+
+export function piece(song: Song, loops: boolean): MusicPiece {
+  return Object.freeze({ song, loops, durationS: songDurationS(song) });
+}
+
+// ---------------------------------------------------------------------------
+// Composition helpers
+//
+// A song is note data, and these are the four operations that keep note data
+// readable: place a phrase, repeat it, move it, and lay down an ostinato. They
+// live here rather than in a songs/ helper because they operate on the song
+// FORMAT, which is this file's business.
+// ---------------------------------------------------------------------------
+
+/** Places a phrase whose ticks are written relative to its own start. */
+export function phrase(at: number, entries: readonly SongStep[]): SongStep[] {
+  return entries.map((e) => [at + e[0], e[1], e[2], e[3]] as SongStep);
+}
+
+/** `times` copies of `steps`, `everyTicks` apart. */
+export function repeat(
+  steps: readonly SongStep[],
+  times: number,
+  everyTicks: number,
+): SongStep[] {
+  const out: SongStep[] = [];
+  for (let i = 0; i < times; i++) {
+    for (const s of steps) {
+      out.push([s[0] + i * everyTicks, s[1], s[2], s[3]]);
+    }
+  }
+  return out;
+}
+
+/** The same notes, `semitones` higher. */
+export function transpose(
+  steps: readonly SongStep[],
+  semitones: number,
+): SongStep[] {
+  return steps.map((s) => [s[0], s[1] + semitones, s[2], s[3]] as SongStep);
+}
+
+/**
+ * A note every `everyTicks` from `from` (inclusive) to `to` (exclusive),
+ * cycling through `midis`. This is how the L0 ostinato — the musicalised
+ * engine hum — is written, and it is the one figure in the suite that runs
+ * unbroken from the first tick to the last.
+ */
+export function ostinato(
+  from: number,
+  to: number,
+  everyTicks: number,
+  midis: readonly number[],
+  durTicks: number,
+  vel: number,
+): SongStep[] {
+  const out: SongStep[] = [];
+  let i = 0;
+  for (let t = from; t < to; t += everyTicks) {
+    out.push([t, midis[i % midis.length], durTicks, vel]);
+    i++;
+  }
+  return out;
+}
+
+/** Concatenates note lists, for a track built from several figures. */
+export function merge(...lists: readonly SongStep[][]): SongStep[] {
+  const out: SongStep[] = [];
+  for (const list of lists) {
+    for (const s of list) {
+      out.push(s);
+    }
+  }
+  return out.sort((a, b) => a[0] - b[0]);
 }
 
 /**
@@ -118,6 +225,15 @@ export interface Sequencer {
   layerNode(layer: string): GainNode | null;
   /** One lookahead pass. The timer calls this; tests call it by hand. */
   pump(): void;
+  /**
+   * Schedules every note up to an absolute context time.
+   *
+   * `pump()` is this with the lookahead horizon. It exists because an
+   * `OfflineAudioContext` renders from a `currentTime` that never advances, so
+   * the capture harness has to lay the whole clip down before it starts —
+   * there is no later in which to pump.
+   */
+  pumpTo(horizonS: number): void;
   dispose(): void;
 }
 
@@ -147,6 +263,14 @@ export function createSequencer(opts: SequencerOptions): Sequencer {
       scratch.freq = freq;
       scratch.vel = vel;
       scratch.holdMs = holdS * 1000;
+      // Audio §3: "hat … D30 (closed) / D120 (open)". A percussive patch has
+      // `s: 0`, so holding a step longer does nothing to it — a step longer
+      // than one tick is the only way the song format can ask for the open
+      // one, and this is what makes that ask mean something.
+      const spec = PATCHES[patch];
+      if (spec.openDecayMs > 0 && holdS > spt * 1.5) {
+        scratch.decayMs = spec.openDecayMs;
+      }
       playNote(synth, patch, scratch, when, dest, null);
     });
 
@@ -206,15 +330,12 @@ export function createSequencer(opts: SequencerOptions): Sequencer {
     }
   }
 
-  function pump(): void {
-    if (song === null) {
+  function walkTo(horizon: number, maxTicks: number): void {
+    if (song === null || !(spt > 0)) {
       return;
     }
-    const horizon = ctx.currentTime + LOOKAHEAD_S;
-    // A bound on the walk: a song whose loop is shorter than one lookahead
-    // window would otherwise spin here after a long stall.
     let guard = 0;
-    while (nextTime < horizon && guard < 512) {
+    while (nextTime < horizon && guard < maxTicks) {
       guard++;
       scheduleTick(nextTick, nextTime);
       nextTime += spt;
@@ -226,6 +347,13 @@ export function createSequencer(opts: SequencerOptions): Sequencer {
         }
       }
     }
+  }
+
+  function pump(): void {
+    // The live path, bounded: a tab that was suspended for a minute comes back
+    // with a horizon far ahead of `nextTime`, and dumping a minute of notes
+    // into the graph at once is how a returning tab locks up.
+    walkTo(ctx.currentTime + LOOKAHEAD_S, LIVE_TICKS_PER_PUMP);
   }
 
   return {
@@ -292,6 +420,10 @@ export function createSequencer(opts: SequencerOptions): Sequencer {
     },
 
     pump,
+
+    pumpTo(horizonS: number): void {
+      walkTo(horizonS, OFFLINE_TICKS_PER_PUMP);
+    },
 
     dispose(): void {
       if (handle !== null) {

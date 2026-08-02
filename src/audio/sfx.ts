@@ -547,22 +547,27 @@ export function createSfxPlayer(graph: AudioGraph, pool: VoicePool): SfxPlayer {
         note.releaseMs = 120;
         note.gain = 0.7;
         layer('bell', when, dest, slot);
+        // Tuned down a fourth from the first cut, on the measurement: the
+        // shards came out at an 11.5 kHz spectral centroid, the brightest
+        // thing in the whole set by 3 kHz, and read as hiss rather than as
+        // metal. Shards should ring, not sizzle.
         for (let i = 0; i < 3; i++) {
           resetNote(note);
           note.pan = pan;
-          note.freq = 3000 + i * 900 + nextVariation() * 200;
-          note.decayMs = 60 + i * 30;
-          note.releaseMs = 90;
+          note.freq = 2200 + i * 650 + nextVariation() * 150;
+          note.decayMs = 90 + i * 40;
+          note.releaseMs = 120;
           note.gain = 0.22;
           layer('bell', when + 0.03 + i * 0.035, dest, null);
         }
         resetNote(note);
         note.pan = pan;
-        note.filterType = 'highpass';
-        note.filterHz = 4000;
-        note.decayMs = 180;
-        note.releaseMs = 120;
-        note.gain = 0.25;
+        note.filterType = 'bandpass';
+        note.filterHz = 3000;
+        note.filterQ = 0.7;
+        note.decayMs = 260;
+        note.releaseMs = 140;
+        note.gain = 0.22;
         layer('noiseFx', when, dest, null);
         break;
       }
@@ -683,23 +688,36 @@ export function createSfxPlayer(graph: AudioGraph, pool: VoicePool): SfxPlayer {
 
       // "major-triad bell arp + shimmer tail (the classic 'chirilip' feel)"
       case 'powerupPickup': {
+        // Re-voiced on the measurement: an all-bell arp came out at an 8.3 kHz
+        // centroid and read as a glassy FM keyboard rather than as the NES
+        // pickup. The arp is now a **pulse** — that is the chirilip — with the
+        // bell an octave *below* it for shine instead of an octave above it
+        // for glare, and the shimmer tail band-passed rather than high-passed.
         const triad = [0, 4, 7, 12];
         for (let i = 0; i < triad.length; i++) {
           resetNote(note);
           note.pan = pan;
           note.freq = midiToFreq(72 + triad[i]);
+          note.holdMs = 40;
+          note.releaseMs = 120;
+          note.gain = 0.8;
+          layer('pulse25', when + i * 0.045, dest, i === 0 ? slot : null);
+          resetNote(note);
+          note.pan = pan;
+          note.freq = midiToFreq(60 + triad[i]);
           note.decayMs = 190;
           note.releaseMs = 200;
-          note.gain = 0.5;
-          layer('bell', when + i * 0.045, dest, i === 0 ? slot : null);
+          note.gain = 0.28;
+          layer('bell', when + i * 0.045, dest, null);
         }
         resetNote(note);
         note.pan = pan;
-        note.filterType = 'highpass';
-        note.filterHz = 5000;
+        note.filterType = 'bandpass';
+        note.filterHz = 3200;
+        note.filterQ = 0.8;
         note.decayMs = 260;
         note.releaseMs = 200;
-        note.gain = 0.16;
+        note.gain = 0.12;
         layer('noiseFx', when + 0.12, dest, null);
         break;
       }

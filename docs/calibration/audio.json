@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T13:46:42.973Z",
+  "capturedAt": "2026-08-02T14:12:46.840Z",
   "url": "http://localhost:5173/",
   "sampleRate": 48000,
   "thresholds": {
@@ -70,9 +70,9 @@
     },
     "steel-break": {
       "durationS": 1.2,
-      "peakDbfs": -11.49,
-      "rmsDbfs": -30.4,
-      "centroidHz": 11499,
+      "peakDbfs": -11.95,
+      "rmsDbfs": -29.84,
+      "centroidHz": 6387,
       "dcOffset": 0.00002,
       "silent": false,
       "clipped": false,
@@ -100,10 +100,10 @@
     },
     "powerup-pickup": {
       "durationS": 1.4,
-      "peakDbfs": -5.05,
-      "rmsDbfs": -23.7,
-      "centroidHz": 8305,
-      "dcOffset": 0.00005,
+      "peakDbfs": -4.75,
+      "rmsDbfs": -24.39,
+      "centroidHz": 4159,
+      "dcOffset": 0.00003,
       "silent": false,
       "clipped": false,
       "note": "audio §5 powerupPickup: major-triad bell arp + shimmer tail"
@@ -131,12 +131,132 @@
     "skirmish": {
       "durationS": 6,
       "peakDbfs": -4.49,
-      "rmsDbfs": -21.26,
-      "centroidHz": 3509,
+      "rmsDbfs": -21.3,
+      "centroidHz": 3066,
       "dcOffset": -0.00018,
       "silent": false,
       "clipped": false,
       "note": "a scripted 6 s of play over the engine hum: the only clip where the mix is audible"
+    },
+    "music-fanfare": {
+      "durationS": 3,
+      "peakDbfs": -4.59,
+      "rmsDbfs": -19.39,
+      "centroidHz": 2919,
+      "dcOffset": 0.00002,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 7 FAITHFUL: the stage-intro fanfare. One bar at 120 BPM = 2.000 s, ending on the downbeat of the suite; the tail rings past it"
+    },
+    "music-gameover": {
+      "durationS": 4.5,
+      "peakDbfs": -6.71,
+      "rmsDbfs": -19.15,
+      "centroidHz": 2036,
+      "dcOffset": -0.00038,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 7 FAITHFUL: the game-over motif. A doubled descent over i-VII-VI-V that stops on the dominant, unresolved"
+    },
+    "music-pause": {
+      "durationS": 1,
+      "peakDbfs": -15.65,
+      "rmsDbfs": -30.11,
+      "centroidHz": 5155,
+      "dcOffset": 0,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 7 FAITHFUL: the two-note pause chirp, E6 to A6"
+    },
+    "music-title": {
+      "durationS": 12,
+      "peakDbfs": -7.75,
+      "rmsDbfs": -19.16,
+      "centroidHz": 2127,
+      "dcOffset": -0.00041,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 NEW: the title theme, first eight bars. Opens on the fanfare motif with the third flattened"
+    },
+    "music-tally": {
+      "durationS": 7,
+      "peakDbfs": -4.08,
+      "rmsDbfs": -17.84,
+      "centroidHz": 2598,
+      "dcOffset": -0.00014,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 NEW: the stage-clear jingle. F-G-C climbing, the game-over descent answered"
+    },
+    "music-hiscore": {
+      "durationS": 8,
+      "peakDbfs": -9.83,
+      "rmsDbfs": -20.31,
+      "centroidHz": 932,
+      "dcOffset": -0.00006,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 NEW: the high-score bell loop, first four bars"
+    },
+    "suite-L0": {
+      "durationS": 8,
+      "peakDbfs": -12.12,
+      "rmsDbfs": -20.23,
+      "centroidHz": 264,
+      "dcOffset": -0.00083,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0 alone: the hum-ostinato on A2, the engine hum musicalised"
+    },
+    "suite-L01": {
+      "durationS": 8,
+      "peakDbfs": -6.03,
+      "rmsDbfs": -19.56,
+      "centroidHz": 1750,
+      "dcOffset": -0.00091,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0+L1: the groove enters after 2 bars"
+    },
+    "suite-L012": {
+      "durationS": 8,
+      "peakDbfs": -5.8,
+      "rmsDbfs": -19.38,
+      "centroidHz": 2564,
+      "dcOffset": -0.00091,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0-L2: 4 enemies on the field brings the arps in"
+    },
+    "suite-L0123": {
+      "durationS": 8,
+      "peakDbfs": -4.47,
+      "rmsDbfs": -18.13,
+      "centroidHz": 3112,
+      "dcOffset": -0.00091,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0-L3: 3 enemies left brings the lead in"
+    },
+    "suite-L4": {
+      "durationS": 8,
+      "peakDbfs": -4.56,
+      "rmsDbfs": -17.77,
+      "centroidHz": 2863,
+      "dcOffset": -0.00101,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L4: the base is breached - the minor-2nd pad and the tenser lead replace L3"
+    },
+    "suite-clock": {
+      "durationS": 6,
+      "peakDbfs": -4.84,
+      "rmsDbfs": -18.55,
+      "centroidHz": 1513,
+      "dcOffset": -0.00081,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4: a Clock freeze at 1.5 s sweeps the whole music bus to 400 Hz. No gain duck"
     }
   },
   "duck": {
@@ -149,7 +269,7 @@
     "passes": true
   },
   "verdict": {
-    "clips": 13,
+    "clips": 25,
     "allAudible": true,
     "noneClipped": true,
     "duckWithinTolerance": true

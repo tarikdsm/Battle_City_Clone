@@ -85,6 +85,23 @@ const CLIPS: readonly Clip[] = [
   { name: 'extra-life', seconds: 1.6, note: 'audio §5 extraLife: the rising jingle' }, // prettier-ignore
   { name: 'duck-probe', seconds: 3.0, note: 'a steady music tone with the baseExplode duck fired at 0.8 s and NO boom — the duck depth, measurable' }, // prettier-ignore
   { name: 'skirmish', seconds: 6.0, note: 'a scripted 6 s of play over the engine hum: the only clip where the mix is audible' }, // prettier-ignore
+
+  // --- T5.3: the music map (audio 4) and the faithfulness ledger (7) ------
+  { name: 'music-fanfare', seconds: 3.0, note: 'audio 7 FAITHFUL: the stage-intro fanfare. One bar at 120 BPM = 2.000 s, ending on the downbeat of the suite; the tail rings past it' }, // prettier-ignore
+  { name: 'music-gameover', seconds: 4.5, note: 'audio 7 FAITHFUL: the game-over motif. A doubled descent over i-VII-VI-V that stops on the dominant, unresolved' }, // prettier-ignore
+  { name: 'music-pause', seconds: 1.0, note: 'audio 7 FAITHFUL: the two-note pause chirp, E6 to A6' }, // prettier-ignore
+  { name: 'music-title', seconds: 12.0, note: 'audio 4 NEW: the title theme, first eight bars. Opens on the fanfare motif with the third flattened' }, // prettier-ignore
+  { name: 'music-tally', seconds: 7.0, note: 'audio 4 NEW: the stage-clear jingle. F-G-C climbing, the game-over descent answered' }, // prettier-ignore
+  { name: 'music-hiscore', seconds: 8.0, note: 'audio 4 NEW: the high-score bell loop, first four bars' }, // prettier-ignore
+
+  // The suite at each intensity level 4 defines, over the same eight bars
+  // every time, so the clips are directly comparable by ear.
+  { name: 'suite-L0', seconds: 8.0, note: 'audio 4 L0 alone: the hum-ostinato on A2, the engine hum musicalised' }, // prettier-ignore
+  { name: 'suite-L01', seconds: 8.0, note: 'audio 4 L0+L1: the groove enters after 2 bars' }, // prettier-ignore
+  { name: 'suite-L012', seconds: 8.0, note: 'audio 4 L0-L2: 4 enemies on the field brings the arps in' }, // prettier-ignore
+  { name: 'suite-L0123', seconds: 8.0, note: 'audio 4 L0-L3: 3 enemies left brings the lead in' }, // prettier-ignore
+  { name: 'suite-L4', seconds: 8.0, note: 'audio 4 L4: the base is breached - the minor-2nd pad and the tenser lead replace L3' }, // prettier-ignore
+  { name: 'suite-clock', seconds: 6.0, note: 'audio 4: a Clock freeze at 1.5 s sweeps the whole music bus to 400 Hz. No gain duck' }, // prettier-ignore
 ];
 
 interface Metrics {
@@ -155,23 +172,34 @@ async function installAudioHarness(): Promise<void> {
     audio: '/src/audio/audio.ts',
     sfx: '/src/audio/sfx.ts',
     synth: '/src/audio/synth.ts',
+    sequencer: '/src/audio/sequencer.ts',
     core: '/src/core/game.ts',
   };
   const audioMod = await import(urls.audio);
   const sfxMod = await import(urls.sfx);
   const synthMod = await import(urls.synth);
+  const seqMod = await import(urls.sequencer);
   const coreMod = await import(urls.core);
 
   const RATE = 48000;
 
-  /** An empty 13×13 board with one player and nothing to shoot at. */
+  /**
+   * An empty 13x13 board with one player and nothing to shoot at — but WITH
+   * the automatic base ring, which is load-bearing and was not there in the
+   * first cut of this harness.
+   *
+   * `noAutoBase` leaves the five tiles around the eagle empty, and audio 4's
+   * L4 danger layer fires on exactly that: an empty ring is a breached ring.
+   * Every "suite at intensity N" clip therefore rendered with the danger pad
+   * already up, and three of the five measured identically because they WERE
+   * identical. A harness board is a board being played.
+   */
   const level = {
     version: 1,
     id: 'audio-capture',
     name: 'audio capture',
     terrain: Array.from({ length: 13 }, () => '.............'),
     enemies: Array.from({ length: 20 }, () => 'basic'),
-    noAutoBase: true,
   };
 
   /** In-place radix-2 FFT; `re`/`im` are overwritten with the spectrum. */
@@ -306,7 +334,115 @@ async function installAudioHarness(): Promise<void> {
         );
       };
 
+      /**
+       * Lays a whole piece down in one go.
+       *
+       * An `OfflineAudioContext` renders from a `currentTime` that never
+       * advances, so the sequencer's lookahead has no later to pump in —
+       * `pumpTo` is the door out of that, and the timer is stubbed away
+       * because there is no real time here for it to tick in.
+       */
+      const music = (
+        piece: Record<string, unknown>,
+        clipS: number,
+        layers?: Record<string, number>,
+      ): void => {
+        const song = piece.song as Record<string, unknown>;
+        const seq = seqMod.createSequencer({
+          ctx,
+          destination: graph.musicTrim,
+          synth: graph.synth,
+          setTimer: () => 0,
+          clearTimer: () => undefined,
+        });
+        if (layers) {
+          for (const [layer, value] of Object.entries(layers)) {
+            // Ramp time 0: the clip starts at the level it is meant to show
+            // rather than fading in from wherever the node was built.
+            seq.setLayerGain(layer, value, 0);
+          }
+        }
+        graph.setDelayTempo(song.bpm);
+        seq.play(song);
+        // A one-shot is pumped only to its own length, or the offline walk
+        // would loop it for the whole clip — which is what the live driver's
+        // `durationS` stop exists to prevent, and what the first render of
+        // this harness did (two fanfares in a three-second file).
+        seq.pumpTo(piece.loops ? clipS : (piece.durationS as number));
+      };
+
+      /** The suite's layer gains, derived from a state driven to a threshold. */
+      const suiteAt = (
+        onField: number,
+        queued: number,
+        bars: number,
+        breached: boolean,
+      ): Record<string, number> => {
+        let live = 0;
+        for (const t of state.tanks) {
+          if (t.kind !== 'enemy') continue;
+          t.alive = live < onField;
+          if (t.alive) live++;
+        }
+        while (live < onField) {
+          state.tanks.push({
+            ...state.tanks[0],
+            id: 200 + live,
+            kind: 'enemy',
+            playerIndex: undefined,
+            enemyType: 'basic',
+            alive: true,
+          });
+          live++;
+        }
+        state.spawner.queue.length = 0;
+        for (let i = 0; i < queued; i++) state.spawner.queue.push('basic');
+        // The documented "eagle exposed" arm of the danger condition; it is the
+        // one that needs no terrain arithmetic inside a page harness.
+        state.eagleAlive = !breached;
+        return audioMod.musicLayerTargets(state, bars).layers;
+      };
+
       switch (name) {
+        case 'music-fanfare':
+          music(audioMod.MUSIC.fanfare, seconds);
+          break;
+        case 'music-gameover':
+          music(audioMod.MUSIC.gameover, seconds);
+          break;
+        case 'music-pause':
+          music(audioMod.MUSIC.pause, seconds);
+          break;
+        case 'music-title':
+          music(audioMod.MUSIC.title, seconds);
+          break;
+        case 'music-tally':
+          music(audioMod.MUSIC.tally, seconds);
+          break;
+        case 'music-hiscore':
+          music(audioMod.MUSIC.hiscore, seconds);
+          break;
+        case 'suite-L0':
+          music(audioMod.MUSIC.suite, seconds, suiteAt(0, 20, 0, false));
+          break;
+        case 'suite-L01':
+          music(audioMod.MUSIC.suite, seconds, suiteAt(0, 20, 4, false));
+          break;
+        case 'suite-L012':
+          music(audioMod.MUSIC.suite, seconds, suiteAt(4, 12, 4, false));
+          break;
+        case 'suite-L0123':
+          music(audioMod.MUSIC.suite, seconds, suiteAt(3, 0, 4, false));
+          break;
+        case 'suite-L4':
+          music(audioMod.MUSIC.suite, seconds, suiteAt(3, 0, 4, true));
+          break;
+        case 'suite-clock': {
+          music(audioMod.MUSIC.suite, seconds, suiteAt(3, 0, 4, false));
+          // Audio 4: the freeze lowpasses the whole bus, and nothing else.
+          graph.setClockFreeze(true, 1.5);
+          break;
+        }
         case 'engine-idle': {
           player.update(state, 16);
           break;

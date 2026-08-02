@@ -36,10 +36,26 @@
 // is idempotent and safe to call on every key press, which is what makes a
 // first attempt the browser refuses recoverable on the next one.
 
+import { BASE_RING_TILES } from '../core/constants';
 import type { GameEvent } from '../core/events';
-import type { GameState } from '../core/types';
-import { createSequencer, type Sequencer } from './sequencer';
+import { subcellIndex } from '../core/grid';
+import { Terrain, type GameState, type StagePhase } from '../core/types';
+import {
+  START_PADDING_S,
+  TICKS_PER_BAR,
+  createSequencer,
+  secondsPerTick,
+  type MusicPiece,
+  type Sequencer,
+} from './sequencer';
 import { createSfxPlayer, type SfxId, type SfxPlayer } from './sfx';
+import { fanfare } from './songs/fanfare';
+import { gameover } from './songs/gameover';
+import { hiscore } from './songs/hiscore';
+import { pause as pauseJingle } from './songs/pause';
+import { SUITE_LAYERS, suite, type SuiteLayer } from './songs/suite';
+import { tally } from './songs/tally';
+import { title } from './songs/title';
 import {
   createSynthRuntime,
   createVoiceSlot,
@@ -96,6 +112,23 @@ export const REVERB = Object.freeze({
   decayS: 0.8,
   preDelayS: 0.008,
 });
+
+/**
+ * The fixed trim between the sequencer's layer sum and the music slider.
+ *
+ * Audio §6 asks for a "music bed ~−16 LUFS-ish **under gameplay**", and the
+ * first render of T5.3 came in at −11.5 dBFS RMS peaking at 0.0 — louder than
+ * the base explosion, with the limiter working hard enough that three
+ * different intensity levels of the suite measured **identically**. That is
+ * what a bed does when it is not a bed.
+ *
+ * It is a separate node from `musicBus` on purpose: the balance between the
+ * music and the rest of the mix is the *composer's* decision and belongs in
+ * the graph, while `musicBus` belongs to the player's slider. Folding one into
+ * the other means every future tweak to the mix silently moves what "70%"
+ * means.
+ */
+export const MUSIC_TRIM_DB = -9;
 
 /** Audio §3: "tempo-synced delay (3/16, feedback 0.25, music only)". */
 export const DELAY = Object.freeze({
@@ -325,6 +358,8 @@ export interface AudioGraph {
   readonly sfxDuck: GainNode;
   /** The two `top`-priority SFX, past the duck they fire. */
   readonly stingBus: GainNode;
+  /** Where the sequencer plays: the composer's trim, ahead of the slider. */
+  readonly musicTrim: GainNode;
   readonly musicBus: GainNode;
   readonly musicDuck: GainNode;
   readonly musicFilter: BiquadFilterNode;
@@ -444,6 +479,10 @@ export function createAudioGraph(
   musicBus.gain.value = clamp01(volumes.music);
   musicBus.connect(musicDuck);
 
+  const musicTrim = ctx.createGain();
+  musicTrim.gain.value = dbToGain(MUSIC_TRIM_DB);
+  musicTrim.connect(musicBus);
+
   const musicReverbSend = ctx.createGain();
   musicReverbSend.gain.value = REVERB.musicWet;
   musicDuck.connect(musicReverbSend); // post-duck, for the reason above
@@ -494,6 +533,7 @@ export function createAudioGraph(
     sfxBus,
     sfxDuck,
     stingBus,
+    musicTrim,
     musicBus,
     musicDuck,
     musicFilter,
@@ -549,6 +589,7 @@ export function createAudioGraph(
         musicFilter,
         musicDuck,
         musicBus,
+        musicTrim,
         musicReverbSend,
         delay,
         delaySend,
@@ -559,6 +600,123 @@ export function createAudioGraph(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// The music map (audio §4) and the intensity logic that drives it
+// ---------------------------------------------------------------------------
+
+export type MusicId =
+  'title' | 'fanfare' | 'suite' | 'tally' | 'gameover' | 'hiscore' | 'pause';
+
+/** Audio §4's music map. Every piece is note data; nothing here is a file. */
+export const MUSIC: Readonly<Record<MusicId, MusicPiece>> = Object.freeze({
+  title,
+  fanfare,
+  suite,
+  tally,
+  gameover,
+  hiscore,
+  pause: pauseJingle,
+});
+
+/** Audio §4: "L1 groove … enters after 2 bars". */
+export const SUITE_L1_BARS = 2;
+/** Audio §4: "L2 arps … ≥3 enemies on field". */
+export const SUITE_L2_ENEMIES_ON_FIELD = 3;
+/** Audio §4: "L3 lead … ≤5 enemies left to destroy". */
+export const SUITE_L3_ENEMIES_LEFT = 5;
+
+export interface MusicIntensity {
+  readonly layers: Readonly<Record<SuiteLayer, number>>;
+  /** Audio §4: the Clock lowpasses the whole bus for its duration. */
+  readonly clockFilter: boolean;
+}
+
+/** Enemy tanks currently on the board. */
+export function enemiesOnField(state: GameState): number {
+  let n = 0;
+  for (let i = 0; i < state.tanks.length; i++) {
+    const tank = state.tanks[i];
+    if (tank.alive && tank.kind === 'enemy') {
+      n++;
+    }
+  }
+  return n;
+}
+
+/** Enemies left to destroy: the ones on the board plus the ones still queued. */
+export function enemiesRemaining(state: GameState): number {
+  return state.spawner.queue.length + enemiesOnField(state);
+}
+
+/**
+ * Is the eagle exposed? True the moment **any** subcell of fidelity §2's brick
+ * ring is gone — a single shot through one corner is the danger the layer is
+ * for, not the whole wall coming down. The shovel's steel phase reads as intact
+ * because steel is not `Empty`, which is exactly right: while the shovel holds,
+ * the base is safer than it started.
+ */
+export function baseBreached(state: GameState): boolean {
+  if (!state.eagleAlive) {
+    return true;
+  }
+  for (const [tx, ty] of BASE_RING_TILES) {
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) {
+        if (
+          state.terrain[subcellIndex(tx * 2 + dx, ty * 2 + dy)] ===
+          Terrain.Empty
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/** Is any active player down to their last tank? */
+export function onLastLife(state: GameState): boolean {
+  for (const player of state.players) {
+    if (player.active && player.lives <= 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Audio §4's layer table, as a pure function of the simulation.
+ *
+ * Pure and exported because this is where the music becomes a claim about the
+ * game — "the arps mean three tanks are hunting you" is only true if this
+ * function says so, and a claim like that deserves a test rather than a
+ * listen.
+ *
+ * @param elapsedBars bars since the suite started, for L1's two-bar entry.
+ */
+export function musicLayerTargets(
+  state: GameState,
+  elapsedBars: number,
+): MusicIntensity {
+  const danger = baseBreached(state) || onLastLife(state);
+  const lead = enemiesRemaining(state) <= SUITE_L3_ENEMIES_LEFT;
+  return {
+    layers: {
+      L0: 1,
+      L1: elapsedBars >= SUITE_L1_BARS ? 1 : 0,
+      L2: enemiesOnField(state) >= SUITE_L2_ENEMIES_ON_FIELD ? 1 : 0,
+      // §4: "L4 overrides L3's lead with a tenser variation". One line, and it
+      // is the whole override — the two leads never sound together.
+      L3: lead && !danger ? 1 : 0,
+      L4: danger ? 1 : 0,
+    },
+    clockFilter: state.clockT > 0,
+  };
+}
+
+/** Seconds in one bar of the gameplay suite. */
+const SUITE_BAR_S = TICKS_PER_BAR * secondsPerTick(suite.song.bpm);
 
 // ---------------------------------------------------------------------------
 // Contract Zero
@@ -586,6 +744,8 @@ export interface AudioStats {
   state: string;
   running: boolean;
   oneShots: number;
+  music: MusicId | null;
+  layers: Readonly<Record<SuiteLayer, number>>;
 }
 
 export interface AudioSystem {
@@ -605,6 +765,16 @@ export interface AudioSystem {
    * needs to preview a volume slider.
    */
   play(id: SfxId, pan?: number, intensity?: number): void;
+  /**
+   * Starts one piece of audio §4's music map, replacing whatever was playing.
+   *
+   * The play screen never calls this: the stage phase and the pause flag drive
+   * it from `update`, because "which music is playing" is a function of the
+   * simulation's state and not of anything the UI knows. It is public for the
+   * title and high-score screens (T6.x), which have no simulation behind them.
+   */
+  playMusic(id: MusicId): void;
+  stopMusic(): void;
   /** The live graph, or `null` when no context could be built. Read by the
    *  offline capture harness and the tests; never written. */
   readonly graph: AudioGraph | null;
@@ -655,11 +825,28 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
       ? null
       : createSequencer({
           ctx: graph.ctx,
-          destination: graph.musicBus,
+          // The trim, not the bus: the sequencer plays at the level the mix
+          // wants, and the slider scales that.
+          destination: graph.musicTrim,
           synth: graph.synth,
         });
   const sfx: SfxPlayer | null =
     graph === null ? null : createSfxPlayer(graph, pool);
+
+  /** Which piece is playing, when it started, and where its layers sit. */
+  let currentMusic: MusicId | null = null;
+  let musicStartedAt = 0;
+  /**
+   * Seconds the gameplay suite has been *running*, which is not the same as
+   * seconds since it last started: a pause replaces the suite with the pause
+   * chirp and restarts it on the way out, and L1's two-bar entry must not
+   * reset every time the player takes a breath.
+   */
+  let suiteElapsedS = 0;
+  let lastPhase: StagePhase | null = null;
+  let wasPaused = false;
+  let clockFiltered = false;
+  const layerAt = new Map<SuiteLayer, number>();
 
   const muteOnBlur = opts.muteOnBlur ?? true;
   const target =
@@ -699,6 +886,118 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
    */
   function audible(): boolean {
     return ctx !== null && ctx.state === 'running';
+  }
+
+  function playMusic(id: MusicId): void {
+    if (graph === null || sequencer === null || !audible()) {
+      return;
+    }
+    const chosen = MUSIC[id];
+    // The layer gains have to be right BEFORE the first note, or every layer
+    // arrives at full and ramps down — the loudest possible way to start a
+    // piece that is supposed to fade in.
+    if (id === 'suite') {
+      for (const layer of SUITE_LAYERS) {
+        const start = layer === 'L0' ? 1 : 0;
+        sequencer.setLayerGain(layer, start, 0);
+        layerAt.set(layer, start);
+      }
+    }
+    graph.setDelayTempo(chosen.song.bpm);
+    sequencer.play(chosen.song);
+    currentMusic = id;
+    musicStartedAt = graph.ctx.currentTime;
+  }
+
+  function stopMusic(): void {
+    sequencer?.stop();
+    currentMusic = null;
+  }
+
+  /**
+   * Which piece belongs to which stage phase. This is the whole music driver:
+   * the phase machine is already the game's narrative, so the music follows it
+   * rather than keeping a second copy of the same story.
+   */
+  function onPhase(phase: StagePhase): void {
+    switch (phase) {
+      case 'intro':
+        suiteElapsedS = 0;
+        playMusic('fanfare');
+        break;
+      case 'playing':
+        playMusic('suite');
+        break;
+      case 'cleared':
+        playMusic('tally');
+        break;
+      case 'baseLost':
+        // Nothing. The base explosion is a 1.2 s boom that ducks everything by
+        // −12 dB; putting music under it would be putting music under a duck
+        // built to remove it.
+        stopMusic();
+        break;
+      case 'gameOver':
+        playMusic('gameover');
+        break;
+    }
+  }
+
+  function updateMusic(state: GameState, dtMs: number): void {
+    if (graph === null || sequencer === null) {
+      return;
+    }
+    const now = graph.ctx.currentTime;
+
+    if (state.phase !== lastPhase) {
+      lastPhase = state.phase;
+      onPhase(state.phase);
+    }
+
+    if (state.paused !== wasPaused) {
+      wasPaused = state.paused;
+      if (state.paused) {
+        // Audio §4: "faithful two-note pause chirp; music halts while paused".
+        // One action, not two: the chirp REPLACES the suite, and because it is
+        // a one-shot the silence after it is the halt.
+        playMusic('pause');
+      } else if (state.phase === 'playing') {
+        playMusic('suite');
+      }
+    }
+
+    // A one-shot stops itself; there is no timer, because the audio clock is
+    // already the only clock that matters here.
+    if (currentMusic !== null && !MUSIC[currentMusic].loops) {
+      const piece = MUSIC[currentMusic];
+      if (now - musicStartedAt >= piece.durationS + START_PADDING_S) {
+        stopMusic();
+      }
+    }
+
+    if (currentMusic === 'suite' && !state.paused) {
+      suiteElapsedS += dtMs / 1000;
+      const targets = musicLayerTargets(state, suiteElapsedS / SUITE_BAR_S);
+      for (const layer of SUITE_LAYERS) {
+        const want = targets.layers[layer];
+        // Only on a change: a 250 ms ramp re-scheduled sixty times a second is
+        // a ramp that never arrives.
+        if (layerAt.get(layer) !== want) {
+          layerAt.set(layer, want);
+          sequencer.setLayerGain(layer, want);
+        }
+      }
+    }
+
+    // Driven from `clockT` rather than from `clockStarted`/`clockEnded`: the
+    // filter is a statement about a *duration*, and a state-derived flag cannot
+    // be left stuck open by an event that arrived while the context was still
+    // suspended.
+    const wantFilter = state.clockT > 0;
+    if (wantFilter !== clockFiltered) {
+      clockFiltered = wantFilter;
+      graph.setClockFreeze(wantFilter, now);
+    }
   }
 
   function suspend(): void {
@@ -757,12 +1056,6 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
             graph.duck('playerExplode', now);
           }
           break;
-        case 'clockStarted':
-          graph.setClockFreeze(true, now);
-          break;
-        case 'clockEnded':
-          graph.setClockFreeze(false, now);
-          break;
         default:
           break;
       }
@@ -781,12 +1074,7 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
       // and the clock's tick-tock — everything that is a *state* rather than
       // an event.
       sfx?.update(state, dtMs);
-      // Audio §4: "music halts while paused". The sequencer is the thing that
-      // halts; the SFX voices already in flight are left to finish, because
-      // cutting a tail on the pause frame is a click.
-      if (sequencer !== null && state.paused && sequencer.playing()) {
-        sequencer.stop();
-      }
+      updateMusic(state, dtMs);
     },
 
     setVolumes(v: Volumes): void {
@@ -800,6 +1088,9 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
       sfx?.trigger(id, pan, intensity);
     },
 
+    playMusic,
+    stopMusic,
+
     resume,
     suspend,
 
@@ -809,6 +1100,14 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
         state: ctx?.state ?? 'none',
         running: ctx?.state === 'running',
         oneShots: sfx?.stats().oneShots ?? 0,
+        music: currentMusic,
+        layers: {
+          L0: layerAt.get('L0') ?? 0,
+          L1: layerAt.get('L1') ?? 0,
+          L2: layerAt.get('L2') ?? 0,
+          L3: layerAt.get('L3') ?? 0,
+          L4: layerAt.get('L4') ?? 0,
+        },
       };
     },
 
