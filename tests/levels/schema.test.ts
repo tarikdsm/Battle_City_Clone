@@ -247,33 +247,54 @@ describe('analyseLevel — metrics', () => {
 const ORIGINAL_DIR = fileURLToPath(
   new URL('../../src/levels/original/', import.meta.url),
 );
+const NEO_DIR = fileURLToPath(
+  new URL('../../src/levels/neo/', import.meta.url),
+);
 const SHEET_PATH = fileURLToPath(
   new URL('../../docs/assets/level-contact-sheet.txt', import.meta.url),
 );
 
-function shippedLevels(): AnnotatedLevel[] {
-  return readdirSync(ORIGINAL_DIR)
+function levelsIn(dir: string): AnnotatedLevel[] {
+  return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .sort()
     .map(
       (f) =>
         JSON.parse(
-          readFileSync(new URL(f, `file://${ORIGINAL_DIR}`), 'utf8'),
+          readFileSync(new URL(f, `file://${dir}`), 'utf8'),
         ) as AnnotatedLevel,
     );
 }
 
+/** The 35 originals. Most of the assertions below are about these alone. */
+function shippedLevels(): AnnotatedLevel[] {
+  return levelsIn(ORIGINAL_DIR);
+}
+
+/**
+ * Every shipped level, in the order `scripts/level-preview.ts` walks them:
+ * `original/` then `neo/`, each sorted by filename. The contact sheet is one
+ * sheet for the whole of the shipped content, so the fixture has to be too.
+ */
+function allShippedLevels(): AnnotatedLevel[] {
+  return [...levelsIn(ORIGINAL_DIR), ...levelsIn(NEO_DIR)];
+}
+
 describe('contact sheet', () => {
   it('is deterministic for the same input', () => {
-    const levels = shippedLevels();
+    const levels = allShippedLevels();
     expect(renderContactSheet(levels)).toBe(renderContactSheet(levels));
   });
 
   it('matches the committed docs/assets/level-contact-sheet.txt', () => {
     // Regenerate with `npm run levels:preview` after touching any level file.
-    expect(renderContactSheet(shippedLevels())).toBe(
+    expect(renderContactSheet(allShippedLevels())).toBe(
       readFileSync(SHEET_PATH, 'utf8'),
     );
+  });
+
+  it('covers both campaigns — 35 originals and 12 Neo', () => {
+    expect(allShippedLevels()).toHaveLength(47);
   });
 });
 

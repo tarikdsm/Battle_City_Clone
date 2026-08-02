@@ -78,21 +78,50 @@ Known anchor for sanity-checking (from the classic layout): stage 1 is the spars
 
 Authoring happens in our own editor (dogfooding gate: if authoring feels bad, the editor gets fixed first).
 
+### 3.1 Built (T8.3, 2026-08-02)
+
+All twelve ship as `src/levels/neo/neo01.json` … `neo12.json`, `provenance: "authored"`. The dogfooding gate was taken literally: T8.2's report said the editor had no mirror tool, no shape tools and no coordinate readout, so those were built **first** (`feat(editor): mirror modes, shape tools, coordinate readout`) and every tile of these twelve was then placed through `createEditor()` — the same model the editor screen sends its clicks to — by `npm run levels:author` (`scripts/author-neo-stages.ts` + `scripts/neo-stage-specs.ts`). A stage needing something the editor cannot do could not have been expressed. Each was then opened, validated and test-played in the real editor UI.
+
+Each file carries its **idea** in `notes` — one line naming the thing a player should be able to name after one run — and its `effectiveStage` (§4). The contact sheet prints both.
+
+| ID | Effective stage | Openness | Idea |
+|---|---|---|---|
+| neo-01 First Frost | 20 | 46.2% | Three ice avenues run spawn to base; the brick islands are the only brakes |
+| neo-02 Twin Rivers | 21 | 59.2% | Three lanes, three bridges, two of them behind brick doors |
+| neo-03 The Orchard | 23 | 29.6% | A canopy hides everyone; the two ploughed rows are the only sightlines |
+| neo-04 Foundry | 24 | 48.5% | A steel maze whose only doors are brick — until somebody reaches tier 3 |
+| neo-05 Shatterfront | 25 | 32.0% | Solid brick with one crossroads cut through it; it ends as a field |
+| neo-06 Frozen Harbor | 27 | 55.0% | One ice sheet, water on three sides: a fast turn ends against the quay |
+| neo-07 Greenwall | 28 | 36.1% | A tree curtain you can shoot through but not see through, in front of a fort |
+| neo-08 The Vault | 30 | 59.2% | A steel pocket with one brick throat; hold it or lose everything |
+| neo-09 Mirrorworks | 31 | 47.3% | Two identical halves, a steel spine between them, one player each |
+| neo-10 Sandglass | 32 | 40.2% | A one-tile steel waist everything has to come through |
+| neo-11 Blackout | 34 | 79.9% | Four steel pillars and nothing else to hide behind |
+| neo-12 Last Stand | 35 | 42.0% | Three shells — trees and water, brick, then brick standing on ice |
+
+`Mirrorworks` is symmetric by construction (drawn once, with the editor's left/right mirror on) and its wave order is a palindrome, which with 20 slots forces every type count even. `tests/levels/neo.test.ts` asserts both, plus the single throat in `The Vault`, the steel shoulders of `Sandglass`'s waist, and that all six terrains appear in `Last Stand`.
+
 ## 4. Difficulty guidance
 
 - Spawn pressure comes from the fidelity §7 formula — Neo stages declare an *effective stage number* via position in campaign (neo-01 ≈ stage 20 pressure, neo-12 = 35).
 - Mix curve across a campaign: armor share rises toward the end; fast tanks spike mid-campaign; power tanks appear where sightlines are long.
 - Openness metric (share of empty tiles) recorded per stage in the contact sheet — the curve should oscillate (dense/open alternation keeps runs fresh, as the original does).
 
+**As built (T8.3).** `effectiveStage` is a field on the stage file, not a rule the format knows about (`validateLevel` ignores it, exactly like `provenance`), and `neoEffectiveStage(n)` in `src/levels/campaign.ts` is what a campaign runner would hand core. The twelve declare 20, 21, 23, 24, 25, 27, 28, 30, 31, 32, 34, 35 — strictly rising, landing on the §7 cap.
+
+Measured openness runs 46.2, 59.2, 29.6, 48.5, 32.0, 55.0, 36.1, 59.2, 47.3, 40.2, 79.9, 42.0 — nine direction changes in eleven steps, no run of three in the same direction, and a range (29.6–79.9%) that brackets the originals' own 23.7–67.5%. That is asserted, not just recorded: `tests/levels/neo.test.ts` fails if the curve ever drifts.
+
+Two honest caveats about the metric. Openness counts *tiles that are not empty*, so **trees make a stage look dense that plays open** (`The Orchard` at 29.6% has no walls in it at all) and **half-tiles are nearly free** (a tile carved to one subcell counts the same as a solid one). It is a good tripwire for "this campaign is drifting", not a measure of how crowded a stage feels.
+
 ## 5. Custom levels & sharing
 
 - Saved to `bc.customLevels.v1` (architecture §4.2).
-- Export: pretty JSON file download **and** share string `BC1.<base64url(minified JSON)>` (~0.5 KB); import accepts both, validates, and reports precise errors.
+- Export: pretty JSON file download **and** share string `BC1.<base64url(minified JSON)>`. Measured (T8.2): a dense stage is **~806 characters**, not the "~0.5 KB" this doc originally estimated — still comfortably paste-able, but size the UI for ~900. Import accepts both, validates, and reports precise errors.
 - Future format versions bump the `BC1` prefix; v1 readers reject unknown prefixes with a clear message.
 
 ## 6. Deliverables summary (content phase)
 
-1. `scripts/level-preview.ts` (ASCII contact sheet generator).
-2. 35 original stage files, transcribed + independently verified + contact sheet.
-3. 12 Neo stage files, authored in-editor + playtested.
-4. Validation suite covering §1 rules (part of core/levels tests).
+1. `scripts/level-preview.ts` (ASCII contact sheet generator). **Done** — `npm run levels:preview`, one sheet for all 47 shipped stages.
+2. 35 original stage files, transcribed + independently verified + contact sheet. **Done** (T7.1).
+3. 12 Neo stage files, authored in-editor + playtested. **Done** (T8.3) — `npm run levels:author`.
+4. Validation suite covering §1 rules (part of core/levels tests). **Done** — `tests/levels/schema.test.ts`, `campaign.test.ts`, `neo.test.ts`.

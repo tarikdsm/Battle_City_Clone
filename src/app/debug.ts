@@ -35,6 +35,20 @@ export interface DebugFlags {
    * screen nobody can review. Dev-only, like every flag here.
    */
   enemies?: number;
+  /**
+   * Put **two** players on the board (`?players=2`).
+   *
+   * The whole stack takes a player count already — `createSession`, the input
+   * layer's `p2` bindings (GDD §7), the HUD, the spawn-interval formula's
+   * `players` term (fidelity §7) — but nothing in the flow ever asks for two,
+   * because the 2P menu entry is a later phase. That made "is this stage
+   * actually playable by two people?" an unanswerable question, and content
+   * §3's `Mirrorworks` is specified as *designed around 2P split defence*.
+   *
+   * A rules knob only in the sense the game already is one: the count goes to
+   * `createSession` and nothing else here changes.
+   */
+  players?: 1 | 2;
 }
 
 export function parseDebugFlags(search: string, isDev: boolean): DebugFlags {
@@ -56,6 +70,11 @@ export function parseDebugFlags(search: string, isDev: boolean): DebugFlags {
   const enemies = integer(params.get('enemies'));
   if (enemies !== null && enemies >= 1 && enemies <= ENEMY_TOTAL) {
     flags.enemies = enemies;
+  }
+
+  const players = integer(params.get('players'));
+  if (players === 1 || players === 2) {
+    flags.players = players;
   }
 
   const seed = integer(params.get('seed'));

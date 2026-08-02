@@ -633,6 +633,18 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  /*
+    The width lives HERE, not on the field.
+
+    With the field sized `min(30rem, 100%)` inside a content-sized wrapper, the
+    percentage resolved against a width the *readout* was setting — so the
+    board grew and shrank with the length of the sentence under it, and a
+    screenshot caught it collapsed to 90 px. Fixing the wrapper and letting the
+    field fill it breaks the loop.
+  */
+  flex: 0 0 auto;
+  width: min(30rem, 100%);
+  min-width: 0;
 }
 
 /*
@@ -643,7 +655,7 @@
 .bc-editor-field {
   display: grid;
   grid-template-columns: repeat(13, 1fr);
-  width: min(30rem, 100%);
+  width: 100%;
   aspect-ratio: 1;
   gap: 0;
   background: var(--bc-board);
@@ -719,6 +731,11 @@
 .bc-editor-coords {
   margin: 0;
   min-height: 1.1rem;
+  /* Never widens the board: it is a caption, not a column. */
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--bc-font-display);
   font-size: 0.7rem;
   letter-spacing: 0.04em;

@@ -17,6 +17,7 @@
     "check": "npm run typecheck && npm run lint && npm run format && npm run test",
     "levels:preview": "tsx scripts/level-preview.ts",
     "levels:transcribe": "tsx scripts/transcribe-original-stages.ts",
+    "levels:author": "tsx scripts/author-neo-stages.ts",
     "replays:record": "tsx scripts/record-replay.ts",
     "calibrate:lighting": "tsx scripts/calibrate-lighting.ts",
     "capture:entities": "tsx scripts/capture-entities.ts",
@@ -26,7 +27,8 @@
     "capture:audio": "tsx scripts/capture-audio.ts",
     "capture:ui": "tsx scripts/capture-ui.ts",
     "capture:campaign": "tsx scripts/capture-campaign.ts",
-    "capture:editor": "tsx scripts/capture-editor.ts"
+    "capture:editor": "tsx scripts/capture-editor.ts",
+    "capture:neo": "tsx scripts/capture-neo.ts"
   },
   "dependencies": {
     "three": "0.185.1"

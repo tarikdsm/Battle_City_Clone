@@ -138,7 +138,8 @@ if (
   debug.stage !== undefined ||
   debug.seed !== undefined ||
   debug.quality !== undefined ||
-  debug.enemies !== undefined
+  debug.enemies !== undefined ||
+  debug.players !== undefined
 ) {
   // Unreachable in a production bundle: parseDebugFlags returns all-inert flags
   // when `import.meta.env.DEV` is the literal `false` Vite substitutes.
@@ -166,11 +167,28 @@ console.log('boot ok');
  * §7 behaviour runs against it unchanged.
  */
 function stageLevel(levelStage: number): LevelData {
-  const level = originalStage(levelStage);
+  return withDebugEnemies(originalStage(levelStage));
+}
+
+/**
+ * `?enemies=` applied to any level, campaign or not.
+ *
+ * Split out of `stageLevel` in T8.3: it used to reach only the campaign, so a
+ * custom stage or an editor test-play was always twenty tanks, and "does this
+ * stage actually clear" was a five-minute question on a loop an author walks a
+ * hundred times. Twelve Neo stages made that cost obvious.
+ */
+function withDebugEnemies(level: LevelData): LevelData {
   return debug.enemies === undefined
     ? level
     : { ...level, enemies: level.enemies.slice(0, debug.enemies) };
 }
+
+/**
+ * How many players a run starts with. `?players=2` (dev-only) is the only way
+ * to get two, because the 2P menu entry is a later phase — see debug.ts.
+ */
+const PLAYERS: 1 | 2 = debug.players ?? 1;
 
 let settings: SettingsV1 = loadSettings();
 const settingsNow = (): SettingsV1 => settings;
@@ -503,7 +521,11 @@ screens.register(
     },
     onPick: (stage: number) => {
       startStage(
-        createSession({ players: 1, stageNumber: stage, seed: debug.seed }),
+        createSession({
+          players: PLAYERS,
+          stageNumber: stage,
+          seed: debug.seed,
+        }),
       );
     },
   }),
@@ -647,8 +669,8 @@ function startOneOff(level: LevelData, back: (outcome: string) => void): void {
   session = null;
   oneOffReturn = back;
   startBoard({
-    session: createSession({ players: 1, seed: debug.seed }),
-    level,
+    session: createSession({ players: PLAYERS, seed: debug.seed }),
+    level: withDebugEnemies(level),
   });
   // Fidelity §11.1's curtain, with the stage's own name under it — a custom
   // stage has a name and "Stage 1" alone would be a lie about which one.
@@ -755,7 +777,11 @@ if (applyRoute()) {
   // scripts and the calibration harnesses drive. Dev-only: `parseDebugFlags`
   // returns all-inert flags in a production bundle.
   startStage(
-    createSession({ players: 1, stageNumber: debug.stage, seed: debug.seed }),
+    createSession({
+      players: PLAYERS,
+      stageNumber: debug.stage,
+      seed: debug.seed,
+    }),
   );
 } else {
   toTitle();

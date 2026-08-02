@@ -72,3 +72,19 @@ describe('?enemies= (T6.1: a content knob, dev-only)', () => {
     expect(parseDebugFlags('?enemies=3', false).enemies).toBeUndefined();
   });
 });
+
+describe('?players= (T8.3: the only way to get a 2P board)', () => {
+  it('accepts 1 and 2 and rejects everything else', () => {
+    expect(parseDebugFlags('?players=2', true).players).toBe(2);
+    expect(parseDebugFlags('?players=1', true).players).toBe(1);
+    expect(parseDebugFlags('?players=0', true).players).toBeUndefined();
+    expect(parseDebugFlags('?players=3', true).players).toBeUndefined();
+    expect(parseDebugFlags('?players=two', true).players).toBeUndefined();
+    // Absent means "whatever the flow asks for", which is 1P everywhere.
+    expect(parseDebugFlags('', true).players).toBeUndefined();
+  });
+
+  it('is inert in a production bundle, like every other flag here', () => {
+    expect(parseDebugFlags('?players=2', false).players).toBeUndefined();
+  });
+});

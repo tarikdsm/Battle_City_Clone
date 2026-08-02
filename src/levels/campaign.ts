@@ -169,3 +169,87 @@ export function allOriginalStages(): LevelData[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// --- The Neo Campaign (content §3) -----------------------------------------
+// ---------------------------------------------------------------------------
+//
+// Twelve stages of our own, listed the same boring way and for the same two
+// reasons. What is different is `effectiveStage`: the Neo campaign is twelve
+// long but pitched at originals 20–35, so its position in its own campaign is
+// NOT the number fidelity §7's cadence formula wants. Each file declares the
+// number it should be played at, and {@link neoEffectiveStage} is what a
+// campaign runner hands core — the id and the label still come from position.
+
+import neo01 from './neo/neo01.json';
+import neo02 from './neo/neo02.json';
+import neo03 from './neo/neo03.json';
+import neo04 from './neo/neo04.json';
+import neo05 from './neo/neo05.json';
+import neo06 from './neo/neo06.json';
+import neo07 from './neo/neo07.json';
+import neo08 from './neo/neo08.json';
+import neo09 from './neo/neo09.json';
+import neo10 from './neo/neo10.json';
+import neo11 from './neo/neo11.json';
+import neo12 from './neo/neo12.json';
+
+const NEO_FILES: readonly unknown[] = [
+  neo01,
+  neo02,
+  neo03,
+  neo04,
+  neo05,
+  neo06,
+  neo07,
+  neo08,
+  neo09,
+  neo10,
+  neo11,
+  neo12,
+];
+
+/** Content §3: the Neo Campaign is twelve stages long. */
+export const NEO_STAGE_COUNT = NEO_FILES.length;
+
+const validatedNeo = new Map<number, LevelData>();
+
+/** The Neo layout for stage `n`, 1…12. Throws like {@link originalStage}. */
+export function neoStage(stage: number): LevelData {
+  const cached = validatedNeo.get(stage);
+  if (cached !== undefined) {
+    return cached;
+  }
+  if (!Number.isInteger(stage) || stage < 1 || stage > NEO_STAGE_COUNT) {
+    throw new Error(
+      `no such neo stage: ${stage} (expected 1..${NEO_STAGE_COUNT})`,
+    );
+  }
+  const result = validateLevel(NEO_FILES[stage - 1]);
+  if (!result.ok) {
+    throw new Error(
+      `neo${String(stage).padStart(2, '0')}.json is invalid:\n${result.errors.join('\n')}`,
+    );
+  }
+  validatedNeo.set(stage, result.level);
+  return result.level;
+}
+
+/**
+ * The stage number stage `n`'s spawn pressure should be read at (content §4).
+ *
+ * Falls back to the campaign position if a file ever omits it, which keeps a
+ * missing field from silently becoming stage 1's cadence on stage 12.
+ */
+export function neoEffectiveStage(stage: number): number {
+  const level = neoStage(stage) as LevelData & { effectiveStage?: number };
+  return level.effectiveStage ?? stage;
+}
+
+export function allNeoStages(): LevelData[] {
+  const out: LevelData[] = [];
+  for (let n = 1; n <= NEO_STAGE_COUNT; n++) {
+    out.push(neoStage(n));
+  }
+  return out;
+}

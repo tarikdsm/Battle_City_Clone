@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "id": "neo-11",
+  "name": "Blackout",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "Almost nothing to hide behind: four steel pillars, and every one is a corner two fast tanks can pin you into.",
+  "effectiveStage": 34,
+  "terrain": [
+    ".............",
+    ".............",
+    "......W......",
+    "...SS...SS...",
+    "...SS...SS...",
+    ".............",
+    "BB...BBB...BB",
+    ".............",
+    "...SS...SS...",
+    "...SS...SS...",
+    ".....BBB.....",
+    "....B...B....",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 0,
+      "ty": 6,
+      "mask": 3
+    },
+    {
+      "tx": 1,
+      "ty": 6,
+      "mask": 3
+    },
+    {
+      "tx": 5,
+      "ty": 6,
+      "mask": 3
+    },
+    {
+      "tx": 6,
+      "ty": 6,
+      "mask": 3
+    },
+    {
+      "tx": 7,
+      "ty": 6,
+      "mask": 3
+    },
+    {
+      "tx": 11,
+      "ty": 6,
+      "mask": 3
+    },
+    {
+      "tx": 12,
+      "ty": 6,
+      "mask": 3
+    }
+  ],
+  "enemies": [
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "basic",
+    "basic",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "armor",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}

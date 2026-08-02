@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "id": "neo-12",
+  "name": "Last Stand",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "Three shells around the eagle — trees and water, then brick, then ice — and the armor wave eats them in that order while you slide.",
+  "effectiveStage": 35,
+  "terrain": [
+    ".............",
+    ".............",
+    "TTTTWWBWWTTTT",
+    "T.TTWW.WWTT.T",
+    "TTTTWWBWWTTTT",
+    "TTTT.....TTTT",
+    "TTTT..T..TTTT",
+    ".SB.BBBBB.BS.",
+    ".BBBBS.SBBBB.",
+    "..B.......B..",
+    ".BBBB.B.BBBB.",
+    "..III...III..",
+    "..II.....II.."
+  ],
+  "partials": [
+    {
+      "tx": 1,
+      "ty": 10,
+      "mask": 3
+    },
+    {
+      "tx": 11,
+      "ty": 10,
+      "mask": 3
+    }
+  ],
+  "enemies": [
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "power",
+    "power",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}

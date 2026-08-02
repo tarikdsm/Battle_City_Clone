@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "id": "neo-08",
+  "name": "The Vault",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "The eagle sits in a steel pocket with one brick throat: hold the throat and nothing gets in, leave it and everything does.",
+  "effectiveStage": 30,
+  "terrain": [
+    ".............",
+    "BB.........BB",
+    "BB....S....BB",
+    "...BBBBBBB...",
+    "....BBBBB....",
+    "WWW.......WWW",
+    "WWW.......WWW",
+    "....TTTTT....",
+    ".BB.TTTTT.BB.",
+    ".BBSSSBSSSBB.",
+    "...S.....S...",
+    "...S.....S...",
+    "...S.....S..."
+  ],
+  "partials": [
+    {
+      "tx": 3,
+      "ty": 3,
+      "mask": 5
+    },
+    {
+      "tx": 9,
+      "ty": 3,
+      "mask": 10
+    }
+  ],
+  "enemies": [
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "power",
+    "power",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "fast",
+    "fast",
+    "armor",
+    "armor"
+  ]
+}

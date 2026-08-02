@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "id": "neo-07",
+  "name": "Greenwall",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "A tree curtain you can shoot through but not see through, two tiles in front of a brick fort: they are inside it before you know they came.",
+  "effectiveStage": 28,
+  "terrain": [
+    ".............",
+    "TTTTTTTTTTTTT",
+    "TTTTTTTTTTTTT",
+    ".....BBB.....",
+    "TTTTTTTTTTTTT",
+    "TTTTTTTTTTTTT",
+    "TTTTTTTTTTTTT",
+    ".............",
+    "BBSB.B.B.BSBB",
+    "BBBTTBBBTTBBB",
+    "..BTT...TTB..",
+    "..SBB...BBS..",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 5,
+      "ty": 9,
+      "mask": 3
+    },
+    {
+      "tx": 6,
+      "ty": 9,
+      "mask": 3
+    },
+    {
+      "tx": 7,
+      "ty": 9,
+      "mask": 3
+    }
+  ],
+  "enemies": [
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "power",
+    "power",
+    "power",
+    "power",
+    "basic",
+    "basic",
+    "power",
+    "power",
+    "power",
+    "power",
+    "fast",
+    "fast",
+    "armor",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}

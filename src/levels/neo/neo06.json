@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "id": "neo-06",
+  "name": "Frozen Harbor",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "One sheet of ice with water on three sides: a turn taken too fast ends against the quay wall, in front of whoever was waiting there.",
+  "effectiveStage": 27,
+  "terrain": [
+    ".............",
+    ".............",
+    "...BBBBBBB...",
+    "...SIIIIIS...",
+    "WW..BIIIB..WW",
+    "WW..IBIBI..WW",
+    "WW..IIIII..WW",
+    "WW..IIIII..WW",
+    "...SIIIIIS...",
+    "B...........B",
+    "B.BBB...BBB.B",
+    "WW.........WW",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 4,
+      "ty": 4,
+      "mask": 5
+    },
+    {
+      "tx": 8,
+      "ty": 4,
+      "mask": 10
+    }
+  ],
+  "enemies": [
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "power",
+    "power",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "power",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}

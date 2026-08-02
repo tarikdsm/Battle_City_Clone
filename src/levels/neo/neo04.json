@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "id": "neo-04",
+  "name": "Foundry",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "A steel maze whose only doors are brick: until somebody reaches tier three the doors are the stage, and after that the maze stops being one.",
+  "effectiveStage": 24,
+  "terrain": [
+    ".............",
+    "BB..BB.BB..BB",
+    "BB.........BB",
+    "SSBSSSBSSSBSS",
+    "...S.....S...",
+    ".BBSBBSBBSBB.",
+    ".BBSBBSBBSBB.",
+    "...SBB.BBS...",
+    "SSSSBSSSBSSSS",
+    ".....BBB.....",
+    "BBB.B.S.B.BBB",
+    "....B...B....",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 5,
+      "ty": 9,
+      "mask": 12
+    },
+    {
+      "tx": 6,
+      "ty": 9,
+      "mask": 12
+    },
+    {
+      "tx": 7,
+      "ty": 9,
+      "mask": 12
+    }
+  ],
+  "enemies": [
+    "power",
+    "power",
+    "power",
+    "power",
+    "power",
+    "power",
+    "power",
+    "power",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "power",
+    "power",
+    "armor",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}

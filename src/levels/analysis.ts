@@ -8,21 +8,34 @@
 // the guard against them drifting apart.
 import type { EnemyType, LevelData } from '../core/types';
 
-/** How a stage's data came to be — see docs/05-content-levels.md §2. */
-export type Provenance = 'transcribed' | 'reconstructed';
+/**
+ * How a stage's data came to be — see docs/05-content-levels.md §2 and §3.
+ *
+ * `authored` is the Neo Campaign's: those twelve are **ours**, drawn in this
+ * project's own editor, and calling them "transcribed" would claim a source
+ * that does not exist.
+ */
+export type Provenance = 'transcribed' | 'reconstructed' | 'authored';
 
 /**
- * A level file as shipped: `LevelData` plus the transcription bookkeeping.
+ * A level file as shipped: `LevelData` plus the campaign bookkeeping.
  *
- * These three fields are deliberately NOT part of `LevelData` and NOT checked
- * by `validateLevel`: they describe where a stage came from, which is a fact
- * about our campaign, not about the format. A user level imported into the
- * editor has no provenance and must still validate.
+ * These fields are deliberately NOT part of `LevelData` and NOT checked by
+ * `validateLevel`: they describe where a stage came from and where it sits in
+ * a campaign, which are facts about our content, not about the format. A user
+ * level imported into the editor has none of them and must still validate.
  */
 export interface AnnotatedLevel extends LevelData {
   provenance?: Provenance;
   source?: string;
   notes?: string;
+  /**
+   * The stage number this level's spawn pressure should be read at (content
+   * §4). The Neo Campaign is twelve stages long but is pitched at originals
+   * 20–35, so the position in its own campaign is not the number the fidelity
+   * §7 cadence formula wants.
+   */
+  effectiveStage?: number;
 }
 
 const FIELD_TILES = 13;
