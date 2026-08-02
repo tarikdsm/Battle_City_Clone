@@ -24,7 +24,20 @@
 //   writes through `applySettings()`, so a change made in one place reaches the
 //   audio graph, the renderer and the input layer in one call.
 
-import { createSession, type Session } from './session';
+import {
+  absorbStage,
+  advanceStage,
+  commitScore,
+  createSession,
+  levelStageOf,
+  loadProgress,
+  loadTable,
+  qualifies,
+  runScores,
+  stageTally,
+  unlockStage,
+  type Session,
+} from './session';
 import { parseDebugFlags } from './debug';
 import { createErrorRail, createErrorScreen } from './errorScreen';
 import { loadSettings, saveSettings, type SettingsV1 } from './storage';
@@ -43,7 +56,11 @@ import { createTitleScreen } from '../ui/screens/title';
 import { createMenuScreen, type MenuChoice } from '../ui/screens/menu';
 import { createSettingsScreen, volumesFor } from '../ui/screens/settings';
 import { createPauseScreen } from '../ui/screens/pause';
-import { loadScores } from './storage';
+import { createStageSelectScreen } from '../ui/screens/stageSelect';
+import { createIntroScreen } from '../ui/screens/intro';
+import { createTallyScreen } from '../ui/screens/tally';
+import { createGameOverScreen } from '../ui/screens/gameOver';
+import { createHiScoreScreen } from '../ui/screens/hiScore';
 import stage01 from '../levels/original/stage01.json';
 
 /**
@@ -110,7 +127,8 @@ if (
   debug.overlay ||
   debug.stage !== undefined ||
   debug.seed !== undefined ||
-  debug.quality !== undefined
+  debug.quality !== undefined ||
+  debug.enemies !== undefined
 ) {
   // Unreachable in a production bundle: parseDebugFlags returns all-inert flags
   // when `import.meta.env.DEV` is the literal `false` Vite substitutes.
@@ -132,7 +150,17 @@ const parsed = validateLevel(stage01);
 if (!parsed.ok) {
   throw new Error(`stage01.json is invalid:\n${parsed.errors.join('\n')}`);
 }
-const level: LevelData = parsed.level;
+// `?enemies=` (dev-only) shortens the wave so the stage-clear beat and the
+// tally are reachable in a capture without twenty kills. It edits the LEVEL,
+// never a rule: `createGame` copies this array into the spawner queue and every
+// §7 behaviour runs against it unchanged.
+const level: LevelData =
+  debug.enemies === undefined
+    ? parsed.level
+    : {
+        ...parsed.level,
+        enemies: parsed.level.enemies.slice(0, debug.enemies),
+      };
 
 let settings: SettingsV1 = loadSettings();
 const settingsNow = (): SettingsV1 => settings;
@@ -153,6 +181,20 @@ const reducedMotion =
 // `null` here means "the player asked for Auto", which is the only case that
 // pays for a sample.
 const settled = concreteQuality(settings.quality, debug.quality);
+
+/**
+ * The run in progress, or `null` on the title / in the menus. The attract
+ * board's session is deliberately NOT held here: nothing about it is a run.
+ */
+let session: Session | null = null;
+
+/**
+ * The score waiting for initials, or `null`. Fidelity §13 puts the *decision*
+ * (`qualifies`) before the screen, so this is set at the moment the run ends
+ * and consumed by the entry's `commit`.
+ */
+let pendingEntry: { score: number; stage: number; playerIndex: 0 | 1 } | null =
+  null;
 
 const play = createPlayScreen({
   canvas,
@@ -175,17 +217,51 @@ const play = createPlayScreen({
     }
   },
 
-  onStageCleared(): void {
-    // T6.2 replaces this with the tally and the next stage.
-    toTitle();
+  onStageCleared(state): void {
+    if (session === null) {
+      return;
+    }
+    // Fidelity §11.2: the stage's numbers are banked, progress is recorded, and
+    // the tally shows what core counted — this layer adds no arithmetic.
+    const columns = stageTally(state);
+    const stage = levelStageOf(session.stageNumber);
+    absorbStage(session, state);
+    unlockStage(levelStageOf(session.stageNumber + 1));
+    audio.playMusic('tally');
+    // Same rule as the pause overlay: the tally sits over a live (cleared)
+    // simulation, and an Escape that reached the pad would pause the run and
+    // replace the tally with the pause menu.
+    play.setInputSuspended(true);
+    screens.showOverlay('tally', { stage, columns });
   },
 
-  onGameOver(): void {
-    // T6.2 replaces this with the game-over → high-score sequence.
-    toTitle();
+  onGameOver(state): void {
+    if (session === null) {
+      return;
+    }
+    absorbStage(session, state);
+    const scores = runScores(session);
+    screens.show('gameOver', {
+      scores,
+      stage: levelStageOf(session.stageNumber),
+      baseLost: !state.eagleAlive,
+    });
   },
 });
 screens.register('play', play);
+
+/**
+ * Where `back` from the high-score table returns to.
+ *
+ * **GDD §5 does not say.** Its diagram hangs "High scores" off the main menu and
+ * routes the post-run table "→ Title" (fidelity §13), and those are two
+ * different answers for one screen — a table opened from the menu that dumped
+ * the player onto the title would read as the game restarting itself. So the
+ * caller sets the return, exactly as it does for Settings.
+ */
+let hiScoreReturn: () => void = () => {
+  toTitle();
+};
 
 /** Where `back` from the settings screen returns to. Set before showing it. */
 let settingsReturn: () => void = () => {
@@ -196,7 +272,7 @@ screens.register(
   'title',
   createTitleScreen({
     audio,
-    topScore: () => loadScores()[0] ?? null,
+    topScore: () => loadTable()[0] ?? null,
     onStart: () => {
       toMenu();
     },
@@ -212,9 +288,14 @@ screens.register(
     },
     onChoose: (choice: MenuChoice) => {
       if (choice === 'campaign') {
-        // T6.2 puts the stage-select screen here; until then Campaign starts a
-        // fresh run at stage 1.
-        startRun(createSession({ players: 1, seed: debug.seed }));
+        screens.show('stageSelect');
+        return;
+      }
+      if (choice === 'scores') {
+        hiScoreReturn = (): void => {
+          toMenu('scores');
+        };
+        screens.show('hiScore', { table: loadTable() });
         return;
       }
       if (choice === 'settings') {
@@ -224,8 +305,7 @@ screens.register(
         screens.show('settings');
         return;
       }
-      // 'scores' lands with T6.2; the three Phase 8 entries are disabled rows
-      // and never reach this callback.
+      // The three Phase 8 entries are disabled rows and never reach here.
     },
   }),
 );
@@ -255,14 +335,14 @@ screens.register(
       play.togglePause();
     },
     onRestart: () => {
-      const state = play.state();
-      if (state === null) {
+      if (session === null) {
         return;
       }
-      // A restart is a fresh stage at the same number. T6.2 restores the run's
-      // carryover here, once a run is more than one stage.
+      // A restart replays the CURRENT stage with the run's carryover intact —
+      // the session is untouched, so lives and score are whatever they were
+      // when the stage began. A fresh run is what the title screen is for.
       screens.hideOverlay();
-      startRun(createSession({ players: 1, stageNumber: state.stageNumber }));
+      startStage(session);
     },
     onQuit: () => {
       toTitle();
@@ -277,6 +357,91 @@ screens.register(
       // settings screen sits over the same live, frozen board — which is what
       // makes the high-contrast toggle previewable while it is being flipped.
       screens.showOverlay('settings');
+    },
+  }),
+);
+
+screens.register(
+  'stageSelect',
+  createStageSelectScreen({
+    audio,
+    highest: () => loadProgress().highestStage,
+    onBack: () => {
+      toMenu('campaign');
+    },
+    onPick: (stage: number) => {
+      startStage(
+        createSession({ players: 1, stageNumber: stage, seed: debug.seed }),
+      );
+    },
+  }),
+);
+
+screens.register(
+  'intro',
+  createIntroScreen({
+    onDone: () => {
+      // Only if it is still the thing on stage: pausing during the intro
+      // replaces this overlay with the pause menu, and the timer is still
+      // running when it does.
+      if (screens.currentOverlay() === 'intro') {
+        screens.hideOverlay();
+      }
+    },
+  }),
+);
+
+screens.register(
+  'tally',
+  createTallyScreen({
+    audio,
+    onDone: () => {
+      if (session === null) {
+        toTitle();
+        return;
+      }
+      // Fidelity §11.5: the counter rises, the campaign loops. `startStage`
+      // reads `levelStageOf` for the label and hands core the raw number.
+      advanceStage(session);
+      startStage(session);
+    },
+  }),
+);
+
+screens.register(
+  'gameOver',
+  createGameOverScreen({
+    audio,
+    onDone: () => {
+      toHiScore();
+    },
+  }),
+);
+
+screens.register(
+  'hiScore',
+  createHiScoreScreen({
+    audio,
+    commit: (initials: string) => {
+      const pending = pendingEntry;
+      pendingEntry = null;
+      if (pending === null) {
+        const table = loadTable();
+        return { table, highlight: -1 };
+      }
+      const entry = {
+        score: pending.score,
+        initials,
+        // The LOOPED stage, 1…35: `bc.scores.v1`'s validator rejects anything
+        // outside that range, so a run that reached the internal stage 41 would
+        // otherwise have its row silently dropped on the next load.
+        stage: pending.stage,
+      };
+      const table = commitScore(entry);
+      return { table, highlight: table.indexOf(entry) };
+    },
+    onDone: () => {
+      hiScoreReturn();
     },
   }),
 );
@@ -297,6 +462,7 @@ function startBoard(run: PlayRun): void {
 }
 
 function toTitle(): void {
+  session = null;
   // GDD §5's "subtle attract camera drift over a diorama": the title mounts
   // over a real, running stage with no controls attached.
   startBoard({
@@ -309,19 +475,57 @@ function toTitle(): void {
 }
 
 function toMenu(focus?: string): void {
+  session = null;
   screens.show('menu', focus === undefined ? undefined : { focus });
   audio.stopMusic();
 }
 
 /**
- * Put a run on the board.
+ * Put a run's current stage on the board and announce it.
  *
  * There is exactly one level until Phase 7 transcribes the other 34, so the
- * layout is stage 1's whatever the number says. T6.2 adds the stage intro, the
- * per-run carryover and the 35-stage loop around this.
+ * layout is stage 1's whatever the number says. Everything else about the stage
+ * — the spawn cadence, the AI's base-rush weight — already scales from
+ * `session.stageNumber`, so dropping 35 files into `src/levels/original/` is
+ * the only change this line needs.
  */
-function startRun(run: Session): void {
+function startStage(run: Session): void {
+  session = run;
+  const stage = levelStageOf(run.stageNumber);
   startBoard({ session: run, level });
+  screens.showOverlay('intro', { stage });
+}
+
+/**
+ * Fidelity §13's fork: "if score beats table's 10th entry, arcade initials
+ * entry → high-score table display → title".
+ *
+ * The 2P case takes the **higher** qualifying score, because the table is one
+ * table and a cabinet asks for one set of initials at a time. GDD §8 keeps the
+ * two scores separate through the run and this is the only place they meet;
+ * offering two consecutive entry screens is a Phase 9 decision, not a §13 rule.
+ */
+function toHiScore(): void {
+  // Fidelity §13's own answer for the post-run path.
+  hiScoreReturn = (): void => {
+    toTitle();
+  };
+  const table = loadTable();
+  const best = session === null ? [] : runScores(session);
+  const top = best.reduce<{ playerIndex: 0 | 1; score: number } | null>(
+    (a, b) => (a === null || b.score > a.score ? b : a),
+    null,
+  );
+  const stage = session === null ? 1 : levelStageOf(session.stageNumber);
+  pendingEntry =
+    top !== null && qualifies(table, top.score)
+      ? { score: top.score, stage, playerIndex: top.playerIndex }
+      : null;
+  session = null;
+  screens.show(
+    'hiScore',
+    pendingEntry === null ? { table } : { table, entry: pendingEntry },
+  );
 }
 
 function applySettings(next: SettingsV1): void {
@@ -335,7 +539,7 @@ if (debug.stage !== undefined) {
   // `?stage=` means "put me on the board at stage N" — the path the capture
   // scripts and the calibration harnesses drive. Dev-only: `parseDebugFlags`
   // returns all-inert flags in a production bundle.
-  startRun(
+  startStage(
     createSession({ players: 1, stageNumber: debug.stage, seed: debug.seed }),
   );
 } else {

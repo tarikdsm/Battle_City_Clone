@@ -9,6 +9,8 @@
 
 /** Stage count of the original campaign (GDD §2). */
 const MAX_STAGE = 35;
+/** Enemies per stage (fidelity §3.2). The `?enemies=` ceiling. */
+const ENEMY_TOTAL = 20;
 const QUALITIES: readonly string[] = ['low', 'medium', 'high'];
 /** Query values that read as "off" for a switch-style flag. */
 const OFF_VALUES: readonly string[] = ['0', 'false', 'off', 'no'];
@@ -18,6 +20,21 @@ export interface DebugFlags {
   seed?: number;
   quality?: 'low' | 'medium' | 'high';
   overlay: boolean;
+  /**
+   * Shorten the stage's enemy queue to `n` (1…20).
+   *
+   * A **content** knob, not a rules knob: it truncates `LevelData.enemies`
+   * before `createGame` ever sees it, so every rule in fidelity §7 still holds
+   * exactly — the cadence formula, the 4-enemy cap, the carrier ordinals and
+   * the "cleared when the pool is empty and the field is clear" test are all
+   * untouched, they simply have fewer tanks to run against.
+   *
+   * It exists because the stage-clear beat and the tally screen (fidelity
+   * §11.2) are otherwise 20 kills away, which no capture script or manual
+   * check can reach in reasonable time — and a screen nobody can look at is a
+   * screen nobody can review. Dev-only, like every flag here.
+   */
+  enemies?: number;
 }
 
 export function parseDebugFlags(search: string, isDev: boolean): DebugFlags {
@@ -34,6 +51,11 @@ export function parseDebugFlags(search: string, isDev: boolean): DebugFlags {
   const stage = integer(params.get('stage'));
   if (stage !== null && stage >= 1 && stage <= MAX_STAGE) {
     flags.stage = stage;
+  }
+
+  const enemies = integer(params.get('enemies'));
+  if (enemies !== null && enemies >= 1 && enemies <= ENEMY_TOTAL) {
+    flags.enemies = enemies;
   }
 
   const seed = integer(params.get('seed'));

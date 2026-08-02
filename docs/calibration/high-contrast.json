@@ -1,0 +1,99 @@
+{
+  "metric": "ITU-R BT.601 luma over gamma-encoded sRGB bytes, 0–255",
+  "note": "Token luma, not sampled pixels. Art §3.0 binds a fully-lit surface to within ±10% of its authored token, and both modes are measured the same way, so the SEPARATION carries across the rig unchanged. The scale is art §11's own: it is the only one of four common scales on which the doc's quoted ~18 for gold-vs-gunmetal reproduces.",
+  "enemyScale": 0.6,
+  "tokens": {
+    "player1": {
+      "off": "#d99c2b",
+      "on": "#f2c14e",
+      "lumaOff": 161.36,
+      "lumaOn": 194.54
+    },
+    "player2": {
+      "off": "#3aa655",
+      "on": "#7fd695",
+      "lumaOff": 124.47,
+      "lumaOn": 180.58
+    },
+    "enemyBasic": {
+      "off": "#8a8f9c",
+      "on": "#53565e",
+      "lumaOff": 142.99,
+      "lumaOn": 86.02
+    },
+    "enemyFast": {
+      "off": "#c8a05a",
+      "on": "#786036",
+      "lumaOff": 163.98,
+      "lumaOn": 98.39
+    },
+    "enemyPower": {
+      "off": "#8f6bd0",
+      "on": "#56407d",
+      "lumaOff": 129.28,
+      "lumaOn": 77.53
+    },
+    "enemyArmor": {
+      "off": "#c3cad6",
+      "on": "#757980",
+      "lumaOff": 201.27,
+      "lumaOn": 120.6
+    }
+  },
+  "pairs": [
+    {
+      "player": "player1",
+      "enemy": "enemyBasic",
+      "separationOff": 18.37,
+      "separationOn": 108.53
+    },
+    {
+      "player": "player1",
+      "enemy": "enemyFast",
+      "separationOff": 2.62,
+      "separationOn": 96.15
+    },
+    {
+      "player": "player1",
+      "enemy": "enemyPower",
+      "separationOff": 32.08,
+      "separationOn": 117.01
+    },
+    {
+      "player": "player1",
+      "enemy": "enemyArmor",
+      "separationOff": 39.92,
+      "separationOn": 73.94
+    },
+    {
+      "player": "player2",
+      "enemy": "enemyBasic",
+      "separationOff": 18.51,
+      "separationOn": 94.56
+    },
+    {
+      "player": "player2",
+      "enemy": "enemyFast",
+      "separationOff": 39.51,
+      "separationOn": 82.19
+    },
+    {
+      "player": "player2",
+      "enemy": "enemyPower",
+      "separationOff": 4.8,
+      "separationOn": 103.05
+    },
+    {
+      "player": "player2",
+      "enemy": "enemyArmor",
+      "separationOff": 76.8,
+      "separationOn": 59.98
+    }
+  ],
+  "worstOff": 2.62,
+  "worstOn": 59.98,
+  "improvementFactor": 22.89,
+  "docPairP1VsBasic": 18.37,
+  "boardLuma": 18.43,
+  "darkestEnemyLumaOn": 77.53
+}

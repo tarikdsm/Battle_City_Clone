@@ -14,11 +14,12 @@
 // it to render time loses a whole tick's events whenever the loop catches up two
 // steps in one frame — which is exactly when a lot is being shot.
 //
-// ## T6.1: one screen, many runs, and an attract run
+// ## T6.2: one screen, many stages, and an attract run
 //
-// `start()` rebuilds the simulation in place rather than the screen machine
-// re-entering the screen, because `leave()` disposes the GL context and T6.2's
-// campaign would then create and destroy one per stage.
+// A run is 35 stages, and each is a fresh `GameState`. `start()` rebuilds the
+// simulation in place rather than the screen machine re-entering the screen,
+// because `leave()` disposes the GL context and a campaign would then create
+// and destroy one per stage.
 //
 // The same screen also runs the title's diorama: `attract` mode builds
 // everything except the HUD and the input, so GDD §5's "subtle attract camera
@@ -29,7 +30,7 @@
 //
 // Pause, phases, scoring and lives are core's (fidelity §11–§13). This screen
 // *reports* them — `onStageCleared`, `onGameOver`, `onPauseChanged` — and the
-// flow in `main.ts` decides which screen answers. The one thing it
+// campaign flow in `main.ts` decides which screen answers. The one thing it
 // writes back is a single tick of pause intent, which goes through the same
 // edge detector a real key press does.
 
@@ -40,7 +41,7 @@ import type { GameState, LevelData, PlayerIntent } from '../../core/types';
 import type { AudioSystem } from '../../audio/audio';
 import { createLoop, type Loop } from '../../app/loop';
 import type { Screen } from '../../app/screens';
-import type { Session } from '../../app/session';
+import { applyCarry, levelStageOf, type Session } from '../../app/session';
 import type { SettingsV1 } from '../../app/storage';
 import { createInput, type InputSystem } from '../../input/input';
 import { concreteQuality } from '../../render/post';
@@ -140,8 +141,18 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     observer?.disconnect();
     input?.dispose();
     hud?.dispose();
-    // The renderer goes last: it owns the GL context, and `dispose()` forces a
-    // context loss, so nothing that touches the scene may run after it.
+    // The renderer goes last: it owns the GL context and every GPU resource
+    // hanging off it, so nothing that touches the scene may run after it.
+    //
+    // **It does NOT force a context loss** — an earlier revision of this
+    // comment said it did, and three 0.185.1's `WebGLRenderer.dispose()` is
+    // right there in `three.module.js` doing no such thing (it drops caches and
+    // listeners; `forceContextLoss()` is a separate method nothing here calls).
+    // Nothing leaks, and the reason is worth knowing before somebody "fixes" it:
+    // a canvas has exactly ONE context for its whole life, so the next
+    // `new WebGLRenderer({ canvas })` re-acquires the same one rather than
+    // opening a second. That is what makes a 35-stage campaign — one
+    // build/teardown per stage — cost zero contexts.
     renderer?.dispose();
     loop = null;
     observer = null;
@@ -205,6 +216,10 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
       seed: next.session.seed,
       stageNumber: next.session.stageNumber,
     });
+    // Fidelity §12's carryover: lives, score and the bonus-life threshold from
+    // the stage that just ended. Written before the first tick — this is
+    // construction, which arch §2 gives to `app/`, not presentation feedback.
+    applyCarry(state, next.session);
 
     const view = createRenderer(opts.canvas, quality);
     // Art §11: every accessibility switch reaches the render layer through this
@@ -226,7 +241,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
             opts.audio.resume();
           });
     const panel = next.attract === true ? null : createHud(mount);
-    panel?.sync(state, next.session.stageNumber);
+    panel?.sync(state, levelStageOf(next.session.stageNumber));
 
     // The board area is the viewport MINUS whatever the HUD docks, so the
     // two never overlap at any size or orientation. `dock()` re-docks for the
@@ -292,7 +307,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
           // The HUD is synced from the state, not from the events, but only on
           // a tick that produced some: that is what makes it event-driven
           // without having to derive lives/score/tier from an event stream.
-          panel?.sync(state, next.session.stageNumber);
+          panel?.sync(state, levelStageOf(next.session.stageNumber));
         }
 
         if (state.paused !== lastPaused) {

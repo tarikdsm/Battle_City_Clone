@@ -56,3 +56,19 @@ describe('parseDebugFlags (arch §12)', () => {
     expect(parseDebugFlags('stage=4', true).stage).toBe(4);
   });
 });
+
+describe('?enemies= (T6.1: a content knob, dev-only)', () => {
+  it('accepts 1…20 and rejects everything else', () => {
+    expect(parseDebugFlags('?enemies=3', true).enemies).toBe(3);
+    expect(parseDebugFlags('?enemies=1', true).enemies).toBe(1);
+    expect(parseDebugFlags('?enemies=20', true).enemies).toBe(20);
+    expect(parseDebugFlags('?enemies=0', true).enemies).toBeUndefined();
+    expect(parseDebugFlags('?enemies=21', true).enemies).toBeUndefined();
+    expect(parseDebugFlags('?enemies=two', true).enemies).toBeUndefined();
+    expect(parseDebugFlags('', true).enemies).toBeUndefined();
+  });
+
+  it('is inert in a production bundle, like every other flag here', () => {
+    expect(parseDebugFlags('?enemies=3', false).enemies).toBeUndefined();
+  });
+});

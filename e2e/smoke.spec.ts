@@ -249,3 +249,75 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
 
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });
+
+test('loops: title → play → death → game over → high scores → title', async ({
+  page,
+}) => {
+  // GDD §5's whole flow, walked with the keyboard alone. This is the test that
+  // makes the project a *game* rather than a stage: every transition below is a
+  // real key press against the real screens, and the run really ends.
+  test.setTimeout(150_000);
+  const consoleErrors = watchErrors(page);
+
+  await page.goto('/?quality=low&seed=20260802');
+
+  // --- title ---------------------------------------------------------------
+  await expect(screen(page, 'title')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('Enter');
+
+  // --- menu → stage select -------------------------------------------------
+  await expect(screen(page, 'menu')).toBeVisible();
+  // The Phase 8 placeholders are focusable and refuse to activate — they must
+  // read as deliberate, and a broken one would strand the cursor here.
+  await expect(page.locator('[data-item="neo"]')).toHaveClass(/is-disabled/);
+  await page.keyboard.press('Enter'); // Campaign
+  await expect(screen(page, 'stageSelect')).toBeVisible();
+  await page.keyboard.press('Enter'); // the furthest unlocked stage (1)
+
+  // --- intro → play --------------------------------------------------------
+  // Generous: entering the play screen builds a WebGL context and the whole
+  // post chain, which is seconds on a contended GPU — and the intro overlay is
+  // only mounted once that has returned.
+  await expect(screen(page, 'intro')).toBeVisible({ timeout: 30_000 });
+  await expect(hud(page, 'root')).toBeVisible();
+  await expect(hud(page, 'stage')).toHaveText('1');
+  // Fidelity §11.1: a 2 s curtain runs before control is handed over.
+  await expect(screen(page, 'intro')).toHaveCount(0, { timeout: 10_000 });
+
+  // --- pause round-trip, over a live run -----------------------------------
+  await gameKey(page, 'Escape');
+  await expect(screen(page, 'pause')).toBeVisible();
+  await gameKey(page, 'Escape'); // core unpauses; the overlay follows
+  await expect(screen(page, 'pause')).toHaveCount(0);
+
+  // --- death ---------------------------------------------------------------
+  // Deterministic, and it uses a rule rather than luck: fidelity §5.2 says a
+  // PLAYER's bullet destroys the eagle. P1 spawns at tile (4,12) and the eagle
+  // sits at (6,12) on the same row, behind two brick subcell-pairs — so facing
+  // right and holding fire ends the run in a few seconds, every time.
+  await gameKey(page, 'KeyD', 200);
+  await page.keyboard.down('KeyJ');
+  await expect(screen(page, 'gameOver')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.up('KeyJ');
+
+  // --- game over → high scores → title -------------------------------------
+  await page.keyboard.press('Enter');
+  // Either mode is correct here: a run that scored gets the initials entry
+  // (fidelity §13's "if score qualifies"), one that scored nothing goes
+  // straight to the table. The loop closes the same way from both.
+  const entry = screen(page, 'hiScoreEntry');
+  const table = screen(page, 'hiScore');
+  await expect(entry.or(table).first()).toBeVisible({ timeout: 10_000 });
+  if ((await entry.count()) > 0) {
+    // Three columns, then the table.
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await expect(table).toBeVisible();
+  }
+  await expect(page.locator('[data-role="scores"] tr')).not.toHaveCount(0);
+  await page.keyboard.press('Enter');
+
+  await expect(screen(page, 'title')).toBeVisible();
+  expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+});
