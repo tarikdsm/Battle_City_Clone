@@ -235,7 +235,20 @@ describe('ai — determinism (P-23)', () => {
     //     at tick 120, so tick 300 hashes phase 'playing' with phaseT ≈ 3.0
     //     instead of 'intro' with phaseT 0.
     //  4. NEW FIELDS — pauseHeld and respawnT joined the hash stream.
-    expect(hashState(s)).toBe(0x36277e8f);
+    //
+    // Re-recorded a third time, 0x36277e8f → 0x17bad0ac, for T10's ROM
+    // calibration (fidelity §16). The AI's own rules and draw order are
+    // untouched; the simulation underneath them moved:
+    //
+    //  · CAL-10 — the spawn cycle now starts at the CENTRE point ($E37C), so
+    //    every enemy in this run appears somewhere else.
+    //  · CAL-12 — the spawn animation is 56 ticks, not 78, so enemies
+    //    materialize (and start drawing from the rng) 22 ticks earlier.
+    //  · CAL-11 — a blocked spawn point retries next tick instead of after 30.
+    //  · CAL-03 — `power` enemies move at 30 u/s, not 45.
+    //
+    // This is stage 5 with 1 player, so CAL-09's 2P cap does not enter.
+    expect(hashState(s)).toBe(0x17bad0ac);
   });
 
   it('P-23: pins the rng draw order lattice → weight → uniform → timer → fire', () => {

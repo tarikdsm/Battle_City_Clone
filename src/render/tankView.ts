@@ -46,7 +46,7 @@ import {
   type MeshStandardMaterial,
 } from 'three';
 
-import { ENEMY_CAP, TANK_SIZE } from '../core/constants';
+import { ENEMY_CAP_MAX, TANK_SIZE } from '../core/constants';
 import type { GameEvent } from '../core/events';
 import type { GameState, Tank } from '../core/types';
 import type { Materials } from './materials';
@@ -245,7 +245,7 @@ export interface TankAnim {
 /**
  * How many distinct `Tank.id`s the view is prepared for.
  *
- * The core bounds `state.tanks` at 2 players + `ENEMY_CAP` and never compacts
+ * The core bounds `state.tanks` at 2 players + `ENEMY_CAP_MAX` and never compacts
  * it, so ids stay small and stable. 64 is headroom against a future cap change;
  * an id at or above it is skipped rather than read off the end of an
  * `Int32Array`, which returns `undefined` and fails silently (the exact trap
@@ -400,7 +400,7 @@ export function createTankPool(
  * changes beats a tank that is simply not drawn.
  */
 function slotsFor(type: TankType): number {
-  return type === 'p1' || type === 'p2' ? 2 : ENEMY_CAP + 2;
+  return type === 'p1' || type === 'p2' ? 2 : ENEMY_CAP_MAX + 2;
 }
 
 interface TypeEntry {
@@ -482,7 +482,7 @@ export function createTankView(
   }
 
   const shared: Record<'star' | 'tip', SharedMesh> = {
-    star: makeShared(materials.spawnStar, (2 + ENEMY_CAP) * STAR_PARTS),
+    star: makeShared(materials.spawnStar, (2 + ENEMY_CAP_MAX) * STAR_PARTS),
     tip: makeShared(materials.tierTip, 2 * TIP_PARTS),
   };
   group.add(shared.star.mesh, shared.tip.mesh);

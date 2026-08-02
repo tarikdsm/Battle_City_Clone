@@ -1059,8 +1059,15 @@ export const TANK_PROBE: Readonly<Record<TankType, TankProbe>> = Object.freeze({
 
 /**
  * The armor HP colours art §3.1 authors, index 0 = full HP: **silver → green →
- * yellow → dark-silver** (fidelity §3.2's order). They replaced that spec's
- * `[CAL-04]` placeholders on 2026-08-02.
+ * yellow → dark-silver** (fidelity §3.2's order).
+ *
+ * A deliberate deviation, not a placeholder. T10's ROM read closed `[CAL-04]`:
+ * the NES holds no colour per HP at all — `$DFCD` indexes `tbl_E003` with
+ * `(4·frame + hp) & 7`, so an armor tank strobes between two of four NES sprite
+ * palette slots every frame. Our renderer has no NES palette to strobe between
+ * (art §3), and a 30 Hz colour flicker is exactly what art §11's reduced-motion
+ * rule exists to avoid, so this stays a stable tint per HP. Fidelity §16.2 has
+ * the recovered mechanism written out in full.
  *
  * **Luminance-descending on purpose** — art §3.1 requires remaining HP to read
  * in grayscale as well as in colour, so this is not merely a hue ramp.

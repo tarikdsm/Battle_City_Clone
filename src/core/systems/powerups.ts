@@ -16,9 +16,9 @@
 import {
   BASE_RING_TILES,
   CLOCK_S,
-  FIELD_U,
   HELMET_S,
-  POWERUP_TYPES,
+  POWERUP_ROLL_TABLE,
+  POWERUP_SLOTS,
   SHOVEL_SOLID_S,
   SUBCELL,
   TANK_SIZE,
@@ -43,19 +43,12 @@ const NEXT_TIER: readonly (0 | 1 | 2 | 3)[] = [1, 2, 3, 3];
 // Two subcells to a tile, on each axis.
 const SUBCELLS_PER_TILE = TILE / SUBCELL;
 
-// A power-up occupies one tile (16×16) and is placed on the subcell lattice, so
-// its top-left may be any of 25 slots per axis: 0, 8, … 192 (192 + 16 = 208).
-const PLACEMENT_SLOTS = (FIELD_U - TILE) / SUBCELL + 1; // 25
-
-// Rejection sampling bound. Roughly 4.5 % of the 625 slot pairs land on the base,
-// so 32 draws all failing has probability ~1e-44 — the (0,0) fallback below exists
-// only to keep the loop provably terminating, never as a real outcome.
+// Rejection sampling bound (CAL-13). The ROM's own loop at `bra_E8C3` ($E8C3) is
+// unbounded — it re-draws until the drawn slot is not already under a player —
+// which is safe there because a player can cover at most a handful of the 16
+// slots. Ours is bounded so the loop provably terminates; the fallback is the
+// last slot drawn, never a magic coordinate.
 const MAX_PLACEMENT_TRIES = 32;
-
-// Power-ups never spawn on the base: the bounding box of the brick ring,
-// tiles 5..7 × 11..12 → (80, 176, 48, 32). Derived from the ring so the two can
-// never drift apart.
-const BASE_ZONE: Aabb = baseRingBounds();
 
 // Module-level scratch — reused every tick so the hot path never allocates. The
 // two power-up boxes are kept separate on purpose: `candidateBox` belongs to
@@ -108,21 +101,21 @@ function dropFromStruckCarriers(state: GameState): void {
 }
 
 function spawnPowerup(state: GameState): void {
-  const type = POWERUP_TYPES[nextInt(state.rng, POWERUP_TYPES.length)];
-
-  // Rejection-sample a subcell-aligned, fully in-field slot clear of the base.
-  // Both coordinates are re-drawn on every attempt (the pair is what is rejected).
-  let x = 0;
-  let y = 0; // fallback slot — the top-left corner is always clear of the base
+  // CAL-13/CAL-14, both read off `sub_E8BE_spawn_bonus` ($E8BE). Draw order is
+  // POSITION FIRST (X, then Y, re-drawn as a pair until the slot is not already
+  // under a player), and only then the TYPE — the ROM rolls the type at $E8E6,
+  // after the placement loop has settled. Our RNG draw order mirrors that,
+  // because draw order is what a seeded replay bakes in.
+  let x = POWERUP_SLOTS[0];
+  let y = POWERUP_SLOTS[0];
   for (let tries = 0; tries < MAX_PLACEMENT_TRIES; tries++) {
-    const cx = nextInt(state.rng, PLACEMENT_SLOTS) * SUBCELL;
-    const cy = nextInt(state.rng, PLACEMENT_SLOTS) * SUBCELL;
-    if (!overlapsBaseZone(cx, cy)) {
-      x = cx;
-      y = cy;
-      break;
-    }
+    x = POWERUP_SLOTS[nextInt(state.rng, POWERUP_SLOTS.length)];
+    y = POWERUP_SLOTS[nextInt(state.rng, POWERUP_SLOTS.length)];
+    if (!wouldBeInstantlyCollected(state, x, y)) break;
   }
+
+  const type =
+    POWERUP_ROLL_TABLE[nextInt(state.rng, POWERUP_ROLL_TABLE.length)];
 
   // P-14: at most one power-up on the field — a new drop replaces the old one.
   if (state.powerup === null) {
@@ -135,29 +128,27 @@ function spawnPowerup(state: GameState): void {
   state.events.push({ t: 'powerupSpawned', type, x, y });
 }
 
-function overlapsBaseZone(x: number, y: number): boolean {
+// The ROM's placement reject test ($E8DF): it drops a dummy bonus with id $FF at
+// the candidate slot and runs the ordinary pick-up check, re-drawing if a player
+// is standing there. Expressed here with OUR pick-up predicate so placement and
+// collection can never disagree. (The ROM's own predicate is a 12 u box on tank
+// and bonus CENTRES, $E994/$E9A4, where ours is a 16 u AABB overlap; that gap is
+// pre-existing and untagged, and it is recorded in the report rather than fixed
+// here.)
+function wouldBeInstantlyCollected(
+  state: GameState,
+  x: number,
+  y: number,
+): boolean {
   candidateBox.x = x;
   candidateBox.y = y;
-  return aabbOverlap(candidateBox, BASE_ZONE);
-}
-
-function baseRingBounds(): Aabb {
-  let txMin = Infinity;
-  let txMax = -Infinity;
-  let tyMin = Infinity;
-  let tyMax = -Infinity;
-  for (const [tx, ty] of BASE_RING_TILES) {
-    if (tx < txMin) txMin = tx;
-    if (tx > txMax) txMax = tx;
-    if (ty < tyMin) tyMin = ty;
-    if (ty > tyMax) tyMax = ty;
+  for (const tank of state.tanks) {
+    if (tank.kind !== 'player' || !tank.alive || tank.spawningT > 0) continue;
+    tankBox.x = tank.x;
+    tankBox.y = tank.y;
+    if (aabbOverlap(tankBox, candidateBox)) return true;
   }
-  return {
-    x: txMin * TILE,
-    y: tyMin * TILE,
-    w: (txMax - txMin + 1) * TILE,
-    h: (tyMax - tyMin + 1) * TILE,
-  };
+  return false;
 }
 
 // --- B. Pickup -------------------------------------------------------------

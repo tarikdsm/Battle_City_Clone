@@ -174,14 +174,14 @@ export interface InputSystem { poll(): [PlayerIntent, PlayerIntent]; dispose(): 
 
 **Key constants (core/constants.ts — canonical names; values + CAL ids from fidelity spec):**
 `TILE=16` `SUBCELL=8` `FIELD_TILES=13` `FIELD_U=208` `TANK_SIZE=16` `BULLET_SIZE=4` `TICK_S=1/60`,
-`PLAYER_SPEED=45` (CAL-01), `ENEMY_SPEED: {basic:30, fast:60, power:45, armor:30}` (CAL-03),
-`BULLET_SLOW=120` `BULLET_FAST=240`, `SPAWN_SHIELD_S=3` (CAL-02), `STUN_S=3` (CAL-06),
-`HELMET_S=10` (CAL-15), `CLOCK_S=10` (CAL-16), `SHOVEL_SOLID_S=17` `SHOVEL_BLINK_S=3` (CAL-17),
-`SPAWN_ANIM_S=1.3` (CAL-12), `ICE_DECEL=240` (CAL-05), `ENEMY_CAP=4` (CAL-09),
+`PLAYER_SPEED=45` (CAL-01), `ENEMY_SPEED: {basic:30, fast:60, power:30, armor:30}` (CAL-03),
+`BULLET_SLOW=120` `BULLET_FAST=240`, `SPAWN_SHIELD_S=192/60` (CAL-02), `STUN_S=267/60` (CAL-06),
+`HELMET_S=640/60` (CAL-15), `CLOCK_S=640/60` (CAL-16), `SHOVEL_SOLID_S=1088/60` `SHOVEL_BLINK_S=192/60` (CAL-17),
+`SPAWN_ANIM_S=56/60` (CAL-12), `ICE_COAST_U=28` (CAL-05), `ENEMY_CAP_1P=4` `ENEMY_CAP_2P=6` (CAL-09),
 `CARRIER_ORDINALS=[4,11,18]` (1-based), `SCORE: {basic:100, fast:200, power:300, armor:400, powerup:500}`,
 `BONUS_LIFE_AT=20000`, `START_LIVES=3`, `ARMOR_HP=4`,
-`spawnIntervalTicks(stage, players) = clamp(190 - 4*min(stage,35) - 20*(players-1), 30, 192)` (CAL-11),
-spawn points `[(0,0),(6,0),(12,0)]` cycle order L→C→R (CAL-10), `P1_SPAWN=(4,12)` `P2_SPAWN=(8,12)` `EAGLE_TILE=(6,12)`.
+`spawnIntervalTicks(stage, players) = 190 - 4*min(stage,35) - 20*(players-1)` (CAL-11; the ROM has no clamp, ours guards editor input only),
+spawn points `[(0,0),(6,0),(12,0)]` cycle order C→R→L (CAL-10), `P1_SPAWN=(4,12)` `P2_SPAWN=(8,12)` `EAGLE_TILE=(6,12)`.
 
 **npm scripts (fixed names):** `dev` `build` `preview` `test` `test:watch` `e2e` `lint` `typecheck` `format` `check` (typecheck+lint+**format**+test — format folded in 2026-07-22 after drift was found) `levels:preview`.
 
@@ -444,7 +444,7 @@ e2e/smoke.spec.ts             · Playwright
 Measure against arch §11 budgets on dev machine + throttled CPU (Playwright CDP 4× throttle): fix violations (pool audits, draw-call counts via renderer.info snapshot test ≤120, sim perf test tightened to spec 2ms/step equivalent). **Commit:** `perf: meet frame/step/draw budgets`
 
 ### - [ ] T10.2 Calibration session (owner + orchestrator)
-Execute fidelity §16 protocol with the owner running the NES reference (Mesen2): update each `[CAL-nn]` constant + fidelity doc + affected test expectations; re-record golden replays in the same commit batch. AI `[FEEL]` A/B tuning per §16.5. **Commit:** `fix(core): calibrated CAL constants against NES reference`
+Execute fidelity §16. **Done differently than planned and better:** no emulator and no owner session were needed — the Battle City (J) disassembly pinned in Phase 7 carries the game code as well as the stage data, so all 18 constants were read out of the 6502 (see fidelity §16). Updated each constant + fidelity doc + affected test expectations; re-recorded the golden replays in the same commit. AI `[FEEL]` stays [FEEL] with a stated reason (§16.5). **Commit:** `fix(core): calibrate CAL constants against the ROM`
 
 ### - [ ] T10.3 Accessibility & E2E hardening
 Verify GDD §10 + art §11: reduced-motion path, high-contrast toggle, colorblind silhouette review, HUD contrast ≥4.5:1 (automated check on palette), remap flow; extend e2e: 2P start, editor create→share→import→play, pause/resume, game-over→hi-score entry. **Commit:** `test: e2e hardening + accessibility pass`
