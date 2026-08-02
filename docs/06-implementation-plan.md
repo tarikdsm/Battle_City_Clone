@@ -339,18 +339,18 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 4 — VFX & juice (Lane A after G2)
 
-### - [ ] T4.1 FxSystem: pools & budgets
+### - [x] T4.1 FxSystem: pools & budgets
 **Files:** create `src/render/fx/fxSystem.ts`; test `tests/render/fxSystem.test.ts` (pool: acquire beyond cap drops lowest priority, zero allocations after warmup — assert stable pool array identities; light pool caps at 8 with priority eviction).
 **Spec:** art §8 budgets; arch §5.
 **Commit:** `feat(render): pooled particle/light fx system with priority budgets`
 
-### - [ ] T4.2 Effect recipes
+### - [x] T4.2 Effect recipes
 **Files:** create `src/render/fx/recipes.ts`; test `tests/render/recipes.test.ts` (each GameEvent type maps to a recipe within art §8 particle budget; table-driven).
 **Spec:** art §8 (all rows), §6 dynamic lights.
 **Build notes:** implement every row incl. brick chunks with gravity/bounce, base slow-mo hooks (emits cameraFx request), muzzle/explosion lights, powerup/spawn/stun/skid/rustle.
 **Commit:** `feat(render): full event→vfx recipe set per art direction`
 
-### - [ ] T4.3 Camera FX, curtain transition, popups, reduced motion
+### - [x] T4.3 Camera FX, curtain transition, popups, reduced motion
 **Files:** create `src/render/cameraFx.ts`; modify renderer + play screen; test `tests/render/cameraFx.test.ts` (trauma decays 1.2/s; offset = trauma²·3u max; reduced-motion flag zeroes shake/slow-mo/flash but recipes still emit particles; curtain timeline 300ms in / 300ms out synced with fly-in per art §10).
 **Spec:** art §2, §10 (popups + curtain), §11; GDD §10 toggles.
 **Build notes:** curtain = twin steel shutters wipe on stage intro/outro, driven by the same timeline as the 55°→32° camera fly-in (art §2).
