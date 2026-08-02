@@ -21,9 +21,13 @@
 import { createEditor } from '../../editor/editor';
 import {
   BRUSHES,
+  MIRROR_MODES,
+  SHAPE_TOOLS,
   createDraft,
   reservedTile,
   type Brush,
+  type MirrorMode,
+  type ShapeTool,
   type Subcell,
 } from '../../editor/tools';
 import {
@@ -124,20 +128,29 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
       }
       let cursor: Cursor = { tx: 6, ty: 6, sub: 0 };
       let painting = false;
+      /** True between `beginShape` and `endShape` — a line/rectangle/fill drag. */
+      let shaping = false;
 
       const view = mountChrome(root, {
         screen: 'editor',
         title: 'Construction',
         subtitle:
           'Paint the field, order the wave, then test-play it. Brick and ' +
-          'steel can be painted a half-tile at a time.',
+          'steel can be painted a half-tile at a time, and a mirror mode ' +
+          'draws the other half of a symmetric stage for you.',
       });
       chrome = view;
 
       const layout = el('div', 'bc-editor');
       const field = buildField();
+      const board = el('div', 'bc-editor-board');
+      // Under the field, not in the sidebar: it describes the thing the pointer
+      // is over, and an author reading it is looking at the board.
+      const coords = el('p', 'bc-editor-coords');
+      coords.dataset.role = 'coords';
+      board.append(field.node, coords);
       const side = el('div', 'bc-editor-side');
-      layout.append(field.node, side);
+      layout.append(board, side);
 
       const status = el('p', 'bc-editor-status');
       status.dataset.role = 'status';
@@ -150,6 +163,8 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         ['Drag', 'Paint'],
         ['1 – 6', 'Material'],
         ['M', 'Tile / half-tile'],
+        ['T', 'Tool'],
+        ['X', 'Mirror'],
         ['Ctrl+Z', 'Undo'],
         ['P', 'Test play'],
         ['Esc', 'Back'],
@@ -205,6 +220,40 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         modeRow.append(button);
       }
       toolbox.append(modeRow);
+
+      // The shape tools. A four-tile wall is one drag rather than four clicks,
+      // and a 6x4 block is one drag rather than twenty-four.
+      const toolRow = el('div', 'bc-editor-modes');
+      const toolButtons = new Map<ShapeTool, HTMLElement>();
+      for (const { tool, label } of SHAPE_TOOLS) {
+        const button = el('button', 'bc-editor-mode', label);
+        button.dataset.tool = tool;
+        button.addEventListener('click', () => {
+          ed.setTool(tool);
+          opts.audio?.play('uiMove');
+          sync();
+        });
+        toolButtons.set(tool, button);
+        toolRow.append(button);
+      }
+      toolbox.append(el('p', 'bc-editor-note', 'Shape'), toolRow);
+
+      // Mirroring. The reflection is computed at half-tile resolution, so a
+      // half-tile stroke lands as the corresponding corner on the far side.
+      const mirrorRow = el('div', 'bc-editor-modes');
+      const mirrorButtons = new Map<MirrorMode, HTMLElement>();
+      for (const { mode, label } of MIRROR_MODES) {
+        const button = el('button', 'bc-editor-mode', label);
+        button.dataset.mirror = mode;
+        button.addEventListener('click', () => {
+          ed.setMirror(mode);
+          opts.audio?.play('uiMove');
+          sync();
+        });
+        mirrorButtons.set(mode, button);
+        mirrorRow.append(button);
+      }
+      toolbox.append(el('p', 'bc-editor-note', 'Mirror'), mirrorRow);
 
       const palette = el('div', 'bc-editor-palette');
       const brushButtons = new Map<Brush, HTMLElement>();
@@ -610,12 +659,16 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         return { sx, sy };
       }
 
-      function applyAt(sx: number, sy: number): boolean {
-        cursor = {
+      function cellOf(sx: number, sy: number): Cursor {
+        return {
           tx: sx >> 1,
           ty: sy >> 1,
           sub: ((sy & 1) * 2 + (sx & 1)) as Subcell satisfies Subcell,
         };
+      }
+
+      function applyAt(sx: number, sy: number): boolean {
+        cursor = cellOf(sx, sy);
         return ed.paintAt(cursor.tx, cursor.ty, cursor.sub);
       }
 
@@ -666,6 +719,16 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         }
       }
 
+      /** Redraw the shape being dragged, from its anchor to here. */
+      function shapeTo(sx: number, sy: number): void {
+        cursor = cellOf(sx, sy);
+        if (ed.updateShape(cursor)) {
+          changed();
+        } else {
+          sync();
+        }
+      }
+
       const onPointerDown = (event: PointerEvent): void => {
         // Without this a drag selects the panel's text instead of painting.
         event.preventDefault();
@@ -673,16 +736,36 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         if (at === null) {
           return;
         }
-        painting = true;
-        lastCell = null;
-        ed.beginStroke();
-        paintTo(at.sx, at.sy);
-      };
-      const onPointerMove = (event: PointerEvent): void => {
-        if (!painting) {
+        if (ed.tool() === 'brush') {
+          painting = true;
+          lastCell = null;
+          ed.beginStroke();
+          paintTo(at.sx, at.sy);
           return;
         }
+        // A shape is anchored where the press landed and recomputed from there
+        // on every move, so what is on the board mid-drag is the preview.
+        shaping = true;
+        ed.beginShape(cellOf(at.sx, at.sy));
+        shapeTo(at.sx, at.sy);
+      };
+      const onPointerMove = (event: PointerEvent): void => {
         const at = subAt(event.clientX, event.clientY);
+        if (shaping) {
+          if (at !== null) {
+            shapeTo(at.sx, at.sy);
+          }
+          return;
+        }
+        if (!painting) {
+          // Not a drag: just follow the pointer, so the readout describes what
+          // is under it before anything is committed.
+          if (at !== null) {
+            cursor = cellOf(at.sx, at.sy);
+            syncCursor();
+          }
+          return;
+        }
         if (at === null) {
           // Left the field. Forgetting the last cell is what stops a stroke
           // that re-enters somewhere else from drawing a line across the gap.
@@ -692,6 +775,12 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         paintTo(at.sx, at.sy);
       };
       const endStroke = (): void => {
+        if (shaping) {
+          shaping = false;
+          ed.endShape();
+          sync();
+          return;
+        }
         if (!painting) {
           return;
         }
@@ -757,6 +846,28 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
             opts.audio?.play('uiMove');
             sync();
             return;
+          case 'KeyT':
+            event.preventDefault();
+            ed.setTool(
+              cycle(
+                SHAPE_TOOLS.map((t) => t.tool),
+                ed.tool(),
+              ),
+            );
+            opts.audio?.play('uiMove');
+            sync();
+            return;
+          case 'KeyX':
+            event.preventDefault();
+            ed.setMirror(
+              cycle(
+                MIRROR_MODES.map((m) => m.mode),
+                ed.mirror(),
+              ),
+            );
+            opts.audio?.play('uiMove');
+            sync();
+            return;
           case 'KeyP': {
             event.preventDefault();
             const level = checked('test play this');
@@ -799,6 +910,30 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
 
       /** Previous glyph per subcell, so a stroke rewrites only what moved. */
       const painted = new Array<string>(SUBCELLS * SUBCELLS).fill('?');
+      /** The nodes currently wearing `is-cursor`, so a move touches two. */
+      let cursorNodes: HTMLElement[] = [];
+
+      /**
+       * Move the cursor highlight and rewrite the readout.
+       *
+       * Split out of {@link sync} because the pointer now moves the cursor on
+       * every `pointermove`, and toggling a class on all 845 cells sixty times
+       * a second to move one outline is work nobody asked for.
+       */
+      function syncCursor(): void {
+        const subMode = ed.mode() === 'subcell';
+        const next = subMode
+          ? [field.cells[cursorIndex(cursor)]]
+          : [field.tiles[cursor.ty * FIELD_TILES + cursor.tx]];
+        for (const node of cursorNodes) {
+          node.classList.remove('is-cursor');
+        }
+        for (const node of next) {
+          node.classList.add('is-cursor');
+        }
+        cursorNodes = next;
+        coords.textContent = ed.describeAt(cursor);
+      }
 
       function sync(): void {
         const rows = subcellRows(ed.draft());
@@ -809,28 +944,25 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
             if (painted[i] !== glyph) {
               painted[i] = glyph;
               field.cells[i].className = `bc-sub ${GLYPH_CLASS[glyph] ?? ''}`;
+              // The class was just rewritten wholesale, so the highlight it may
+              // have been carrying went with it.
+              cursorNodes = cursorNodes.filter((n) => n !== field.cells[i]);
             }
           }
         }
 
         const subMode = ed.mode() === 'subcell';
         field.node.classList.toggle('is-subcell', subMode);
-        const cursorAt = cursorIndex(cursor);
-        for (let i = 0; i < field.tiles.length; i++) {
-          field.tiles[i].classList.toggle(
-            'is-cursor',
-            !subMode && i === cursor.ty * FIELD_TILES + cursor.tx,
-          );
-        }
-        for (let i = 0; i < field.cells.length; i++) {
-          field.cells[i].classList.toggle(
-            'is-cursor',
-            subMode && i === cursorAt,
-          );
-        }
+        syncCursor();
 
         for (const [mode, button] of modeButtons) {
           button.classList.toggle('is-active', ed.mode() === mode);
+        }
+        for (const [tool, button] of toolButtons) {
+          button.classList.toggle('is-active', ed.tool() === tool);
+        }
+        for (const [mode, button] of mirrorButtons) {
+          button.classList.toggle('is-active', ed.mirror() === mode);
         }
         for (const [char, button] of brushButtons) {
           button.classList.toggle('is-active', ed.brush() === char);
@@ -953,6 +1085,12 @@ function textField(
   row.append(input);
   parent.append(row);
   return input;
+}
+
+/** The next entry after `current`, wrapping. For the T and X shortcuts. */
+function cycle<T>(values: readonly T[], current: T): T {
+  const at = values.indexOf(current);
+  return values[(at + 1) % values.length];
 }
 
 function navStep(code: string): [number, number] | null {

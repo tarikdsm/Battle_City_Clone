@@ -37,6 +37,45 @@ export type PaintMode = 'tile' | 'subcell';
 /** A subcell within a tile, in mask-bit order: 0=TL, 1=TR, 2=BL, 3=BR. */
 export type Subcell = 0 | 1 | 2 | 3;
 
+/** A point on the field, at whichever resolution the current mode works at. */
+export interface Cell {
+  tx: number;
+  ty: number;
+  sub: Subcell;
+}
+
+/**
+ * Which reflections a stroke is repeated through.
+ *
+ * The originals are overwhelmingly symmetric — and so is anything built around
+ * a base that sits on the field's vertical axis — so without this every
+ * symmetric layout is drawn twice, and the two halves drift apart by a tile
+ * somewhere around the fortieth stroke.
+ */
+export type MirrorMode = 'off' | 'horizontal' | 'vertical' | 'quad';
+
+/** What a press-drag-release does. `brush` is the original freehand stroke. */
+export type ShapeTool = 'brush' | 'line' | 'rect' | 'rectFill' | 'fill';
+
+/** The mirror modes, in the order the UI offers them. English sentence case. */
+export const MIRROR_MODES: readonly { mode: MirrorMode; label: string }[] =
+  Object.freeze([
+    { mode: 'off', label: 'Off' },
+    { mode: 'horizontal', label: 'Left / right' },
+    { mode: 'vertical', label: 'Top / bottom' },
+    { mode: 'quad', label: 'Quad' },
+  ]);
+
+/** The tools, in the order the UI offers them. */
+export const SHAPE_TOOLS: readonly { tool: ShapeTool; label: string }[] =
+  Object.freeze([
+    { tool: 'brush', label: 'Brush' },
+    { tool: 'line', label: 'Line' },
+    { tool: 'rect', label: 'Rectangle' },
+    { tool: 'rectFill', label: 'Filled rectangle' },
+    { tool: 'fill', label: 'Fill' },
+  ]);
+
 /** Mask bit per {@link Subcell} — content §1's `1=TL, 2=TR, 4=BL, 8=BR`. */
 export const SUBCELL_BITS: readonly number[] = Object.freeze([1, 2, 4, 8]);
 
@@ -319,4 +358,402 @@ export function paintSubcell(
     changed: true,
     refused: null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// --- Mirroring -------------------------------------------------------------
+// ---------------------------------------------------------------------------
+//
+// ## Why the reflection is computed on the 26x26 grid
+//
+// "Mirror the tile and keep the mask" is wrong twice. A top-LEFT half reflected
+// across the field's vertical axis is a top-RIGHT half, so the mask has to be
+// reflected as well; and the field is 13 tiles wide, so the centre column *is*
+// the axis — its left half reflects onto its own right half rather than onto
+// another tile. Both fall out for free from reflecting the subcell coordinate
+// (`25 - sx`) and folding the result back into tile + subcell, which is what
+// these two functions do.
+
+const SUBCELLS = FIELD_TILES * 2;
+
+function flipsX(mode: MirrorMode): boolean {
+  return mode === 'horizontal' || mode === 'quad';
+}
+
+function flipsY(mode: MirrorMode): boolean {
+  return mode === 'vertical' || mode === 'quad';
+}
+
+/**
+ * The tiles a tile-resolution stroke lands on, the struck one first.
+ *
+ * Deduplicated: on the axis (column 6, row 6) the reflection is the tile
+ * itself, and painting it four times would be three no-ops that each cost a
+ * fresh level object.
+ */
+export function mirrorTiles(
+  tx: number,
+  ty: number,
+  mode: MirrorMode,
+): { tx: number; ty: number }[] {
+  const out: { tx: number; ty: number }[] = [{ tx, ty }];
+  const mx = FIELD_TILES - 1 - tx;
+  const my = FIELD_TILES - 1 - ty;
+  const add = (x: number, y: number): void => {
+    if (!out.some((p) => p.tx === x && p.ty === y)) {
+      out.push({ tx: x, ty: y });
+    }
+  };
+  if (flipsX(mode)) {
+    add(mx, ty);
+  }
+  if (flipsY(mode)) {
+    add(tx, my);
+  }
+  if (flipsX(mode) && flipsY(mode)) {
+    add(mx, my);
+  }
+  return out;
+}
+
+/** The same, at half-tile resolution: the subcell is reflected too. */
+export function mirrorSubcells(
+  tx: number,
+  ty: number,
+  sub: Subcell,
+  mode: MirrorMode,
+): Cell[] {
+  const sx = tx * 2 + (sub % 2);
+  const sy = ty * 2 + (sub < 2 ? 0 : 1);
+  const mx = SUBCELLS - 1 - sx;
+  const my = SUBCELLS - 1 - sy;
+  const points: [number, number][] = [[sx, sy]];
+  const add = (x: number, y: number): void => {
+    if (!points.some((p) => p[0] === x && p[1] === y)) {
+      points.push([x, y]);
+    }
+  };
+  if (flipsX(mode)) {
+    add(mx, sy);
+  }
+  if (flipsY(mode)) {
+    add(sx, my);
+  }
+  if (flipsX(mode) && flipsY(mode)) {
+    add(mx, my);
+  }
+  return points.map(([x, y]) => ({
+    tx: x >> 1,
+    ty: y >> 1,
+    sub: ((y & 1) * 2 + (x & 1)) as Subcell,
+  }));
+}
+
+/** What the mirror says when a reflection landed somewhere it may not paint. */
+const MIRROR_SKIPPED = 'Mirror skipped a reserved tile.';
+
+/**
+ * Paint one cell and every reflection of it, as a single operation.
+ *
+ * `sub === undefined` paints whole tiles, exactly as {@link paintTile} does.
+ *
+ * A reflection that lands on a reserved tile is **skipped, not refused**: near
+ * the top edge a top/bottom mirror hits the player spawns constantly, and a
+ * mode that stopped painting there would be a mode nobody leaves on.
+ *
+ * The struck cell is the other way round. If *it* is refused the whole stroke
+ * is, reflections included — answering a click the editor just said no to by
+ * painting two tiles somewhere else would be the tool inventing edits.
+ */
+export function paintMirrored(
+  level: LevelData,
+  tx: number,
+  ty: number,
+  sub: Subcell | undefined,
+  brush: Brush,
+  mirror: MirrorMode,
+): PaintResult {
+  const targets: (Cell | { tx: number; ty: number; sub?: undefined })[] =
+    sub === undefined
+      ? mirrorTiles(tx, ty, mirror)
+      : mirrorSubcells(tx, ty, sub, mirror);
+
+  let next = level;
+  let changed = false;
+  let primary: string | null = null;
+  let skipped = false;
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    const res =
+      t.sub === undefined
+        ? paintTile(next, t.tx, t.ty, brush)
+        : paintSubcell(next, t.tx, t.ty, t.sub, brush);
+    next = res.level;
+    changed = changed || res.changed;
+    if (i === 0) {
+      primary = res.refused;
+      if (!res.changed && res.refused !== null) {
+        return unchanged(level, res.refused);
+      }
+    } else if (res.refused !== null && !res.changed) {
+      skipped = true;
+    }
+  }
+  const refused = primary ?? (skipped ? MIRROR_SKIPPED : null);
+  return changed
+    ? { level: next, changed, refused }
+    : unchanged(level, refused);
+}
+
+// ---------------------------------------------------------------------------
+// --- Line, rectangle and fill ----------------------------------------------
+// ---------------------------------------------------------------------------
+
+export interface ShapeOptions {
+  tool: ShapeTool;
+  /** Where the drag began. The seed tile, for {@link ShapeTool} `fill`. */
+  from: Cell;
+  /** Where it is now. Every shape is recomputed from `from` on every move. */
+  to: Cell;
+  brush: Brush;
+  mode: PaintMode;
+  mirror: MirrorMode;
+}
+
+/** What the status line says when a fill was asked for in half-tile mode. */
+const FILL_IS_WHOLE_TILE = 'Fill works on whole tiles.';
+
+/**
+ * One press-drag-release of a shape tool, as a single (mirrored) operation.
+ *
+ * Always computed from `from` rather than accumulated, so dragging back
+ * *shrinks* the rectangle instead of leaving the big one underneath — which is
+ * what lets the editor use the result directly as a live preview.
+ */
+export function applyShape(level: LevelData, opts: ShapeOptions): PaintResult {
+  const { tool, from, to, brush, mode, mirror } = opts;
+
+  if (tool === 'fill') {
+    const region = floodRegion(level, from.tx, from.ty);
+    const res = paintAll(
+      level,
+      region.map((t) => ({ ...t, sub: undefined })),
+      brush,
+      mirror,
+    );
+    if (mode === 'subcell' && res.changed) {
+      return { ...res, level: res.level, refused: FILL_IS_WHOLE_TILE };
+    }
+    return res;
+  }
+
+  if (mode === 'subcell') {
+    const a = subPoint(from);
+    const b = subPoint(to);
+    const cells = shapePoints(tool, a, b, SUBCELLS).map(([x, y]) => ({
+      tx: x >> 1,
+      ty: y >> 1,
+      sub: ((y & 1) * 2 + (x & 1)) as Subcell,
+    }));
+    return paintAll(level, cells, brush, mirror);
+  }
+
+  const cells = shapePoints(
+    tool,
+    [from.tx, from.ty],
+    [to.tx, to.ty],
+    FIELD_TILES,
+  ).map(([tx, ty]) => ({ tx, ty, sub: undefined }));
+  return paintAll(level, cells, brush, mirror);
+}
+
+function subPoint(cell: Cell): [number, number] {
+  return [cell.tx * 2 + (cell.sub % 2), cell.ty * 2 + (cell.sub < 2 ? 0 : 1)];
+}
+
+/** Chain a list of cells through {@link paintMirrored}, keeping identity. */
+function paintAll(
+  level: LevelData,
+  cells: readonly (Cell | { tx: number; ty: number; sub?: undefined })[],
+  brush: Brush,
+  mirror: MirrorMode,
+): PaintResult {
+  let next = level;
+  let changed = false;
+  let refused: string | null = null;
+  for (const cell of cells) {
+    const res = paintMirrored(next, cell.tx, cell.ty, cell.sub, brush, mirror);
+    next = res.level;
+    changed = changed || res.changed;
+    // The first thing that went wrong, kept: a rectangle dragged over the
+    // enemy spawns should say so once, not thirteen times.
+    if (refused === null && res.refused !== null && !res.changed) {
+      refused = res.refused;
+    }
+  }
+  return changed
+    ? { level: next, changed, refused }
+    : unchanged(level, refused);
+}
+
+/** The cells a shape covers, in the grid `size` wide (tiles or subcells). */
+function shapePoints(
+  tool: ShapeTool,
+  [x0, y0]: [number, number],
+  [x1, y1]: [number, number],
+  size: number,
+): [number, number][] {
+  const ax = clampTo(x0, size);
+  const ay = clampTo(y0, size);
+  const bx = clampTo(x1, size);
+  const by = clampTo(y1, size);
+  if (tool === 'line') {
+    return linePoints(ax, ay, bx, by);
+  }
+  if (tool === 'brush') {
+    return [[bx, by]];
+  }
+  const loX = Math.min(ax, bx);
+  const hiX = Math.max(ax, bx);
+  const loY = Math.min(ay, by);
+  const hiY = Math.max(ay, by);
+  const out: [number, number][] = [];
+  for (let y = loY; y <= hiY; y++) {
+    for (let x = loX; x <= hiX; x++) {
+      const edge = x === loX || x === hiX || y === loY || y === hiY;
+      if (tool === 'rectFill' || edge) {
+        out.push([x, y]);
+      }
+    }
+  }
+  return out;
+}
+
+function clampTo(v: number, size: number): number {
+  return Math.min(size - 1, Math.max(0, Math.floor(v)));
+}
+
+/** Bresenham. Integer in, integer out, and it always terminates. */
+function linePoints(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): [number, number][] {
+  const out: [number, number][] = [];
+  const dx = Math.abs(x1 - x0);
+  const dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  let x = x0;
+  let y = y0;
+  for (;;) {
+    out.push([x, y]);
+    if (x === x1 && y === y1) {
+      return out;
+    }
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y += sy;
+    }
+  }
+}
+
+/**
+ * The contiguous run of identical tiles the seed belongs to (4-connected).
+ *
+ * "Identical" means the same material **and** the same partial mask, so a
+ * half-tile is its own region and a fill stops at it rather than quietly
+ * erasing the geometry half-tile mode exists to make.
+ */
+function floodRegion(
+  level: LevelData,
+  tx: number,
+  ty: number,
+): { tx: number; ty: number }[] {
+  if (!inField(tx, ty)) {
+    return [];
+  }
+  const idOf = (x: number, y: number): string =>
+    `${level.terrain[y][x]}${maskOf(level, x, y) ?? FULL_MASK}`;
+  const target = idOf(tx, ty);
+  const seen = new Set<number>([ty * FIELD_TILES + tx]);
+  const queue: { tx: number; ty: number }[] = [{ tx, ty }];
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head];
+    for (const [dx, dy] of [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ]) {
+      const nx = at.tx + dx;
+      const ny = at.ty + dy;
+      if (!inField(nx, ny)) continue;
+      const key = ny * FIELD_TILES + nx;
+      if (seen.has(key)) continue;
+      if (idOf(nx, ny) !== target) continue;
+      seen.add(key);
+      queue.push({ tx: nx, ty: ny });
+    }
+  }
+  return queue;
+}
+
+// ---------------------------------------------------------------------------
+// --- The coordinate readout ------------------------------------------------
+// ---------------------------------------------------------------------------
+
+const MATERIAL_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  '.': 'empty',
+  B: 'brick',
+  S: 'steel',
+  W: 'water',
+  T: 'trees',
+  I: 'ice',
+});
+
+/** Subcell names in mask-bit order, which is how content §1 numbers them. */
+const SUBCELL_NAMES: readonly string[] = Object.freeze([
+  'TL',
+  'TR',
+  'BL',
+  'BR',
+]);
+
+/**
+ * What is under the cursor, in words.
+ *
+ * Working from a reference ("brick at 7,4") otherwise means counting cells with
+ * your eyes, and the half-tile grid is 26 across. The reserved suffix is there
+ * so the rule is learned *before* the click rather than from the refusal after
+ * it.
+ */
+export function describeCursor(
+  level: LevelData,
+  cell: Cell,
+  mode: PaintMode,
+): string {
+  const { tx, ty, sub } = cell;
+  if (!inField(tx, ty)) {
+    return 'Off the field';
+  }
+  const parts = [
+    `Tile ${tx},${ty}`,
+    MATERIAL_NAMES[level.terrain[ty][tx]] ?? 'empty',
+  ];
+  if (mode === 'subcell') {
+    const [sx, sy] = subPoint(cell);
+    parts.push(`half-tile ${SUBCELL_NAMES[sub]} (subcell ${sx},${sy})`);
+  }
+  if (reservedTile(tx, ty) !== null) {
+    parts.push('reserved');
+  }
+  return parts.join(' · ');
 }

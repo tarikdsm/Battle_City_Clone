@@ -18,11 +18,15 @@ import type { EnemyType, LevelData } from '../core/types';
 import { completabilityErrors } from '../levels/analysis';
 import { validateLevel } from '../levels/schema';
 import {
+  applyShape,
   createDraft,
-  paintSubcell,
-  paintTile,
+  describeCursor,
+  paintMirrored,
   type Brush,
+  type Cell,
+  type MirrorMode,
   type PaintMode,
+  type ShapeTool,
   type Subcell,
 } from './tools';
 import { cycleSlotType, fillFrom, setSlotType } from './waveEditor';
@@ -39,10 +43,25 @@ export interface EditorModel {
   setStatus(message: string): void;
   setMode(mode: PaintMode): void;
   setBrush(brush: Brush): void;
+  /** Which shape a press-drag-release draws. `brush` is freehand. */
+  tool(): ShapeTool;
+  setTool(tool: ShapeTool): void;
+  /** Which reflections every stroke is repeated through. */
+  mirror(): MirrorMode;
+  setMirror(mirror: MirrorMode): void;
   /** Paint through the current tool. `sub` is required in subcell mode. */
   paintAt(tx: number, ty: number, sub?: Subcell): boolean;
   beginStroke(): void;
   endStroke(): void;
+  /**
+   * Start a shape drag from `anchor`. {@link updateShape} then redraws it from
+   * that anchor on every move, and {@link endShape} records the one undo step.
+   */
+  beginShape(anchor: Cell): void;
+  updateShape(to: Cell): boolean;
+  endShape(): void;
+  /** What is under the cursor, for the readout. */
+  describeAt(cell: Cell): string;
   undo(): boolean;
   redo(): boolean;
   canUndo(): boolean;
@@ -69,11 +88,16 @@ export function createEditor(initial?: LevelData): EditorModel {
   let draft: LevelData = initial ?? createDraft();
   let mode: PaintMode = 'tile';
   let brush: Brush = 'B';
+  let tool: ShapeTool = 'brush';
+  let mirror: MirrorMode = 'off';
   let status = '';
   const undoStack: LevelData[] = [];
   const redoStack: LevelData[] = [];
   /** The draft as it was when the current stroke began, or `null` between. */
   let strokeStart: LevelData | null = null;
+  /** The draft and anchor a shape drag is being recomputed from, or `null`. */
+  let shapeBase: LevelData | null = null;
+  let shapeFrom: Cell | null = null;
   /**
    * What the previous edit was, for coalescing (see {@link edit}). `null` after
    * anything that must not be merged into — a paint, an undo, a redo, a load.
@@ -132,11 +156,27 @@ export function createEditor(initial?: LevelData): EditorModel {
       brush = next;
     },
 
+    tool: () => tool,
+
+    setTool(next: ShapeTool): void {
+      tool = next;
+    },
+
+    mirror: () => mirror,
+
+    setMirror(next: MirrorMode): void {
+      mirror = next;
+    },
+
     paintAt(tx: number, ty: number, sub?: Subcell): boolean {
-      const result =
-        mode === 'subcell' && sub !== undefined
-          ? paintSubcell(draft, tx, ty, sub, brush)
-          : paintTile(draft, tx, ty, brush);
+      const result = paintMirrored(
+        draft,
+        tx,
+        ty,
+        mode === 'subcell' ? sub : undefined,
+        brush,
+        mirror,
+      );
       status = result.refused ?? '';
       if (!result.changed) {
         return false;
@@ -159,6 +199,48 @@ export function createEditor(initial?: LevelData): EditorModel {
       if (start !== null) {
         commit(start);
       }
+    },
+
+    beginShape(anchor: Cell): void {
+      shapeBase = draft;
+      shapeFrom = anchor;
+    },
+
+    updateShape(to: Cell): boolean {
+      const base = shapeBase;
+      const from = shapeFrom;
+      if (base === null || from === null) {
+        return false;
+      }
+      // From the BASE, never from the current preview: a drag that comes back
+      // has to shrink the shape rather than leave the largest one it reached
+      // painted underneath.
+      const result = applyShape(base, {
+        tool,
+        from,
+        to,
+        brush,
+        mode,
+        mirror,
+      });
+      status = result.refused ?? '';
+      draft = result.level;
+      lastTag = null;
+      return result.changed;
+    },
+
+    endShape(): void {
+      const base = shapeBase;
+      shapeBase = null;
+      shapeFrom = null;
+      if (base !== null) {
+        // One step for the whole drag — the preview never touched the history.
+        commit(base);
+      }
+    },
+
+    describeAt(cell: Cell): string {
+      return describeCursor(draft, cell, mode);
     },
 
     undo(): boolean {
