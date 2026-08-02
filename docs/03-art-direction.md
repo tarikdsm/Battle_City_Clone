@@ -87,6 +87,10 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
   1. A fully-lit horizontal surface reads **within ±10%** of its authored token (§3.0).
   2. Shadowed ground reads **15–35%** of lit ground luminance — dark enough to shape, light enough to keep the surface present.
   Tune key and fill to hit both, and record the measured values in the task report so later tasks inherit calibrated numbers rather than re-deriving them.
+- **Calibrated values (T2.2, measured):** key 3.8, hemisphere fill 16.0, **tone-mapping exposure 0.70**. Exposure is a calibration *output*, not a fixed input: because §3.0 takes flat graphics off ACES, the two paths respond differently and no key/fill pair satisfies both — exposure is the only lever that reaches the lit path alone. Results: board +2.0%, frame +1.0%, tank +3.9%, grid exact, shadow at 23.1% of lit (4.3:1).
+- **Material choice is part of the policy.** Flat graphics use a **Lambert** (pure diffuse) surface: a standard material's specular term does not scale with albedo, so calibrating on the near-black board left the frame 26.9% dark. Lit objects keep the standard material. The render layer exposes this as two factories — `graphicSurface()` and `tankSkin()` — and picking the wrong one is a calibration bug, not a style choice.
+- `HemisphereLight.position` is a **direction**, not a location (a T2.2 bug had it tilting the sky axis 36° off vertical). Keep it `(0, 1, 0)`.
+- The fit is two-point against a near-black board and a mid-tone tank; the ACES curve is non-linear, so **re-measure when introducing a materially different token** rather than assuming the deviation carries over.
 - **Dynamic point-light pool (max 8, priority by proximity/importance):** muzzle flash (range 40 u, 60 ms), bullet glow (tiny, attached, Low: off), explosion (range 90 u, 400 ms, quadratic decay), base explosion (range 160 u, 1.2 s), power-up idle pulse (range 24 u, 1.2 s sine), spawn star (range 30 u).
 - ACES tone mapping, exposure 1.1.
 
