@@ -31,6 +31,7 @@ import {
 import {
   CALIBRATION,
   QUALITY_PRESETS,
+  applyHighContrast,
   createMaterials,
   type Quality,
 } from './materials';
@@ -249,9 +250,13 @@ export function createRenderer(
 
     setFxFlags(flags: FxFlags): void {
       fx.setFlags(flags);
-      // One object, both layers: the two flags are a *player's* choice, and
-      // splitting them into two calls is how one of them ends up unwired.
+      // One object, every layer: these are a *player's* choices, and splitting
+      // them into three calls is how one of them ends up unwired.
       cameraFx.setFlags(flags);
+      // Art §11's high-contrast mode is a materials change rather than an FX
+      // one, so it is applied here — but it arrives in the same object, for the
+      // same reason.
+      applyHighContrast(materials, flags.highContrast);
     },
 
     resize(w: number, h: number): void {

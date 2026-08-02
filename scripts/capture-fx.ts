@@ -909,7 +909,7 @@ async function loopPass(
   });
   await page.addInitScript({ content: KEEP_NAMES_SHIM });
   await page.addInitScript(instrument);
-  await page.goto(`${URL}?quality=${quality}&seed=${SEED}`);
+  await page.goto(`${URL}?quality=${quality}&seed=${SEED}&stage=1`);
   await page.locator('[data-hud="root"]').waitFor();
   await sleep(INTRO_MS + 500);
 

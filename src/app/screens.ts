@@ -29,6 +29,28 @@ export interface ScreenMachine {
   register(name: ScreenName, s: Screen): void;
   show(name: ScreenName, params?: unknown): void;
   current(): ScreenName;
+
+  /**
+   * Put a screen **over** the current one without leaving it (T6.1).
+   *
+   * GDD §5 draws Intro, Pause and Tally as nodes in the same flow as Play, and
+   * they are — from the player's side. From the app's side they cannot be
+   * *replacements* for it: the play screen owns the WebGL context, the audio
+   * context, the simulation and the loop, so `show('pause')` would tear all
+   * four down and `show('play')` would rebuild them, losing the run. (That is
+   * not a hypothetical: `createPlayScreen.leave()` disposes the renderer, which
+   * forces a GL context loss.)
+   *
+   * So the machine has two layers. Everything the player navigates *between* is
+   * a screen; the three that sit over a live, frozen simulation are overlays. A
+   * second `showOverlay` replaces the first — overlays do not stack, because
+   * nothing in GDD §5 stacks them and a stack is a state a `back` press can get
+   * lost in.
+   */
+  showOverlay(name: ScreenName, params?: unknown): void;
+  /** Remove the overlay, if any. Idempotent. */
+  hideOverlay(): void;
+  currentOverlay(): ScreenName | null;
 }
 
 /**
@@ -47,6 +69,20 @@ export function createScreenMachine(root: HTMLElement): ScreenMachine {
   // `null` = nothing mounted yet, which is what makes the very first
   // `show('boot')` a real entry rather than a no-op self-transition.
   let active: { name: ScreenName; screen: Screen } | null = null;
+  let overlay: { name: ScreenName; screen: Screen } | null = null;
+
+  function lookup(name: ScreenName): Screen {
+    const found = registry.get(name);
+    if (!found) {
+      throw new Error(`unknown screen: ${name}`);
+    }
+    return found;
+  }
+
+  function dropOverlay(): void {
+    overlay?.screen.leave();
+    overlay = null;
+  }
 
   return {
     register(name: ScreenName, s: Screen): void {
@@ -54,13 +90,15 @@ export function createScreenMachine(root: HTMLElement): ScreenMachine {
     },
 
     show(name: ScreenName, params?: unknown): void {
-      const next = registry.get(name);
-      if (!next) {
-        throw new Error(`unknown screen: ${name}`);
-      }
+      const next = lookup(name);
       if (active?.name === name) {
         return; // already on stage — re-entering would rebuild it for nothing
       }
+      // An overlay belongs to the screen underneath it, so changing that screen
+      // takes the overlay with it. Dropped BEFORE the outgoing screen leaves,
+      // so teardown runs top-down and an overlay can never outlive the
+      // simulation it was reading.
+      dropOverlay();
       active?.screen.leave();
       active = { name, screen: next };
       next.enter(root, params);
@@ -69,6 +107,24 @@ export function createScreenMachine(root: HTMLElement): ScreenMachine {
     current(): ScreenName {
       // Before the first show the app is, by definition, still booting.
       return active?.name ?? 'boot';
+    },
+
+    showOverlay(name: ScreenName, params?: unknown): void {
+      const next = lookup(name);
+      if (overlay?.name === name) {
+        return;
+      }
+      dropOverlay();
+      overlay = { name, screen: next };
+      next.enter(root, params);
+    },
+
+    hideOverlay(): void {
+      dropOverlay();
+    },
+
+    currentOverlay(): ScreenName | null {
+      return overlay?.name ?? null;
     },
   };
 }

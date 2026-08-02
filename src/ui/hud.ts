@@ -19,8 +19,16 @@ import { ENEMY_TOTAL } from '../core/constants';
 import type { GameState } from '../core/types';
 
 export interface Hud {
-  /** Reflect `state` into the DOM, writing only the nodes that changed. */
-  sync(state: GameState): void;
+  /**
+   * Reflect `state` into the DOM, writing only the nodes that changed.
+   *
+   * `displayStage` exists because after stage 35 the two stage numbers stop
+   * being the same one (fidelity §11.5): core's `state.stageNumber` keeps
+   * rising so the spawn formula keeps tightening, while the campaign "loops to
+   * stage 1" and that is the number a player is told. Defaults to the core's,
+   * so a caller with no loop to represent passes nothing.
+   */
+  sync(state: GameState, displayStage?: number): void;
   /**
    * Re-dock for the current viewport and report the space the HUD occupies, in
    * CSS pixels. The caller subtracts this from the viewport to get the board
@@ -233,7 +241,7 @@ export function createHud(root: HTMLElement): Hud {
         : { right: 0, bottom: Math.ceil(box.height) };
     },
 
-    sync(state: GameState): void {
+    sync(state: GameState, displayStage?: number): void {
       // The queue IS the "left to spawn" count: the spawner shifts an entry on
       // the tick it emits `enemySpawnStarted`, which is the event GDD §9 pins
       // the icon grid to. Reading the state rather than counting events keeps
@@ -249,9 +257,10 @@ export function createHud(root: HTMLElement): Hud {
         last.remaining = remaining;
       }
 
-      if (state.stageNumber !== last.stage) {
-        stage.textContent = String(state.stageNumber);
-        last.stage = state.stageNumber;
+      const shown = displayStage ?? state.stageNumber;
+      if (shown !== last.stage) {
+        stage.textContent = String(shown);
+        last.stage = shown;
       }
 
       for (let i = 0; i < players.length; i++) {

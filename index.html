@@ -15,6 +15,14 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0a0a'/%3E%3Crect x='3' y='7' width='10' height='6' rx='1' fill='%23d8b24a'/%3E%3Crect x='7' y='2' width='2' height='6' fill='%23d8b24a'/%3E%3C/svg%3E"
     />
+    <!--
+      Art §10's UI treatment. Linked here rather than imported from a module:
+      the app program compiles with `types: []`, so an `import './styles.css'`
+      would need an ambient module declaration purely to satisfy a build step
+      that Vite handles from a <link> without one. Vite rewrites this path in a
+      production build and respects `--mode pages`' base path.
+    -->
+    <link rel="stylesheet" href="/src/ui/styles.css" />
     <style>
       html,
       body {

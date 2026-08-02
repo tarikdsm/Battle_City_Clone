@@ -550,7 +550,7 @@ describe('CameraFx — the assembled layer', () => {
 });
 
 describe('reduced motion (art §11, GDD §10)', () => {
-  const flags = { reducedMotion: true, reducedFlash: false };
+  const flags = { reducedMotion: true, reducedFlash: false, screenShake: true };
 
   it('zeroes shake, slow-mo and the dolly', () => {
     const m = mount();
@@ -649,5 +649,58 @@ describe('reduced motion (art §11, GDD §10)', () => {
     };
     expect(count(true)).toBe(count(false));
     expect(count(true)).toBeGreaterThan(0);
+  });
+});
+
+describe('the screen-shake toggle (GDD §10, art §2)', () => {
+  const shakeOff = {
+    reducedMotion: false,
+    reducedFlash: false,
+    screenShake: false,
+  };
+
+  it('suppresses the shake without touching the slow-mo beat or the fly-in', () => {
+    // Art §2: shake is "disabled by reduced-motion/**setting**", and until T6.1
+    // only the first half of that sentence was wired. The setting is narrower
+    // than reduced motion on purpose — a player who dislikes the shake has not
+    // asked to lose the base-destruction moment or the stage fly-in.
+    const m = mount();
+    const state = game();
+    m.fx.setFlags(shakeOff);
+    m.fx.onEvent({ t: 'baseDestroyed' });
+    m.fx.onEvent({
+      t: 'shotFired',
+      tankId: 0,
+      x: 100,
+      y: 100,
+      dir: 0,
+      byPlayer: true,
+    });
+    m.fx.update(state, 16);
+
+    expect(m.fx.stats().trauma).toBe(0);
+    expect(m.fx.stats().offsetX).toBe(0);
+    expect(m.fx.stats().offsetY).toBe(0);
+    expect(m.fx.stats().rollDeg).toBe(0);
+    // …and the two things reduced motion WOULD have taken are still here.
+    expect(m.fx.timeScale()).toBeLessThan(1);
+    state.phase = 'intro';
+    state.phaseT = 0;
+    m.fx.update(state, 16);
+    expect(m.fx.stats().pitchDeg).toBeGreaterThan(33);
+    m.dispose();
+  });
+
+  it('drops trauma already banked when the setting is turned off mid-blast', () => {
+    const m = mount();
+    const state = game();
+    m.fx.onEvent({ t: 'baseDestroyed' });
+    m.fx.update(state, 16);
+    expect(m.fx.stats().trauma).toBeGreaterThan(0);
+
+    m.fx.setFlags(shakeOff);
+    m.fx.update(state, 16);
+    expect(m.fx.stats().trauma).toBe(0);
+    m.dispose();
   });
 });

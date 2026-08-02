@@ -937,17 +937,40 @@ export interface FxSink {
 // --- The view --------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
-/** Art §11's two accessibility switches, as far as the FX layer is concerned. */
+/**
+ * Art §11's accessibility switches, as far as the FX layer is concerned.
+ *
+ * This is the ONE object the app hands the render layer (`renderer.setFxFlags`
+ * gives the same instance to the camera layer), so a settings toggle that has
+ * no field here is a toggle that reaches nothing. All four are set from
+ * `SettingsV1` by `src/ui/screens/settings.ts`.
+ */
 export interface FxFlags {
   /** `prefers-reduced-motion` or the settings toggle: "no screen flash". */
   reducedMotion: boolean;
   /** The dedicated `reducedFlash` setting (storage.ts). */
   reducedFlash: boolean;
+  /**
+   * GDD §10's screen-shake toggle. Separate from `reducedMotion` because it is
+   * narrower: reduced motion also suppresses the slow-mo beat and the stage
+   * fly-in (art §11), while this one is only art §2's trauma shake. Consumed by
+   * the camera layer; carried here so both layers take one object.
+   */
+  screenShake: boolean;
+  /**
+   * Art §11's high-contrast mode. Not an FX concern at all — it re-tints the
+   * shared tank materials and brightens the tracers, which `renderer.ts` does —
+   * but it rides in this object for the same reason `reducedFlash` does: two
+   * calls is how one of them ends up unwired.
+   */
+  highContrast: boolean;
 }
 
 export const DEFAULT_FX_FLAGS: FxFlags = Object.freeze({
   reducedMotion: false,
   reducedFlash: false,
+  screenShake: true,
+  highContrast: false,
 });
 
 /** What the capture harness reads back. One shared object; never allocated. */

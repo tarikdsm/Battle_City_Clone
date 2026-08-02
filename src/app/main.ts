@@ -1,27 +1,49 @@
 // Boot / composition root.
 //
 // Brings up the screen machine, installs the global error rails (arch §12),
-// mounts the game canvas and starts the play screen — in that order, and the
-// order is deliberate: the rails go up before the first lookup that can throw.
+// mounts the game canvas and runs GDD §5's flow — in that order, and the order
+// is deliberate: the rails go up before the first lookup that can throw.
 //
-// There is no title or menu yet (Phase 6), so this boots straight into a
-// playable stage 1. The screen machine, the session and the debug flags are
-// already the shapes those screens will slot into.
+// ## What lives here and why
+//
+// This file owns the *flow* — which screen answers which outcome — because that
+// is the composition root's job (arch §8) and because it is the only place that
+// can see all of the screens at once. Every screen below it is a leaf: it takes
+// callbacks, it never reaches for another screen, and it can therefore be read
+// (and screenshotted) on its own.
+//
+// The three long-lived singletons are built here and injected downward:
+//
+// - the **screen machine** (two layers: screens, and the overlays that sit over
+//   a live simulation — see `screens.ts`),
+// - one **AudioSystem** for the whole app. An `AudioContext` is a scarce,
+//   process-wide resource, and a campaign enters the play screen once per
+//   stage; one context per stage would exhaust the browser's cap. It is also
+//   what lets the menus use audio §5's `uiMove`/`uiSelect`/`uiBack`.
+// - the live **settings**, which every screen reads through `settingsNow()` and
+//   writes through `applySettings()`, so a change made in one place reaches the
+//   audio graph, the renderer and the input layer in one call.
 
-import { createSession } from './session';
+import { createSession, type Session } from './session';
 import { parseDebugFlags } from './debug';
 import { createErrorRail, createErrorScreen } from './errorScreen';
-import { loadSettings } from './storage';
+import { loadSettings, saveSettings, type SettingsV1 } from './storage';
 import { createScreenMachine, OVERLAY_STYLE, type Screen } from './screens';
 import { validateLevel } from '../levels/schema';
 import type { LevelData } from '../core/types';
+import { createAudio } from '../audio/audio';
 import {
   concreteQuality,
   decideAutoQuality,
   sampleDevice,
 } from '../render/post';
 import type { Quality } from '../render/renderer';
-import { createPlayScreen } from '../ui/screens/play';
+import { createPlayScreen, type PlayRun } from '../ui/screens/play';
+import { createTitleScreen } from '../ui/screens/title';
+import { createMenuScreen, type MenuChoice } from '../ui/screens/menu';
+import { createSettingsScreen, volumesFor } from '../ui/screens/settings';
+import { createPauseScreen } from '../ui/screens/pause';
+import { loadScores } from './storage';
 import stage01 from '../levels/original/stage01.json';
 
 /**
@@ -52,10 +74,10 @@ const PROBE_QUALITY: Quality = 'high';
 const foundUiRoot = document.querySelector<HTMLElement>('#ui');
 const uiRoot = foundUiRoot ?? document.body;
 if (!foundUiRoot) {
-  // Today every screen is position:fixed/inset:0, so <body> renders the same
-  // and the fallback is invisible. That stops being true the moment a screen
-  // relies on #ui's own stacking context or CSS, so say so out loud. A warning,
-  // not an error: the e2e smoke asserts zero console ERRORS on a clean boot.
+  // Every screen is position:fixed/inset:0, so <body> renders the same and the
+  // fallback is invisible. That stops being true the moment a screen relies on
+  // #ui's own stacking context or CSS, so say so out loud. A warning, not an
+  // error: the e2e smoke asserts zero console ERRORS on a clean boot.
   console.warn('#ui not found — mounting screens on <body> instead');
 }
 
@@ -99,18 +121,7 @@ screens.show('boot');
 
 console.log('boot ok');
 
-// --- the run ---------------------------------------------------------------
-
-const session = createSession({
-  // 2P and the player-count choice arrive with the menu (T6.2). Until then a
-  // run is 1P, which is also what the spawn-cadence formula is tuned against.
-  players: 1,
-  // `?stage=` moves the stage NUMBER (spawn cadence and AI aggression scale
-  // with it, fidelity §7/§9), not the layout — there is exactly one level until
-  // Phase 7 transcribes the other 34.
-  stageNumber: debug.stage ?? 1,
-  seed: debug.seed,
-});
+// --- the app's singletons ---------------------------------------------------
 
 // The level is validated rather than trusted, even though it ships in the
 // bundle: `resolveJsonModule` types it as a loose object literal (`version:
@@ -123,19 +134,213 @@ if (!parsed.ok) {
 }
 const level: LevelData = parsed.level;
 
+let settings: SettingsV1 = loadSettings();
+const settingsNow = (): SettingsV1 => settings;
+
+// Audio §2: the context is built **suspended** and only ever resumed from a
+// real user gesture, which the input layer forwards (`createInput`). Built here
+// rather than in the play screen so the menus can use it too.
+const audio = createAudio();
+audio.setVolumes(volumesFor(settings));
+
+// Art §11's `prefers-reduced-motion`. Read once: it is an OS-level preference,
+// and a screen that re-queried it per frame would be asking a media query 60
+// times a second for an answer that changes about never.
+const reducedMotion =
+  globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+
 // Resolution order (arch §5): `?quality=` debug flag → stored setting → probe.
 // `null` here means "the player asked for Auto", which is the only case that
 // pays for a sample.
-const settled = concreteQuality(loadSettings().quality, debug.quality);
+const settled = concreteQuality(settings.quality, debug.quality);
 
 const play = createPlayScreen({
   canvas,
-  level,
-  session,
   quality: settled ?? PROBE_QUALITY,
+  audio,
+  settings: settingsNow,
+  reducedMotion,
+  onPauseChanged(paused: boolean): void {
+    // Core owns the pause (P-26); this is the screen that answers it. Either
+    // source can flip it — the player's Escape or the overlay's Resume — and
+    // both arrive here as the same state change.
+    if (paused) {
+      // Suspend BEFORE the overlay mounts: from here on every key belongs to
+      // the menu, so one Escape cannot both close a panel and unpause.
+      play.setInputSuspended(true);
+      screens.showOverlay('pause');
+    } else if (screens.currentOverlay() === 'pause') {
+      screens.hideOverlay();
+      play.setInputSuspended(false);
+    }
+  },
+
+  onStageCleared(): void {
+    // T6.2 replaces this with the tally and the next stage.
+    toTitle();
+  },
+
+  onGameOver(): void {
+    // T6.2 replaces this with the game-over → high-score sequence.
+    toTitle();
+  },
 });
 screens.register('play', play);
-screens.show('play');
+
+/** Where `back` from the settings screen returns to. Set before showing it. */
+let settingsReturn: () => void = () => {
+  toMenu('settings');
+};
+
+screens.register(
+  'title',
+  createTitleScreen({
+    audio,
+    topScore: () => loadScores()[0] ?? null,
+    onStart: () => {
+      toMenu();
+    },
+  }),
+);
+
+screens.register(
+  'menu',
+  createMenuScreen({
+    audio,
+    onBack: () => {
+      toTitle();
+    },
+    onChoose: (choice: MenuChoice) => {
+      if (choice === 'campaign') {
+        // T6.2 puts the stage-select screen here; until then Campaign starts a
+        // fresh run at stage 1.
+        startRun(createSession({ players: 1, seed: debug.seed }));
+        return;
+      }
+      if (choice === 'settings') {
+        settingsReturn = (): void => {
+          toMenu('settings');
+        };
+        screens.show('settings');
+        return;
+      }
+      // 'scores' lands with T6.2; the three Phase 8 entries are disabled rows
+      // and never reach this callback.
+    },
+  }),
+);
+
+screens.register(
+  'settings',
+  createSettingsScreen({
+    audio,
+    read: settingsNow,
+    apply: applySettings,
+    onBack: () => {
+      settingsReturn();
+    },
+  }),
+);
+
+screens.register(
+  'pause',
+  createPauseScreen({
+    audio,
+    read: settingsNow,
+    apply: (next) => {
+      applySettings(next);
+      saveSettings(next);
+    },
+    onResume: () => {
+      play.togglePause();
+    },
+    onRestart: () => {
+      const state = play.state();
+      if (state === null) {
+        return;
+      }
+      // A restart is a fresh stage at the same number. T6.2 restores the run's
+      // carryover here, once a run is more than one stage.
+      screens.hideOverlay();
+      startRun(createSession({ players: 1, stageNumber: state.stageNumber }));
+    },
+    onQuit: () => {
+      toTitle();
+    },
+    onSettings: () => {
+      settingsReturn = (): void => {
+        // Back from settings during a run returns to the pause overlay, which
+        // is still sitting over a frozen simulation.
+        screens.showOverlay('pause');
+      };
+      // `showOverlay` replaces the pause overlay rather than stacking, so the
+      // settings screen sits over the same live, frozen board — which is what
+      // makes the high-contrast toggle previewable while it is being flipped.
+      screens.showOverlay('settings');
+    },
+  }),
+);
+
+// --- the flow (GDD §5) ------------------------------------------------------
+
+/** Swap what the board is running without disturbing the screen machine. */
+function startBoard(run: PlayRun): void {
+  if (screens.current() === 'play') {
+    // Already on the board: `show('play')` would be a no-op (a self-transition
+    // is ignored), so the run is swapped in place. This is also the path that
+    // keeps one GL context across a whole campaign.
+    screens.hideOverlay();
+    play.start(run);
+  } else {
+    screens.show('play', run);
+  }
+}
+
+function toTitle(): void {
+  // GDD §5's "subtle attract camera drift over a diorama": the title mounts
+  // over a real, running stage with no controls attached.
+  startBoard({
+    session: createSession({ players: 1 }),
+    level,
+    attract: true,
+  });
+  screens.showOverlay('title');
+  audio.playMusic('title');
+}
+
+function toMenu(focus?: string): void {
+  screens.show('menu', focus === undefined ? undefined : { focus });
+  audio.stopMusic();
+}
+
+/**
+ * Put a run on the board.
+ *
+ * There is exactly one level until Phase 7 transcribes the other 34, so the
+ * layout is stage 1's whatever the number says. T6.2 adds the stage intro, the
+ * per-run carryover and the 35-stage loop around this.
+ */
+function startRun(run: Session): void {
+  startBoard({ session: run, level });
+}
+
+function applySettings(next: SettingsV1): void {
+  settings = next;
+  play.applySettings(next);
+}
+
+// --- boot into the flow -----------------------------------------------------
+
+if (debug.stage !== undefined) {
+  // `?stage=` means "put me on the board at stage N" — the path the capture
+  // scripts and the calibration harnesses drive. Dev-only: `parseDebugFlags`
+  // returns all-inert flags in a production bundle.
+  startRun(
+    createSession({ players: 1, stageNumber: debug.stage, seed: debug.seed }),
+  );
+} else {
+  toTitle();
+}
 
 if (settled === null) {
   // `void` + async IIFE rather than a top-level await: this module is the entry
@@ -154,7 +359,7 @@ if (settled === null) {
   })();
 }
 
-/** Placeholder until the title screen lands (T6.1). */
+/** The first paint, before the title's board exists. */
 function createBootScreen(): Screen {
   let node: HTMLElement | null = null;
   return {

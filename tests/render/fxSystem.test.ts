@@ -662,8 +662,18 @@ describe('FxSystem — the assembled layer', () => {
     plain.dispose();
 
     for (const flags of [
-      { reducedMotion: true, reducedFlash: false },
-      { reducedMotion: false, reducedFlash: true },
+      {
+        reducedMotion: true,
+        reducedFlash: false,
+        screenShake: true,
+        highContrast: false,
+      },
+      {
+        reducedMotion: false,
+        reducedFlash: true,
+        screenShake: true,
+        highContrast: false,
+      },
     ]) {
       const m = mount();
       m.fx.setFlags(flags);

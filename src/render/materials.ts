@@ -123,6 +123,157 @@ export type PaletteKey = keyof typeof PALETTE;
  */
 export const ICE_ALPHA = 0.25;
 
+// ---------------------------------------------------------------------------
+// --- Art §11's high-contrast mode (T6.1) -----------------------------------
+// ---------------------------------------------------------------------------
+
+/**
+ * ITU-R BT.601 luma of a token, on the **0–255 sRGB byte scale**.
+ *
+ * This is the scale art §11's finding is quoted on, and naming it matters
+ * because three other scales give three other numbers for the same pair:
+ * `#d99c2b` against `#8a8f9c` is **18.4** here, 8.1 as WCAG relative luminance
+ * (×100), 6.4 as CIE L*, and 6.6 as HSL lightness. Art §11 says "~18", so the
+ * doc's basis is this one, and everything measured against §11 must use it or
+ * the numbers cannot be compared.
+ *
+ * Deliberately computed on the **gamma-encoded** bytes rather than on linear
+ * light: BT.601 luma is defined that way, and it is also the quantity that
+ * predicts what a grayscale print of the frame looks like — which is exactly
+ * the colourblind-readability question §11 is asking.
+ */
+export function luma601(hex: number): number {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+/** Scale a token's sRGB bytes by `k`, preserving hue, clamped to 0…255. */
+export function scaleToken(hex: number, k: number): number {
+  const ch = (shift: number): number =>
+    Math.min(255, Math.max(0, Math.round(((hex >> shift) & 0xff) * k)));
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
+/**
+ * Art §11's high-contrast mode — **required, not optional**.
+ *
+ * ## What §11 asks for, and why this is not literally it
+ *
+ * §11 prescribes "1 px dark outlines on all tanks + brighter bullet tracers".
+ * The tracers are here. The outlines are **not**, and the reason is structural
+ * rather than a shortcut: a tank in this renderer is one `InstancedMesh` whose
+ * *instances are parts* (`tankView.ts`), so the usual inverted-hull outline
+ * would trace every one of the ~20 boxes a tank is assembled from, not the
+ * tank's silhouette — it would draw a dark grid over each tank instead of a rim
+ * around it. A correct silhouette outline is a screen-space depth/normal edge
+ * pass in the post chain, i.e. a task of its own.
+ *
+ * ## What this does instead, and why it is the stronger fix
+ *
+ * §11's *stated problem* is a value problem: "player-vs-enemy separation
+ * currently leans on hue, which is exactly what a colourblind player does not
+ * get". An outline does not move either body's value at all — it adds a dark
+ * edge between a tank and the board. So this mode attacks the value directly,
+ * with two rules and one number each:
+ *
+ * - **Players wear their own authored accent token** (`player1Accent`,
+ *   `player2Accent`, art §3.1). Not an invented colour: it is the brightest
+ *   value the palette already authors for that tank's family, so the tank keeps
+ *   its hue and moves to the top of its own range.
+ * - **Every enemy token is scaled by {@link ENEMY_SCALE}**, one uniform factor
+ *   for all four. Uniform is the whole point: it preserves hue exactly, it
+ *   preserves the *order* of the four enemy values, and it preserves the Armor
+ *   HP ramp — `ARMOR_HP_TINT` is a ratio table against the `enemyArmor` token,
+ *   so scaling the material colour scales all four HP tints with it.
+ *
+ * Measured (BT.601, 0–255), the worst player-vs-enemy pair goes from **2.6**
+ * (P1 gold 161.4 vs Fast sand 164.0 — worse than the 18.4 §11 quotes) to
+ * **59.8** (P2 accent 180.6 vs Armor 120.8). `docs/calibration/high-contrast.json`
+ * carries the full matrix and `tests/render/materials.test.ts` pins it.
+ */
+export const HIGH_CONTRAST = Object.freeze({
+  /**
+   * 0.6. Chosen as the single factor that lands all four enemy tokens inside
+   * 77…121 luma while the two player tokens sit at 181…195 — i.e. the widest
+   * uniform separation available before the darkest enemy (Power, 77.6) stops
+   * being comfortably above the `board` token's own 18.5.
+   */
+  ENEMY_SCALE: 0.6,
+  /** Art §11's "brighter bullet tracers": the trail's alpha, 0.55 → 0.9. */
+  TRACER_OPACITY: 0.9,
+  /** …and its emissive term, 0.35 → 0.75, so it also blooms harder at High. */
+  TRACER_EMISSIVE: 0.75,
+});
+
+/** The hex a tank skin wears in the given mode. Pure — this is what is measured. */
+export function tankToken(key: TankMaterialKey, highContrast: boolean): number {
+  if (!highContrast) {
+    return PALETTE[key];
+  }
+  switch (key) {
+    case 'player1':
+      return PALETTE.player1Accent;
+    case 'player2':
+      return PALETTE.player2Accent;
+    default:
+      return scaleToken(PALETTE[key], HIGH_CONTRAST.ENEMY_SCALE);
+  }
+}
+
+/** Every tank skin, in the order the separation matrix is reported in. */
+export const TANK_SKIN_KEYS: readonly TankMaterialKey[] = Object.freeze([
+  'player1',
+  'player2',
+  'enemyBasic',
+  'enemyFast',
+  'enemyPower',
+  'enemyArmor',
+]);
+
+/**
+ * The worst player-vs-enemy luma gap in a mode — the number art §11 is about.
+ * A minimum over all four enemies × both players, so a single bad pair cannot
+ * hide behind a good average.
+ */
+export function worstPlayerEnemySeparation(highContrast: boolean): number {
+  let worst = Infinity;
+  for (const p of ['player1', 'player2'] as const) {
+    for (const e of [
+      'enemyBasic',
+      'enemyFast',
+      'enemyPower',
+      'enemyArmor',
+    ] as const) {
+      const gap = Math.abs(
+        luma601(tankToken(p, highContrast)) -
+          luma601(tankToken(e, highContrast)),
+      );
+      if (gap < worst) {
+        worst = gap;
+      }
+    }
+  }
+  return worst;
+}
+
+/**
+ * Switches the mode on the live materials. Idempotent, and a pure function of
+ * the flag — toggling off restores the authored tokens exactly, because every
+ * value is recomputed from `PALETTE` rather than remembered.
+ *
+ * Colour and opacity are **uniforms**, so nothing here needs a shader recompile
+ * (unlike the shadow toggle in `renderer.ts`, which does).
+ */
+export function applyHighContrast(m: Materials, on: boolean): void {
+  for (const key of TANK_SKIN_KEYS) {
+    m[key].color.setHex(tankToken(key, on));
+  }
+  m.bulletTrail.opacity = on ? HIGH_CONTRAST.TRACER_OPACITY : 0.55;
+  m.bulletTrail.emissiveIntensity = on ? HIGH_CONTRAST.TRACER_EMISSIVE : 0.35;
+}
+
 /**
  * Art §11: "smoke max alpha **0.35** over playfield". A readability constraint,
  * not a look — and it is delivered by *construction* here rather than by

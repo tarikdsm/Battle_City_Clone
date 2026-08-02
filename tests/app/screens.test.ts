@@ -70,3 +70,97 @@ describe('createScreenMachine (arch §8)', () => {
     expect(machine.current()).toBe('boot');
   });
 });
+
+describe('the overlay layer (GDD §5: pause/intro/tally sit OVER play)', () => {
+  it('leaves the screen underneath mounted', () => {
+    const log: string[] = [];
+    const machine = createScreenMachine(root);
+    machine.register('play', fake('play', log));
+    machine.register('pause', fake('pause', log));
+    machine.show('play');
+    machine.showOverlay('pause');
+
+    // The whole point: no `leave:play`. Tearing the play screen down would
+    // dispose the renderer, the audio context and the simulation.
+    expect(log).toEqual(['enter:play', 'enter:pause']);
+    expect(machine.current()).toBe('play');
+    expect(machine.currentOverlay()).toBe('pause');
+
+    machine.hideOverlay();
+    expect(log).toEqual(['enter:play', 'enter:pause', 'leave:pause']);
+    expect(machine.current()).toBe('play');
+    expect(machine.currentOverlay()).toBe(null);
+  });
+
+  it('replaces rather than stacks', () => {
+    const log: string[] = [];
+    const machine = createScreenMachine(root);
+    machine.register('play', fake('play', log));
+    machine.register('intro', fake('intro', log));
+    machine.register('tally', fake('tally', log));
+    machine.show('play');
+    machine.showOverlay('intro');
+    machine.showOverlay('tally');
+
+    expect(log).toEqual([
+      'enter:play',
+      'enter:intro',
+      'leave:intro',
+      'enter:tally',
+    ]);
+    expect(machine.currentOverlay()).toBe('tally');
+  });
+
+  it('ignores a re-show of the overlay already up', () => {
+    const log: string[] = [];
+    const machine = createScreenMachine(root);
+    machine.register('play', fake('play', log));
+    machine.register('pause', fake('pause', log));
+    machine.show('play');
+    machine.showOverlay('pause');
+    machine.showOverlay('pause');
+    expect(log).toEqual(['enter:play', 'enter:pause']);
+  });
+
+  it('takes the overlay down with the screen it belonged to, top-down', () => {
+    const log: string[] = [];
+    const machine = createScreenMachine(root);
+    machine.register('play', fake('play', log));
+    machine.register('pause', fake('pause', log));
+    machine.register('title', fake('title', log));
+    machine.show('play');
+    machine.showOverlay('pause');
+    machine.show('title');
+
+    // `leave:pause` BEFORE `leave:play`: an overlay reads the simulation the
+    // screen under it owns, so it must never outlive it.
+    expect(log).toEqual([
+      'enter:play',
+      'enter:pause',
+      'leave:pause',
+      'leave:play',
+      'enter:title',
+    ]);
+    expect(machine.currentOverlay()).toBe(null);
+  });
+
+  it('hideOverlay is a no-op when nothing is up', () => {
+    const log: string[] = [];
+    const machine = createScreenMachine(root);
+    machine.register('play', fake('play', log));
+    machine.show('play');
+    machine.hideOverlay();
+    machine.hideOverlay();
+    expect(log).toEqual(['enter:play']);
+  });
+
+  it('throws for an unregistered overlay, naming it', () => {
+    const machine = createScreenMachine(root);
+    machine.register('play', fake('play', []));
+    machine.show('play');
+    expect(() => {
+      machine.showOverlay('tally');
+    }).toThrow(/tally/);
+    expect(machine.currentOverlay()).toBe(null);
+  });
+});

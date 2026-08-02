@@ -13,23 +13,52 @@
 // the drain has to happen inside the same `step()` that produced them. Deferring
 // it to render time loses a whole tick's events whenever the loop catches up two
 // steps in one frame — which is exactly when a lot is being shot.
+//
+// ## T6.1: one screen, many runs, and an attract run
+//
+// `start()` rebuilds the simulation in place rather than the screen machine
+// re-entering the screen, because `leave()` disposes the GL context and T6.2's
+// campaign would then create and destroy one per stage.
+//
+// The same screen also runs the title's diorama: `attract` mode builds
+// everything except the HUD and the input, so GDD §5's "subtle attract camera
+// drift over a diorama" is a real board with real tanks on it rather than a
+// still image — and no key press can reach the simulation behind the title.
+//
+// ## What this screen does NOT decide
+//
+// Pause, phases, scoring and lives are core's (fidelity §11–§13). This screen
+// *reports* them — `onStageCleared`, `onGameOver`, `onPauseChanged` — and the
+// flow in `main.ts` decides which screen answers. The one thing it
+// writes back is a single tick of pause intent, which goes through the same
+// edge detector a real key press does.
 
 import { createGame, stepGame } from '../../core/game';
+import { STAGE_CLEAR_S } from '../../core/constants';
 import type { GameEvent } from '../../core/events';
-import type { LevelData } from '../../core/types';
-import { createAudio, type AudioSystem } from '../../audio/audio';
+import type { GameState, LevelData, PlayerIntent } from '../../core/types';
+import type { AudioSystem } from '../../audio/audio';
 import { createLoop, type Loop } from '../../app/loop';
 import type { Screen } from '../../app/screens';
 import type { Session } from '../../app/session';
-import { loadSettings } from '../../app/storage';
+import type { SettingsV1 } from '../../app/storage';
 import { createInput, type InputSystem } from '../../input/input';
-import type { Bindings } from '../../input/keyboard';
+import { concreteQuality } from '../../render/post';
 import {
   createRenderer,
   type Quality,
   type Renderer,
 } from '../../render/renderer';
 import { createHud, type Hud } from '../hud';
+import { bindingsFor, fxFlagsFor, volumesFor } from './settings';
+
+/** What one visit to the board is: a run's state plus the stage to play. */
+export interface PlayRun {
+  session: Session;
+  level: LevelData;
+  /** No HUD, no input — the live diorama behind the title screen. */
+  attract?: boolean;
+}
 
 export interface PlayScreen extends Screen {
   /**
@@ -38,16 +67,51 @@ export interface PlayScreen extends Screen {
    * see `main.ts`.
    */
   setQuality(q: Quality): void;
+  /** Rebuild the simulation for a new stage, keeping the GL context alive. */
+  start(run: PlayRun): void;
+  /** Inject one tick of pause intent — the same edge a key press produces. */
+  togglePause(): void;
+  /**
+   * Stop the pad reaching the simulation, without tearing the input layer down.
+   *
+   * The bug this exists for, found by `npm run capture:ui`: a modal overlay and
+   * the input layer are **both** window `keydown` listeners, so one Escape was
+   * consumed twice — it closed the settings panel *and* unpaused the game, and
+   * which of the two you got depended on whether a 60 Hz tick happened to land
+   * inside the press. Suspending is what makes an overlay's keys the overlay's
+   * alone. The keyboard driver keeps tracking held keys, so a key held across
+   * the suspension and released outside it is still accounted for.
+   *
+   * `togglePause` deliberately still works while suspended: it is the app's own
+   * injection, not the pad's, and it is how the pause menu resumes.
+   */
+  setInputSuspended(suspended: boolean): void;
+  /** The live state, or `null` between `leave` and the next `enter`. */
+  state(): GameState | null;
+  /** Push changed settings at the audio, render and input layers. */
+  applySettings(s: SettingsV1): void;
 }
 
 export interface PlayScreenOptions {
   canvas: HTMLCanvasElement;
-  level: LevelData;
-  session: Session;
   /** The preset to start on. `setQuality` may move it once the probe lands. */
   quality: Quality;
-  /** Defaults to `DEFAULT_BINDINGS` inside the input layer. */
-  bindings?: Bindings;
+  /**
+   * The app's single audio system. Injected rather than created here because an
+   * `AudioContext` is a scarce process-wide resource and a campaign visits this
+   * screen once per stage — one context per stage would exhaust the browser's
+   * cap in a long run, and the menus need the same one for their SFX.
+   */
+  audio: AudioSystem;
+  /** The live settings, read at every (re)start. */
+  settings(): SettingsV1;
+  /** `prefers-reduced-motion`, read once by the composition root. */
+  reducedMotion: boolean;
+  onPauseChanged?(paused: boolean): void;
+  /** Fidelity §11.2: the 20th enemy died and the 2 s beat has elapsed. */
+  onStageCleared?(state: GameState): void;
+  /** Fidelity §11.3/§11.4: the run is over. */
+  onGameOver?(state: GameState): void;
 }
 
 export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
@@ -57,19 +121,25 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
   let renderer: Renderer | null = null;
   let input: InputSystem | null = null;
   let hud: Hud | null = null;
-  let audio: AudioSystem | null = null;
   let loop: Loop | null = null;
   let observer: ResizeObserver | null = null;
+  let game: GameState | null = null;
   let quality: Quality = opts.quality;
+  let root: HTMLElement | null = null;
+  let run: PlayRun | null = null;
+  /** One-tick synthetic pause press, set by `togglePause`. */
+  let injectPause = false;
+  /** While true the pad is polled but ignored — see `setInputSuspended`. */
+  let inputSuspended = false;
+  /** So the two terminal callbacks fire once each per stage, not per tick. */
+  let reported = false;
+  let lastPaused = false;
 
-  function leave(): void {
+  function teardownRun(): void {
     loop?.stop();
     observer?.disconnect();
     input?.dispose();
     hud?.dispose();
-    // The audio context is a scarce, process-wide resource (browsers cap the
-    // number of live ones), so it is closed here rather than left to the GC.
-    audio?.dispose();
     // The renderer goes last: it owns the GL context, and `dispose()` forces a
     // context loss, so nothing that touches the scene may run after it.
     renderer?.dispose();
@@ -77,156 +147,267 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     observer = null;
     input = null;
     hud = null;
-    audio = null;
     renderer = null;
+    game = null;
     delete opts.canvas.dataset.bcMounted;
   }
 
-  return {
-    enter(root: HTMLElement): void {
-      // Two renderers on one canvas is not a cosmetic problem: three answers
-      // `getDrawingBufferSize()` from its OWN `_width × _pixelRatio`, not from
-      // the canvas, so the loser's post chain copies the real framebuffer into
-      // a beauty texture of a different size and the composer blits the board
-      // small and off-centre — while `canvas.width`, the drawing buffer and the
-      // GL viewport all still read correct. Measured: a second renderer at a
-      // different DPR cap moved the board's content box from (277,56) to
-      // (935,0). Both loops also step the simulation, so every duration in the
-      // fidelity spec halves.
-      //
-      // The dataset flag lives on the ELEMENT, so it is shared even between two
-      // evaluations of this module (an HMR double-eval, a stray second script
-      // tag) where a module-scope guard would not be.
-      if (renderer !== null) {
-        leave(); // re-entry: rebuild rather than stack a second stack
+  function leave(): void {
+    teardownRun();
+    // The audio system is NOT disposed: it is the app's, not this screen's, and
+    // the menus keep using it. Music is stopped so a torn-down stage does not
+    // keep playing under the title.
+    opts.audio.stopMusic();
+    root = null;
+    run = null;
+  }
+
+  function build(next: PlayRun): void {
+    // Two renderers on one canvas is not a cosmetic problem: three answers
+    // `getDrawingBufferSize()` from its OWN `_width × _pixelRatio`, not from
+    // the canvas, so the loser's post chain copies the real framebuffer into
+    // a beauty texture of a different size and the composer blits the board
+    // small and off-centre — while `canvas.width`, the drawing buffer and the
+    // GL viewport all still read correct. Measured: a second renderer at a
+    // different DPR cap moved the board's content box from (277,56) to
+    // (935,0). Both loops also step the simulation, so every duration in the
+    // fidelity spec halves.
+    //
+    // The dataset flag lives on the ELEMENT, so it is shared even between two
+    // evaluations of this module (an HMR double-eval, a stray second script
+    // tag) where a module-scope guard would not be.
+    if (renderer !== null) {
+      teardownRun(); // re-entry / next stage: rebuild rather than stack a second stack
+    }
+    if (opts.canvas.dataset.bcMounted === '1') {
+      throw new Error(
+        'canvas#game already has a mounted play screen — refusing to run two renderers on one canvas',
+      );
+    }
+    opts.canvas.dataset.bcMounted = '1';
+
+    const mount = root;
+    if (mount === null) {
+      throw new Error('play screen started before it was entered');
+    }
+    run = next;
+    reported = false;
+    injectPause = false;
+    inputSuspended = false;
+    lastPaused = false;
+
+    const settings = opts.settings();
+    // The RISING internal counter reaches core (fidelity §11.5): the spawn
+    // formula's own cap at 35 lives in `spawnIntervalTicks`, so capping it here
+    // would make stage 36 play like stage 1.
+    const state = createGame(next.level, {
+      players: next.session.players,
+      seed: next.session.seed,
+      stageNumber: next.session.stageNumber,
+    });
+
+    const view = createRenderer(opts.canvas, quality);
+    // Art §11: every accessibility switch reaches the render layer through this
+    // one object — screen shake, flash reduction and high contrast alike. The
+    // render layer cannot read any of them itself (`render/` may not import
+    // `app/`, arch §2), so the screen that owns both hands them down.
+    view.setFxFlags(fxFlagsFor(settings, opts.reducedMotion));
+
+    // Audio §2: the context is built **suspended** and only ever resumed from a
+    // real user gesture. The input layer is where the game's gestures already
+    // land, so `resume` rides in on the existing `keydown` listener rather than
+    // on a second one of its own (see `createInput`).
+    opts.audio.setVolumes(volumesFor(settings));
+
+    const pad =
+      next.attract === true
+        ? null
+        : createInput(bindingsFor(settings), undefined, () => {
+            opts.audio.resume();
+          });
+    const panel = next.attract === true ? null : createHud(mount);
+    panel?.sync(state, next.session.stageNumber);
+
+    // The board area is the viewport MINUS whatever the HUD docks, so the
+    // two never overlap at any size or orientation. `dock()` re-docks for the
+    // current orientation and measures the live element, so a longer score or
+    // a different font widens the reservation instead of covering the board.
+    let lastW = -1;
+    let lastH = -1;
+    const fit = (): void => {
+      const reserved = panel?.dock() ?? { right: 0, bottom: 0 };
+      const w = Math.max(1, Math.floor(window.innerWidth - reserved.right));
+      const h = Math.max(1, Math.floor(window.innerHeight - reserved.bottom));
+      // Idempotent: `setSize` writes the canvas's inline style, which the
+      // observer below sees as a resize. Without this the two would ping-pong
+      // forever at one frame per bounce.
+      if (w === lastW && h === lastH) {
+        return;
       }
-      if (opts.canvas.dataset.bcMounted === '1') {
-        throw new Error(
-          'canvas#game already has a mounted play screen — refusing to run two renderers on one canvas',
-        );
-      }
-      opts.canvas.dataset.bcMounted = '1';
+      lastW = w;
+      lastH = h;
+      view.resize(w, h);
+    };
+    fit();
 
-      const game = createGame(opts.level, {
-        players: opts.session.players,
-        seed: opts.session.seed,
-        stageNumber: opts.session.stageNumber,
-      });
-      const view = createRenderer(opts.canvas, quality);
-      // Art §11: "`prefers-reduced-motion` or settings toggle: no shake, no
-      // slow-mo, **no screen flash**". The render layer cannot read either
-      // source itself — `render/` may not import `app/` (arch §2), and the OS
-      // preference is a browser query — so the screen that owns both hands them
-      // down. The settings menu (T6.1) and the camera FX (T4.3) extend this
-      // call rather than adding a second path.
-      const settings = loadSettings();
-      const reducedMotion =
-        globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ===
-        true;
-      view.setFxFlags({
-        reducedMotion,
-        reducedFlash: settings.reducedFlash,
-      });
-
-      // Audio §2: the context is built **suspended** and only ever resumed
-      // from a real user gesture. The input layer is where the game's gestures
-      // already land, so `resume` rides in on the existing `keydown` listener
-      // rather than on a second one of its own (see `createInput`).
-      const sound = createAudio();
-      sound.setVolumes({ music: settings.music, sfx: settings.sfx });
-      const pad = createInput(opts.bindings, undefined, () => {
-        sound.resume();
-      });
-      const panel = createHud(root);
-      panel.sync(game);
-
-      // The board area is the viewport MINUS whatever the HUD docks, so the
-      // two never overlap at any size or orientation. `dock()` re-docks for the
-      // current orientation and measures the live element, so a longer score or
-      // a different font widens the reservation instead of covering the board.
-      let lastW = -1;
-      let lastH = -1;
-      const fit = (): void => {
-        const reserved = panel.dock();
-        const w = Math.max(1, Math.floor(window.innerWidth - reserved.right));
-        const h = Math.max(1, Math.floor(window.innerHeight - reserved.bottom));
-        // Idempotent: `setSize` writes the canvas's inline style, which the
-        // observer below sees as a resize. Without this the two would ping-pong
-        // forever at one frame per bounce.
-        if (w === lastW && h === lastH) {
-          return;
-        }
-        lastW = w;
-        lastH = h;
-        view.resize(w, h);
-      };
+    // A ResizeObserver on the document element, not a `window.resize`
+    // listener. `resize` only fires for the WINDOW, so any host that changes
+    // the layout box without resizing the window — a devtools dock, a split
+    // pane, an embedding iframe, a zoom change — leaves the renderer sized
+    // for a viewport that no longer exists, and dispatching a synthetic
+    // `resize` cannot fix it because `innerWidth` was never the thing that
+    // moved. The observer watches the box itself, so it fires for all of
+    // them, including the initial layout.
+    const ro = new ResizeObserver(() => {
       fit();
+    });
+    ro.observe(document.documentElement);
 
-      // A ResizeObserver on the document element, not a `window.resize`
-      // listener. `resize` only fires for the WINDOW, so any host that changes
-      // the layout box without resizing the window — a devtools dock, a split
-      // pane, an embedding iframe, a zoom change — leaves the renderer sized
-      // for a viewport that no longer exists, and dispatching a synthetic
-      // `resize` cannot fix it because `innerWidth` was never the thing that
-      // moved. The observer watches the box itself, so it fires for all of
-      // them, including the initial layout.
-      const ro = new ResizeObserver(() => {
-        fit();
-      });
-      ro.observe(document.documentElement);
+    const driver = createLoop({
+      step(): void {
+        // One poll per tick — the turbo pulse is counted in ticks, so polling
+        // per frame instead would make the autofire rate frame-rate dependent.
+        // Polled even while suspended, so the driver's held-key set and its
+        // turbo phase stay honest; the RESULT is what is dropped.
+        const polled: readonly [PlayerIntent, PlayerIntent] =
+          pad?.poll() ?? IDLE_INTENTS;
+        const intents = inputSuspended ? SUSPENDED_INTENTS : polled;
+        if (injectPause) {
+          // A single tick of "the pause button is down", so core's own edge
+          // detector does the toggle. Writing `state.paused` directly would
+          // bypass `pauseHeld` and desynchronise the next real key press.
+          intents[0].pause = true;
+          injectPause = false;
+        }
+        stepGame(state, intents);
 
-      const driver = createLoop({
-        step(): void {
-          // One poll per tick — the turbo pulse is counted in ticks, so polling
-          // per frame instead would make the autofire rate frame-rate dependent.
-          stepGame(game, pad.poll());
-
-          const events: GameEvent[] = game.events;
-          if (events.length === 0) {
-            return;
-          }
-          for (let i = 0; i < events.length; i++) {
-            view.onEvent(events[i]);
-            // The audio layer is a peer of the renderer, not a client of it:
-            // same event stream, same read-only contract, same frame.
-            sound.onEvent(events[i]);
-          }
+        const events: GameEvent[] = state.events;
+        for (let i = 0; i < events.length; i++) {
+          view.onEvent(events[i]);
+          // The audio layer is a peer of the renderer, not a client of it:
+          // same event stream, same read-only contract, same frame.
+          opts.audio.onEvent(events[i]);
+        }
+        if (events.length > 0) {
           // The HUD is synced from the state, not from the events, but only on
           // a tick that produced some: that is what makes it event-driven
           // without having to derive lives/score/tier from an event stream.
-          panel.sync(game);
-        },
-        render(alpha: number, dtMs: number): void {
-          view.render(game, alpha, dtMs);
-          // The sustained sounds — engine hums, shield hum, ice whoosh, the
-          // power-up sparkle, the clock's tick-tock — are *state*, not events,
-          // so they are driven from the frame like the renderer is. `dtMs` is
-          // the loop's real frame time, deliberately unscaled: art §2's slow-mo
-          // dilates the picture, not the pitch of the sound.
-          sound.update(game, dtMs);
-        },
-        isPaused(): boolean {
-          return game.paused;
-        },
-      });
+          panel?.sync(state, next.session.stageNumber);
+        }
 
-      renderer = view;
-      input = pad;
-      hud = panel;
-      audio = sound;
-      loop = driver;
-      observer = ro;
+        if (state.paused !== lastPaused) {
+          lastPaused = state.paused;
+          opts.onPauseChanged?.(state.paused);
+        }
+        if (next.attract === true || reported) {
+          return;
+        }
+        // Fidelity §11.2: "20th enemy destroyed → 2 s beat → tally screen". The
+        // beat is measured in SIMULATION time (`phaseT`), not by a timer, so a
+        // pause during it freezes it exactly like everything else.
+        if (state.phase === 'cleared' && state.phaseT >= STAGE_CLEAR_S) {
+          reported = true;
+          opts.onStageCleared?.(state);
+        } else if (state.phase === 'gameOver') {
+          // No extra beat here: the base-lost path already spent core's
+          // GAME_OVER_DELAY_S in `baseLost`, and the out-of-lives path only
+          // reaches this phase once the last respawn timer has run out.
+          reported = true;
+          opts.onGameOver?.(state);
+        }
+      },
+      render(alpha: number, dtMs: number): void {
+        view.render(state, alpha, dtMs);
+        // The sustained sounds — engine hums, shield hum, ice whoosh, the
+        // power-up sparkle, the clock's tick-tock — are *state*, not events,
+        // so they are driven from the frame like the renderer is. `dtMs` is
+        // the loop's real frame time, deliberately unscaled: art §2's slow-mo
+        // dilates the picture, not the pitch of the sound.
+        opts.audio.update(state, dtMs);
+      },
+      isPaused(): boolean {
+        return state.paused;
+      },
+    });
 
-      // `start()` re-baselines the clock. Calling `tickOnce` by hand would
-      // measure dt from the epoch and burn a 10-step catch-up (T2.1 contract).
-      driver.start();
+    renderer = view;
+    input = pad;
+    hud = panel;
+    loop = driver;
+    observer = ro;
+    game = state;
+
+    // `start()` re-baselines the clock. Calling `tickOnce` by hand would
+    // measure dt from the epoch and burn a 10-step catch-up (T2.1 contract).
+    driver.start();
+  }
+
+  return {
+    enter(mount: HTMLElement, params?: unknown): void {
+      root = mount;
+      const next = params as PlayRun | undefined;
+      if (next === undefined) {
+        throw new Error('play screen entered without a run');
+      }
+      build(next);
     },
 
     leave,
+
+    start(next: PlayRun): void {
+      build(next);
+    },
 
     setQuality(q: Quality): void {
       quality = q;
       renderer?.setQuality(q);
     },
+
+    togglePause(): void {
+      injectPause = true;
+    },
+
+    setInputSuspended(suspended: boolean): void {
+      inputSuspended = suspended;
+    },
+
+    state(): GameState | null {
+      return game;
+    },
+
+    applySettings(s: SettingsV1): void {
+      opts.audio.setVolumes(volumesFor(s));
+      renderer?.setFxFlags(fxFlagsFor(s, opts.reducedMotion));
+      const settled = concreteQuality(s.quality, undefined);
+      if (settled !== null) {
+        quality = settled;
+        renderer?.setQuality(settled);
+      }
+      // Rebinding mid-run: the keyboard driver snapshots its map at
+      // construction (`createKeyboard`), so a new map means a new driver.
+      if (input !== null && run !== null && run.attract !== true) {
+        input.dispose();
+        input = createInput(bindingsFor(s), undefined, () => {
+          opts.audio.resume();
+        });
+      }
+    },
   };
 }
+
+/** The pad an attract run does not have. */
+const IDLE_INTENTS: readonly [PlayerIntent, PlayerIntent] = [
+  { dir: null, fire: false, pause: false },
+  { dir: null, fire: false, pause: false },
+];
+
+/**
+ * What the simulation sees while the pad is suspended. A SECOND pair, not
+ * `IDLE_INTENTS` reused: `togglePause` writes `pause` into whichever tuple is
+ * live for exactly one tick, and sharing one object between the attract board
+ * and a suspended run would let that write leak across them.
+ */
+const SUSPENDED_INTENTS: readonly [PlayerIntent, PlayerIntent] = [
+  { dir: null, fire: false, pause: false },
+  { dir: null, fire: false, pause: false },
+];

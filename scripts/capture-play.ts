@@ -26,6 +26,11 @@
 // Timing is measured around the whole rAF callback, i.e. `step()` + `render()`.
 // The sim's share is known independently — 2.11 µs/step (T1.8) — so this is a
 // render-CPU figure with ~0.002 ms of simulation folded in.
+//
+// `&stage=1` is what boots straight onto the board. Since T6.1 the game opens
+// on GDD §5's title screen, and `?stage=` is the dev-only flag that skips it
+// (`main.ts`); without it every `[data-hud="root"]` wait below would hang on a
+// logo. It also pins the stage number, which the spawn cadence scales with.
 
 import {
   chromium,
@@ -459,7 +464,7 @@ async function measure(
       warnings.push(msg.text().replace(/\s+/g, ' ').trim());
     }
   });
-  await page.goto(`${BASE}?quality=${quality}&seed=${SEED}`);
+  await page.goto(`${BASE}?quality=${quality}&seed=${SEED}&stage=1`);
   await page.locator('[data-hud="root"]').waitFor();
   await sleep(INTRO_MS + 500);
 
@@ -553,7 +558,7 @@ async function sweep(browser: Browser, results: Results): Promise<void> {
       height: v.h,
       dpr: v.dpr,
     });
-    await page.goto(`${BASE}?quality=${v.quality}&seed=${SEED}`);
+    await page.goto(`${BASE}?quality=${v.quality}&seed=${SEED}&stage=1`);
     await page.locator('[data-hud="root"]').waitFor();
     await sleep(1200);
 
@@ -657,7 +662,7 @@ async function probeAuto(browser: Browser, results: Results): Promise<void> {
       }
     });
   });
-  await page.goto(`${BASE}?seed=${SEED}`);
+  await page.goto(`${BASE}?seed=${SEED}&stage=1`);
   await page.locator('[data-hud="root"]').waitFor();
   // The probe samples its second over a DRAWING loop now, so the board has to
   // be doing something while it counts — an idle intro curtain is still a real

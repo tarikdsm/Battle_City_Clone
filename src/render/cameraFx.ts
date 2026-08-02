@@ -373,6 +373,13 @@ export interface CameraFxFlags {
   /** The dedicated `reducedFlash` setting. Not a camera concern; carried so
    *  `renderer.setFxFlags` can hand one object to both layers. */
   reducedFlash: boolean;
+  /**
+   * GDD §10's screen-shake toggle — art §2's "Disabled by reduced-motion **or
+   * setting**", and until T6.1 only the first half of that sentence was wired.
+   * Narrower than `reducedMotion`: turning shake off leaves the slow-mo beat
+   * and the stage fly-in alone, because neither of those is a shake.
+   */
+  screenShake: boolean;
 }
 
 /** What the capture harness reads back. One shared object; never allocated. */
@@ -409,6 +416,7 @@ export interface CameraFx {
 export const DEFAULT_CAMERA_FX_FLAGS: CameraFxFlags = Object.freeze({
   reducedMotion: false,
   reducedFlash: false,
+  screenShake: true,
 });
 
 /** Height a popup is born at, over the thing that scored. */
@@ -650,8 +658,11 @@ export function createCameraFx(
       }
 
       const reduced = current.reducedMotion;
+      // Art §2: shake is "disabled by reduced-motion/setting" — two sources,
+      // one behaviour, and either one alone is enough to switch it off.
+      const shakes = !reduced && current.screenShake;
 
-      trauma = reduced ? 0 : traumaAfter(trauma, dt);
+      trauma = shakes ? traumaAfter(trauma, dt) : 0;
       shakePhaseMs += dt;
       const offsetX = trauma > 0 ? shakeOffsetX(trauma, shakePhaseMs) : 0;
       const offsetY = trauma > 0 ? shakeOffsetY(trauma, shakePhaseMs) : 0;
@@ -719,6 +730,11 @@ export function createCameraFx(
 
     setFlags(next: CameraFxFlags): void {
       current = next;
+      if (!next.screenShake) {
+        // Drop the trauma already banked, or turning the setting off mid-blast
+        // would still shake for the ~0.8 s the decay takes.
+        trauma = 0;
+      }
       if (next.reducedMotion) {
         trauma = 0;
         beatMs = -1;

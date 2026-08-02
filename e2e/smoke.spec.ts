@@ -15,6 +15,29 @@ function watchErrors(page: Page): string[] {
 }
 
 const hud = (page: Page, name: string) => page.locator(`[data-hud="${name}"]`);
+const screen = (page: Page, name: string) =>
+  page.locator(`[data-screen="${name}"]`);
+
+/**
+ * Since T6.1 the game opens on GDD §5's title screen. `?stage=` is the dev-only
+ * flag that boots straight onto the board (`main.ts`), which is what the tests
+ * about the *board* want; the flow tests walk the real path instead.
+ */
+const AUTOSTART = '&stage=1';
+
+/**
+ * A key press aimed at the **simulation**, held for a realistic 90 ms.
+ *
+ * Menus listen to `keydown`, so an instantaneous `press()` reaches them. The
+ * input layer does not: `keyboard.poll()` samples the held set once per 60 Hz
+ * tick, so a synthetic down+up that lands inside one 16.7 ms tick is never
+ * observed. A human cannot press that fast; Playwright can.
+ */
+async function gameKey(page: Page, code: string, holdMs = 90): Promise<void> {
+  await page.keyboard.down(code);
+  await page.waitForTimeout(holdMs);
+  await page.keyboard.up(code);
+}
 
 test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
   const consoleErrors = watchErrors(page);
@@ -32,6 +55,8 @@ test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
   // Screens really mount on #ui: if main.ts silently fell back to <body>
   // (missing or renamed #ui), this element would still be empty after boot.
   await expect(page.locator('#ui')).not.toBeEmpty();
+  // GDD §5: boot lands on the title, over a live attract board.
+  await expect(screen(page, 'title')).toBeVisible();
   expect(sawBootOk, 'expected "boot ok" in the console').toBe(true);
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });
@@ -79,7 +104,7 @@ test('reframes: a resize re-fits the board area and keeps the HUD docked', async
     });
 
   await page.setViewportSize({ width: 640, height: 460 });
-  await page.goto('/?quality=low&seed=20260802');
+  await page.goto(`/?quality=low&seed=20260802${AUTOSTART}`);
   await expect(hud(page, 'root')).toBeVisible();
   await page.waitForTimeout(1200);
 
@@ -118,15 +143,16 @@ test('reframes: a resize re-fits the board area and keeps the HUD docked', async
 test('plays: scripted keys drive a live stage with a live HUD', async ({
   page,
 }) => {
-  // ~13 s of real playing, plus boot. The default 30 s is not enough headroom.
-  test.setTimeout(90_000);
+  // ~13 s of real playing, plus boot, plus five canvas screenshots that each
+  // cost seconds on a shared GPU. The default 30 s is nowhere near enough.
+  test.setTimeout(150_000);
 
   const consoleErrors = watchErrors(page);
 
   // `?quality=high` pins the preset so the run does not change chains a second
   // in (the auto probe now samples a DRAWING frame — see main.ts), and `?seed=`
   // makes the enemy AI and the power-up rolls the same run every time.
-  await page.goto('/?quality=high&seed=20260802');
+  await page.goto(`/?quality=high&seed=20260802${AUTOSTART}`);
 
   // The play screen is up when its HUD is: the boot screen has no [data-hud].
   await expect(hud(page, 'root')).toBeVisible();
@@ -198,7 +224,7 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
   // the board can animate), but everything on the board zeroes it, so two
   // screenshots a second apart are byte-identical. Until T3.3 the tracks kept
   // scrolling and this was simply not true.
-  await page.keyboard.press('Escape');
+  await gameKey(page, 'Escape');
   await page.waitForTimeout(400);
   const frozenA = await canvas.screenshot();
   await page.waitForTimeout(700);
@@ -211,7 +237,7 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
   // version *meant* to make and could not: while the picture kept moving
   // through a pause, a loop that had stopped polling the pad — which is what it
   // did, so the pause was a one-way door — still looked alive.
-  await page.keyboard.press('Escape');
+  await gameKey(page, 'Escape');
   const resumed = await canvas.screenshot();
   await page.keyboard.down('KeyD');
   await page.waitForTimeout(800);
