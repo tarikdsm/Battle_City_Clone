@@ -110,7 +110,7 @@ describe('createLoop — fixed timestep (arch §3.4)', () => {
     expect(lastRender(p).alpha).toBeCloseTo((24 - TICK_MS) / TICK_MS, 12);
   });
 
-  it('pauses hard: no steps, alpha pinned to 1, accumulator frozen', () => {
+  it('pauses hard: one step per frame, alpha pinned to 1, accumulator frozen', () => {
     const p = probe();
     const loop = createLoop(p.cb);
     p.paused = true;
@@ -119,7 +119,13 @@ describe('createLoop — fixed timestep (arch §3.4)', () => {
     loop.tickOnce(200);
     loop.tickOnce(300);
 
-    expect(p.steps).toBe(0);
+    // **Exactly one step per frame, not zero** (T3.3). A paused `stepGame` runs
+    // only its pause preamble — it reads the pad, resolves the toggle edge and
+    // returns without advancing `tick` — and it is the ONLY code that can clear
+    // `state.paused`. Skipping it, which this loop did until T3.3, made the
+    // pause a one-way door: 300 ms of pause here would poll the pad zero times
+    // and the game could never be unpaused again.
+    expect(p.steps).toBe(3);
     expect(p.renders).toHaveLength(3);
     for (const r of p.renders) {
       // Exactly 1 — the core froze, so prev == current and any other alpha
@@ -130,8 +136,41 @@ describe('createLoop — fixed timestep (arch §3.4)', () => {
     // Unpausing must not release a burst of catch-up steps: the 300 ms spent
     // paused was never accumulated, so this frame is worth its own 100 ms only.
     p.paused = false;
+    p.steps = 0;
     loop.tickOnce(400);
     expect(p.steps).toBe(6);
+  });
+
+  it('keeps polling the pad while paused, so a pause can be undone', () => {
+    // The integration this file exists to protect, written as the scenario that
+    // was broken: `step` is what reads the pad, and the pad is the only way out
+    // of a pause. Here `step` flips the pause on its third paused frame — which
+    // it can only do if it is being called at all.
+    const p = probe();
+    let pausedFrames = 0;
+    const inner = p.cb.step.bind(p.cb);
+    p.cb = {
+      ...p.cb,
+      step(): void {
+        inner();
+        if (p.paused && ++pausedFrames === 3) p.paused = false;
+      },
+    };
+    const loop = createLoop(p.cb);
+
+    p.paused = true;
+    loop.tickOnce(16);
+    loop.tickOnce(32);
+    expect(p.paused).toBe(true);
+    loop.tickOnce(48);
+    expect(p.paused).toBe(false);
+
+    // …and the frame after the unpause is a normal one: it accumulates and
+    // steps from its own dt, with an alpha back inside [0, 1).
+    const before = p.steps;
+    loop.tickOnce(148); // 100 ms of its own — six ticks and a remainder
+    expect(p.steps - before).toBe(6);
+    expect(lastRender(p).alpha).toBeLessThan(1);
   });
 
   it('shrugs off a backwards or NaN timestamp and keeps running after it', () => {

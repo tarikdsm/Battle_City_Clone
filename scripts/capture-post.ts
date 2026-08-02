@@ -155,6 +155,7 @@ async function installRig(): Promise<void> {
     terrainView: '/src/render/terrainView.ts',
     tankView: '/src/render/tankView.ts',
     bulletView: '/src/render/bulletView.ts',
+    propView: '/src/render/propView.ts',
     post: '/src/render/post.ts',
   };
   const core = await import(urls.core);
@@ -163,6 +164,7 @@ async function installRig(): Promise<void> {
   const terrainMod = await import(urls.terrainView);
   const tankMod = await import(urls.tankView);
   const bulletMod = await import(urls.bulletView);
+  const propMod = await import(urls.propView);
   const postMod = await import(urls.post);
   const threeUrl = performance
     .getEntriesByType('resource')
@@ -229,6 +231,10 @@ async function installRig(): Promise<void> {
       dispose(): void;
     };
     bullets: { update(s: unknown, alpha: number): void; dispose(): void };
+    props: {
+      update(s: unknown, alpha: number, dt: number): void;
+      dispose(): void;
+    };
   }
   interface Mats {
     all: { needsUpdate: boolean }[];
@@ -237,6 +243,8 @@ async function installRig(): Promise<void> {
   interface State {
     tanks: { alive: boolean; x: number; prevX: number }[];
     bullets: unknown[];
+    eagleAlive: boolean;
+    powerup: { type: string; x: number; y: number } | null;
   }
 
   const rows = (spec: [number, number, string][]): string[] => {
@@ -276,6 +284,7 @@ async function installRig(): Promise<void> {
         P.chain.dispose();
         P.views.tanks.dispose();
         P.views.bullets.dispose();
+        P.views.props.dispose();
         P.views.terrain.dispose();
         P.root.dispose();
         P.mats.dispose();
@@ -318,6 +327,7 @@ async function installRig(): Promise<void> {
         terrain: terrainMod.createTerrainView(mats, root),
         tanks: tankMod.createTankView(mats, root),
         bullets: bulletMod.createBulletView(mats, root),
+        props: propMod.createPropView(mats, root),
       } as Views;
       P.chain = postMod.createPostChain(gl, root.scene, root.camera) as Chain;
 
@@ -431,6 +441,7 @@ async function installRig(): Promise<void> {
       P.views.terrain.update(dt);
       P.views.tanks.update(P.state, 1, dt);
       P.views.bullets.update(P.state, 1);
+      P.views.props.update(P.state, 1, dt);
       P.gl.render(P.root.scene, P.root.camera);
       if (post) P.chain.render();
     },
@@ -480,7 +491,11 @@ interface Rig {
   adds(): number;
   resetAdds(): void;
   gl: { info: { memory: { textures: number; geometries: number } } };
-  state: { tanks: { alive: boolean; x: number; prevX: number }[] };
+  state: {
+    tanks: { alive: boolean; x: number; prevX: number }[];
+    /** T3.3: the eagle is always on the field, and its emblem is emissive. */
+    eagleAlive: boolean;
+  };
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -722,8 +737,14 @@ async function main(): Promise<void> {
         tanks: TankSpec[],
         discs: [number, number][],
         withBullets: boolean,
+        eagleAlive: boolean,
       ): Delta => {
         P.init('high', a.terrain);
+        // T3.3: the eagle is on the field in EVERY frame the game ever draws,
+        // and its emblem is emissive — so the control scene has to put the base
+        // in its destroyed state to have nothing on the bloom layer at all.
+        // That doubles as a second proof: a fallen emblem does not glow.
+        P.state.eagleAlive = eagleAlive;
         for (const t of tanks) P.tank(t);
         if (withBullets) {
           P.bullet(4 * 16 + 8, 8 * 16, 0);
@@ -788,11 +809,14 @@ async function main(): Promise<void> {
           [
             [3 * 16 + 8, 6 * 16 + 8],
             [9 * 16 + 8, 6 * 16 + 8],
+            // …and the eagle's emblem, which joined the layer at T3.3.
+            [6 * 16 + 8, 12 * 16 + 8],
           ],
           false,
+          true,
         ),
         // No discs at all: every changed pixel counts as "away".
-        withoutEmissives: measure(a.plain, [], true),
+        withoutEmissives: measure(a.plain, [], true, false),
       };
     },
     {
@@ -827,6 +851,7 @@ async function main(): Promise<void> {
     (a: { tanks: TankSpec[]; terrain: [number, number, string][] }) => {
       const P = (globalThis as unknown as { P: Rig }).P;
       P.init('high', a.terrain);
+      P.state.eagleAlive = false; // nothing on the bloom layer at all (T3.3)
       for (const t of a.tanks) P.tank(t);
       P.bullet(4 * 16 + 8, 8 * 16, 0);
       P.bullet(8 * 16 + 8, 8 * 16, 0);
@@ -955,8 +980,11 @@ async function main(): Promise<void> {
       };
 
       // A full board with every terrain kind and six tank bodies, and NOTHING
-      // emissive: no tier-3 tip, no spawn star, no bullet in flight.
+      // emissive: no tier-3 tip, no spawn star, no bullet in flight — and, from
+      // T3.3, a fallen base, because the eagle's standing emblem is emissive
+      // and the eagle is on the field in every frame the game draws.
       P.init('high', a.board);
+      P.state.eagleAlive = false;
       for (const t of a.plain) P.tank(t);
       P.frame(0, false);
       const plain = scan();

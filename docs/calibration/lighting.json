@@ -42,6 +42,13 @@
       "bulletPct": 4.31280666683973,
       "bulletCtlHex": "#e0cb85",
       "bulletCtlPct": -6.163841221215516,
+      "eagleStoneHex": "#9b9ba2",
+      "eagleStonePct": 5.359673918051322,
+      "eagleStoneSideHex": "#614b3a",
+      "eagleStoneSideOfTopPct": 50.44828025264717,
+      "eagleStoneSideHue": 26.15384615384616,
+      "eagleStoneTokenHue": 220.90909090909088,
+      "eagleStoneHueErr": 165.24475524475528,
       "tints": [
         {
           "label": "armor hp4",
@@ -164,6 +171,13 @@
       "bulletPct": 5.628669339435444,
       "bulletCtlHex": "#e7cd81",
       "bulletCtlPct": -4.944684070570005,
+      "eagleStoneHex": "#9d9ba0",
+      "eagleStonePct": 5.5499245230861805,
+      "eagleStoneSideHex": "#5f4b3b",
+      "eagleStoneSideOfTopPct": 50.130756126024,
+      "eagleStoneSideHue": 26.666666666666664,
+      "eagleStoneTokenHue": 220.90909090909088,
+      "eagleStoneHueErr": 165.75757575757578,
       "tints": [
         {
           "label": "armor hp4",
@@ -286,6 +300,13 @@
       "bulletPct": 4.31280666683973,
       "bulletCtlHex": "#e0cb85",
       "bulletCtlPct": -6.163841221215516,
+      "eagleStoneHex": "#9a9aa1",
+      "eagleStonePct": 4.682143273340267,
+      "eagleStoneSideHex": "#5f4a3a",
+      "eagleStoneSideOfTopPct": 50.03669774648654,
+      "eagleStoneSideHue": 25.945945945945954,
+      "eagleStoneTokenHue": 220.90909090909088,
+      "eagleStoneHueErr": 165.0368550368551,
       "tints": [
         {
           "label": "armor hp4",
@@ -408,6 +429,13 @@
       "bulletPct": 4.31280666683973,
       "bulletCtlHex": "#e0cb85",
       "bulletCtlPct": -6.163841221215516,
+      "eagleStoneHex": "#9b9ba2",
+      "eagleStonePct": 5.359673918051322,
+      "eagleStoneSideHex": "#604a3a",
+      "eagleStoneSideOfTopPct": 49.85164502325964,
+      "eagleStoneSideHue": 25.263157894736853,
+      "eagleStoneTokenHue": 220.90909090909088,
+      "eagleStoneHueErr": 164.35406698564597,
       "tints": [
         {
           "label": "armor hp4",

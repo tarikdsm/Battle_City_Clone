@@ -15,9 +15,9 @@
   "bloomProof": {
     "emissiveDiscRadiusPx": 140,
     "withEmissives": {
-      "changedPx": 76973,
-      "strongPx": 11576,
-      "changedAwayFromEmissivePx": 14477,
+      "changedPx": 107615,
+      "strongPx": 15956,
+      "changedAwayFromEmissivePx": 15410,
       "strongAwayFromEmissivePx": 0,
       "maxDeltaAwayFromEmissive": 4
     },
@@ -34,10 +34,10 @@
     "tokenHue": 207.7,
     "bloomOffHex": "#b2d3de",
     "bloomOffHue": 195,
-    "bloomOnHex": "#e4ffff",
+    "bloomOnHex": "#e5ffff",
     "bloomOnHue": 180,
     "coreAreaOffPx": 1345,
-    "coreAreaOnPx": 1722
+    "coreAreaOnPx": 1723
   },
   "bloomThreshold": {
     "supersededArt7": 0.85,
@@ -52,71 +52,71 @@
       "beautyPeakNonEmissive": 0.8168,
       "beautyPixelsOver85NonEmissive": 0,
       "beautyPeakWithEmissives": 0.8661,
-      "beautyPixelsOver85WithEmissives": 18
+      "beautyPixelsOver85WithEmissives": 19
     },
-    "verdict": "on the layer-isolated source art §7's 0.85 catches nothing: the two emissive materials peak at 0.5121 (spawn star) and 0.4965 (tier tip) linear. In the beauty frame — where a full-frame bloom would run — 18 px cross 0.85 with the emissives present and 0 px without them."
+    "verdict": "on the layer-isolated source art §7's 0.85 catches nothing: the two emissive materials peak at 0.5121 (spawn star) and 0.4965 (tier tip) linear. In the beauty frame — where a full-frame bloom would run — 19 px cross 0.85 with the emissives present and 0 px without them."
   },
   "vignette": {
     "profile": {
       "x2": 0.9072,
       "x10": 1,
       "x25": 1.0071,
-      "x50": 0.9924,
+      "x50": 1.0039,
       "x75": 1.0009,
       "x90": 1,
       "x98": 0.9072
     },
     "boardCorners": {
       "nw": 0.989,
-      "ne": 0.9884,
+      "ne": 0.9889,
       "sw": 0.9497,
       "se": 0.9497,
-      "centre": 0.9924
+      "centre": 1.0039
     },
     "cornerContrastOff": 11.297,
     "cornerContrastOn": 11.5156,
     "centreContrastOff": 5.9319,
-    "centreContrastOn": 5.9323
+    "centreContrastOn": 5.9539
   },
   "cost": {
     "high-post-off": {
-      "drawCalls": 34,
-      "msPerFrame": 0.568
+      "drawCalls": 37,
+      "msPerFrame": 0.403
     },
     "high-post-on": {
-      "drawCalls": 55,
-      "msPerFrame": 0.767
+      "drawCalls": 59,
+      "msPerFrame": 1.419
     },
     "medium-post-off": {
-      "drawCalls": 34,
-      "msPerFrame": 0.296
+      "drawCalls": 37,
+      "msPerFrame": 0.412
     },
     "medium-post-on": {
-      "drawCalls": 53,
-      "msPerFrame": 0.758
+      "drawCalls": 57,
+      "msPerFrame": 1.194
     },
     "low-post-off": {
-      "drawCalls": 21,
-      "msPerFrame": 0.134
+      "drawCalls": 23,
+      "msPerFrame": 0.148
     },
     "low-post-on": {
-      "drawCalls": 23,
-      "msPerFrame": 0.133
+      "drawCalls": 25,
+      "msPerFrame": 0.202
     }
   },
   "steadyStateAdds": 0,
   "presetSwitch": {
     "texturesBefore": 20,
     "texturesAfter": 20,
-    "geometriesBefore": 12,
-    "geometriesAfter": 12
+    "geometriesBefore": 13,
+    "geometriesAfter": 13
   },
   "previewConsole": {
     "rig": [
-      "warning: [.WebGL-0x92c001b6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
-      "warning: [.WebGL-0x92c001b6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
-      "warning: [.WebGL-0x92c001b6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
-      "warning: [.WebGL-0x92c001b6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+      "warning: [.WebGL-0x3a34001bc800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "warning: [.WebGL-0x3a34001bc800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "warning: [.WebGL-0x3a34001bc800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "warning: [.WebGL-0x3a34001bc800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
     ],
     "low": "(clean)",
     "medium": "(clean)",

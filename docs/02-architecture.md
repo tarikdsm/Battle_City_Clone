@@ -96,7 +96,9 @@ Each tick, `stepGame` clears `events`, handles the pause edge (a paused tick ret
 
 ### 3.4 Fixed timestep loop (app layer)
 
-Accumulator pattern: `dt` clamped at 250 ms (tab-switch safety), sim stepped at 60 Hz, render interpolates entity transforms between previous and current tick (`alpha`). Pause stops stepping entirely (fidelity §11).
+Accumulator pattern: `dt` clamped at 250 ms (tab-switch safety), sim stepped at 60 Hz, render interpolates entity transforms between previous and current tick (`alpha`).
+
+**Pause (corrected 2026-08-02, T3.3 — the previous wording of this line was implemented literally and produced a bug).** A paused frame stops *accumulating* and pins `alpha` to exactly 1, but it still calls `step()` **once**. It has to: §3.2's tick preamble resolves the pause edge from the real pad and then returns having advanced nothing, and that preamble is the only code that can ever clear `state.paused`. A loop that "stops stepping entirely" therefore never polls the pad again and the pause becomes a one-way door — which is what shipped, undetected, because the renderer kept animating through the pause and every liveness check was a pixel comparison. Freezing presentation animation while paused (art §9) is what exposed it; `tests/app/loop.test.ts` and the e2e smoke now pin both halves.
 
 ### 3.5 Determinism & replay
 

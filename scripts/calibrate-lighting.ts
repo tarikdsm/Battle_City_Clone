@@ -105,6 +105,27 @@ interface Row {
   bulletCtlPct: number;
   /** Tokens delivered by `instanceColor` rather than by `material.color`. */
   tints: TintRow[];
+  // --- T3.3 props: the one token this task authored ------------------------
+  /**
+   * The eagle pedestal's cornice — its highest **untinted** horizontal face, so
+   * art §6 target 1 applies to it unchanged. Sampled from the shipping part
+   * table through `EAGLE_PROBE`, which `propView.test.ts` proves is neither
+   * occluded nor in the mast's shadow.
+   */
+  eagleStonePct: number;
+  eagleStoneHex: string;
+  /**
+   * …and the same pedestal's south-facing vertical wall, which carries **no
+   * target** — art §3.1 authors no side token for the stone. It is here because
+   * art §6's saturation rule predicts something specific about this token: at
+   * 13.5% saturation it should read *warm-sided*, and a prediction in a binding
+   * doc deserves a number. Reported as a hue against the token's own.
+   */
+  eagleStoneSideHex: string;
+  eagleStoneSideOfTopPct: number;
+  eagleStoneSideHue: number;
+  eagleStoneTokenHue: number;
+  eagleStoneHueErr: number;
 }
 
 /**
@@ -311,6 +332,22 @@ async function main(): Promise<void> {
         delta: pct(t.pct),
         result: verdict(Math.abs(t.pct) <= 10),
       })),
+      // T3.3. `eagleStone` is a NEW token, and art §6's own closing note says
+      // target 1 does not generalise by inspection — so it is probed rather
+      // than assumed. The side row carries no target (§3.1 authors no side
+      // token for it) and exists to test §6's saturation prediction.
+      {
+        target: '1 eagle stone ±10%',
+        rendered: r.eagleStoneHex,
+        delta: pct(r.eagleStonePct),
+        result: verdict(Math.abs(r.eagleStonePct) <= 10),
+      },
+      {
+        target: '- eagle stone side',
+        rendered: r.eagleStoneSideHex,
+        delta: `${r.eagleStoneSideOfTopPct.toFixed(1)}% of top, Δhue ${r.eagleStoneHueErr.toFixed(0)}°`,
+        result: 'no target',
+      },
     ]);
 
     // The six tank tokens, on the shipping part geometry.
@@ -407,6 +444,8 @@ async function measureInPage(args: {
     TANK_TYPES,
     ARMOR_HP_TINT,
     ARMOR_HP_TOKEN,
+    EAGLE_MODELS,
+    EAGLE_PROBE,
     createPartGeometry,
     createBulletGeometry,
     isOverlayRole,
@@ -583,6 +622,35 @@ async function measureInPage(args: {
     },
   ]);
 
+  // --- T3.3 prop probe: `eagleStone` ---------------------------------------
+  // The eagle's pedestal, built from the SHIPPING part table on the SHIPPING
+  // part geometry and the SHIPPING material — the same discipline the tank and
+  // canopy probes follow, and it matters here because the pedestal's own steps
+  // are what shade each other.
+  //
+  // Billboarded parts (the emblem) are skipped: they are on the other material,
+  // they are emissive, and their placement is in screen space. Plain `Mesh`es
+  // rather than the view's `InstancedMesh` for the same reason the tanks use
+  // them — the only difference is `instanceColor`, so every step here renders
+  // at the untouched token. That is what makes the *side* probe below a
+  // statement about `eagleStone` and not about the 0.6 shade the base block
+  // happens to wear; the cornice the top probe samples carries `PLAIN` either
+  // way, so that one is identical to what ships.
+  const EAGLE_PROBE_TILE: [number, number] = [16, 144];
+  for (const p of EAGLE_MODELS.intact.parts) {
+    if (p.billboard === true || p.role !== 'stone') continue;
+    const mesh = new THREE.Mesh(partGeo, mats.propStone);
+    mesh.scale.set(p.w, p.h, p.d);
+    mesh.position.set(
+      EAGLE_PROBE_TILE[0] + 8 + p.x,
+      p.y,
+      EAGLE_PROBE_TILE[1] + 8 + p.z,
+    );
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    root.entities.add(mesh);
+  }
+
   // Controls: the SAME two tokens at `litSurface`'s calibrated defaults. Without
   // these a deviation on water or ice is unattributable — art §6's fit is
   // two-point and non-linear, so a dark token can miss target 1 for reasons that
@@ -680,6 +748,14 @@ async function measureInPage(args: {
     // The bullet capsule's apex (normal straight up) and the gold control's top.
     bullet: px(BULLET_TILE[0] + 8, 8 + 2, BULLET_TILE[1] + 8),
     bulletCtl: px(152, 10, 152),
+    // T3.3: the eagle's cornice (untinted, horizontal — target 1 applies) and
+    // the base block's south wall, which has no target and is reported as a hue.
+    eagleStone: px(
+      EAGLE_PROBE_TILE[0] + 8 + EAGLE_PROBE[0],
+      EAGLE_PROBE[1],
+      EAGLE_PROBE_TILE[1] + 8 + EAGLE_PROBE[2],
+    ),
+    eagleStoneSide: px(EAGLE_PROBE_TILE[0] + 8, 1, EAGLE_PROBE_TILE[1] + 8 + 8),
   };
 
   // Two points per tank, projected through the real camera from the model's own
@@ -783,6 +859,17 @@ async function measureInPage(args: {
       bulletPct: rel(at(P.bullet), PALETTE.powerupGold),
       bulletCtlHex: hex(at(P.bulletCtl)),
       bulletCtlPct: rel(at(P.bulletCtl), PALETTE.powerupGold),
+      eagleStoneHex: hex(at(P.eagleStone)),
+      eagleStonePct: rel(at(P.eagleStone), PALETTE.eagleStone),
+      eagleStoneSideHex: hex(at(P.eagleStoneSide)),
+      eagleStoneSideOfTopPct:
+        (lum(at(P.eagleStoneSide)) / lum(at(P.eagleStone))) * 100,
+      eagleStoneSideHue: hueOf(at(P.eagleStoneSide)),
+      eagleStoneTokenHue: hueOf(tokenRgb(PALETTE.eagleStone)),
+      eagleStoneHueErr: hueErrOf(
+        hueOf(at(P.eagleStoneSide)),
+        hueOf(tokenRgb(PALETTE.eagleStone)),
+      ),
       tints: tintProbes.map((t, i) => ({
         label: t.label,
         hex: hex(at(tintPx[i])),

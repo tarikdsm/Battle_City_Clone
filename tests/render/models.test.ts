@@ -27,6 +27,7 @@ import {
   createMaterials,
 } from '../../src/render/materials';
 import { createBulletView } from '../../src/render/bulletView';
+import { createPropView } from '../../src/render/propView';
 import {
   ARMOR_HP_TINT,
   ARMOR_HP_TOKEN,
@@ -1064,13 +1065,16 @@ describe('TankView — the shipped path', () => {
     const root = createSceneRoot(mats);
     const tanks = createTankView(mats, root);
     const bullets = createBulletView(mats, root);
+    const props = createPropView(mats, root);
     const meshes: InstancedMesh[] = [];
     root.entities.traverse((o) => {
       if (o instanceof InstancedMesh) meshes.push(o);
     });
 
-    // 6 tank types + spawn star + tier tip + bullet head + tracer.
-    expect(meshes).toHaveLength(10);
+    // 6 tank types + spawn star + tier tip + bullet head + tracer + the two
+    // prop materials T3.3 spent (`propStone`, `propGold`). The budget is now
+    // exactly consumed: the next entity material is an owner's decision.
+    expect(meshes).toHaveLength(12);
     expect(meshes.length).toBeLessThanOrEqual(ENTITY_DRAW_BUDGET);
     expect(ENTITY_DRAW_BUDGET).toBe(12);
     // One material each - two meshes sharing one would be a merge opportunity,
@@ -1082,6 +1086,7 @@ describe('TankView — the shipped path', () => {
       expect(mats.all).toContain(mesh.material);
     }
 
+    props.dispose();
     tanks.dispose();
     bullets.dispose();
     root.dispose();
@@ -1096,6 +1101,45 @@ describe('TankView — the shipped path', () => {
         m.meshes[type].instanceMatrix.count / TANK_MODELS[type].parts.length;
       expect(slots, type).toBeGreaterThanOrEqual(ENEMY_CAP);
     }
+    m.dispose();
+  });
+
+  it('freezes every animation while the simulation is paused (T3.3)', () => {
+    // The loop hands the renderer a real `dtMs` on a paused frame — that is its
+    // contract, so overlays outside the board can still animate — and until
+    // T3.3 the tracks kept scrolling, the shield kept shimmering and the
+    // carrier kept pulsing over a field that was not moving. Found by playing
+    // it, not by testing it.
+    const m = mount();
+    const state = game(2);
+    const tank = state.tanks[0];
+    tank.moving = true;
+    tank.shieldT = 3;
+    // Bit-exact, not approximate: `alpha` is pinned to exactly 1 through the
+    // pause and `writePartMatrix` is bit-exact at yaw 0, so the only thing that
+    // could move the picture is a phase still being advanced.
+    const snapshot = (): number[] =>
+      Array.from(
+        (m.meshes.p1.instanceMatrix.array as Float32Array).slice(
+          0,
+          m.meshes.p1.count * 16,
+        ),
+      );
+
+    state.paused = true;
+    m.view.update(state, 1, 16);
+    const before = snapshot();
+    for (let i = 0; i < 40; i++) {
+      m.view.update(state, 1, 16);
+    }
+    expect(snapshot()).toEqual(before);
+
+    // …and unpausing releases it again, so this is a gate and not a freeze.
+    state.paused = false;
+    for (let i = 0; i < 40; i++) {
+      m.view.update(state, 1, 16);
+    }
+    expect(snapshot()).not.toEqual(before);
     m.dispose();
   });
 

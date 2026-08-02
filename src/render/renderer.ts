@@ -21,7 +21,9 @@ import {
   createMaterials,
   type Quality,
 } from './materials';
+import { animDtOf } from './models';
 import { POST_PRESETS, createPostChain, type PostChain } from './post';
+import { createPropView, type PropView } from './propView';
 import { createSceneRoot, type SceneRoot } from './sceneRoot';
 import { createTankView, type TankView } from './tankView';
 import { createTerrainView, type TerrainView } from './terrainView';
@@ -48,6 +50,7 @@ export function createRenderer(
   const terrain: TerrainView = createTerrainView(materials, sceneRoot);
   const tanks: TankView = createTankView(materials, sceneRoot);
   const bullets: BulletView = createBulletView(materials, sceneRoot);
+  const props: PropView = createPropView(materials, sceneRoot);
 
   const gl = new WebGLRenderer({
     canvas,
@@ -131,14 +134,23 @@ export function createRenderer(
       // `state.terrain` per frame is forbidden (arch §5) and would be ~40 k
       // matrix writes a frame for a board that changes a few times a second.
       terrain.build(state);
-      // Only advances the shovel's blink, and only while one is running.
-      terrain.update(dtMs);
+      // Only advances the shovel's blink, and only while one is running — and
+      // not at all while the simulation is frozen. `terrain.update` takes no
+      // state, so the gate is applied here rather than inside it; the two views
+      // below own the same rule themselves, which is what makes it testable
+      // without a GL context.
+      terrain.update(animDtOf(state, dtMs));
       // Entities are pooled and instanced (`tankView.ts`, `bulletView.ts`):
       // positions interpolate from prevX/prevY with `alpha`, and every art §9
       // animation is driven from `state` plus the events pumped through
       // `onEvent`. Nothing here writes to the simulation.
       tanks.update(state, alpha, dtMs);
       bullets.update(state, alpha);
+      // The eagle and the power-up (art §4, fidelity §2/§8). After the tanks so
+      // the props' two meshes are the last entity draws submitted; ordering is
+      // irrelevant to correctness (both are opaque and depth-tested) and this is
+      // simply the order a reader expects from the scene's description.
+      props.update(state, alpha, dtMs);
       gl.render(sceneRoot.scene, sceneRoot.camera);
       // Art §7's chain, applied to the frame that is now in the drawing buffer.
       post.render();
@@ -151,6 +163,7 @@ export function createRenderer(
     onEvent(e: GameEvent): void {
       terrain.onEvent(e);
       tanks.onEvent(e);
+      props.onEvent(e);
     },
 
     setQuality(q: Quality): void {
@@ -167,6 +180,7 @@ export function createRenderer(
 
     dispose(): void {
       post.dispose();
+      props.dispose();
       tanks.dispose();
       bullets.dispose();
       terrain.dispose();

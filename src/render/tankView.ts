@@ -60,11 +60,13 @@ import {
   TREAD_PITCH,
   TREAD_SPAN,
   WHITE_TINT,
+  animDtOf,
   countRole,
   createPartGeometry,
   isOverlayRole,
   lerp,
   tankTypeOf,
+  writePartMatrix,
   type ModelPart,
   type TankModel,
   type TankType,
@@ -432,7 +434,12 @@ interface SharedMesh {
 }
 
 export interface TankView {
-  /** One frame. `alpha` is the loop's interpolation factor, exactly 1 paused. */
+  /**
+   * One frame. `alpha` is the loop's interpolation factor, exactly 1 paused.
+   * `dtMs` is the loop's real frame time — including on a paused frame, which
+   * is its contract — and is zeroed here by {@link animDtOf}, because a frozen
+   * field must not keep scrolling its tracks.
+   */
   update(state: GameState, alpha: number, dtMs: number): void;
   /** Recoil, hit flash and respawn re-arming. Ignores everything else. */
   onEvent(e: GameEvent): void;
@@ -561,45 +568,8 @@ export function createTankView(
     bodyR[8] = ca;
   }
 
-  /**
-   * Writes one part's instance matrix directly, without composing a `Matrix4`
-   * from a position/quaternion/scale triple. Two reasons: it allocates nothing,
-   * and at yaw 0 it is **bit-exact** — `cx + 1·px + 0·py + 0·pz` is `cx + px`,
-   * which is what keeps a paused frame (alpha exactly 1) pixel-stable.
-   */
-  function writePart(
-    mesh: InstancedMesh,
-    index: number,
-    r: Float64Array,
-    cx: number,
-    cy: number,
-    cz: number,
-    px: number,
-    py: number,
-    pz: number,
-    sw: number,
-    sh: number,
-    sd: number,
-  ): void {
-    const e = mesh.instanceMatrix.array as Float32Array;
-    const o = index * 16;
-    e[o] = r[0] * sw;
-    e[o + 1] = r[3] * sw;
-    e[o + 2] = r[6] * sw;
-    e[o + 3] = 0;
-    e[o + 4] = r[1] * sh;
-    e[o + 5] = r[4] * sh;
-    e[o + 6] = r[7] * sh;
-    e[o + 7] = 0;
-    e[o + 8] = r[2] * sd;
-    e[o + 9] = r[5] * sd;
-    e[o + 10] = r[8] * sd;
-    e[o + 11] = 0;
-    e[o + 12] = cx + r[0] * px + r[1] * py + r[2] * pz;
-    e[o + 13] = cy + r[3] * px + r[4] * py + r[5] * pz;
-    e[o + 14] = cz + r[6] * px + r[7] * py + r[8] * pz;
-    e[o + 15] = 1;
-  }
+  /** {@link writePartMatrix}, which `propView.ts` shares — see its header. */
+  const writePart = writePartMatrix;
 
   function ensureCapacity(entry: TypeEntry, wanted: number): void {
     if (wanted <= entry.slots) return;
@@ -858,6 +828,10 @@ export function createTankView(
 
   return {
     update(state: GameState, alpha: number, dtMs: number): void {
+      // A paused field is a still picture (T3.3). `alpha` is untouched — it is
+      // exactly 1 through the pause by contract, and clamping it is the bug the
+      // loop's own comment warns about.
+      dtMs = animDtOf(state, dtMs);
       const tanks = state.tanks;
       // Three passes, deliberately. Acquiring and growing must both finish
       // before ANY matrix is written: `ensureCapacity` replaces the mesh, and a

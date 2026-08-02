@@ -81,6 +81,18 @@ export const PALETTE = Object.freeze({
   enemyArmorHp2: 0xb8963c,
   enemyArmorHp1: 0x6e7684,
 
+  // Props (art §4's "stone pedestal"). Added 2026-08-02 with T3.3 — art §3.1
+  // authored a colour for the eagle's *emblem* (`powerupGold`) and none for the
+  // pedestal it stands on, so the doc gains a row rather than the code an
+  // unauthored grey. Cool granite: 1.36× `brickTop` in luminance so the base
+  // reads out of its own brick nest, and 0.77× `steelTop` so it is not mistaken
+  // for the steel the Shovel stamps around it.
+  //
+  // Its saturation is 13.5%, i.e. far below art §6's "≥ 55% to hold hue on a
+  // shaded face" rule, so this token reads **warm-sided by design** — the doc's
+  // own pre-ruled outcome, measured in `docs/calibration/lighting.json`.
+  eagleStone: 0x8d94a3,
+
   // Emissive / signal
   powerupGold: 0xffd76b,
   spawnAccent: 0x7fc4ff,
@@ -212,6 +224,8 @@ export interface MaterialsByRole {
   readonly bulletTrail: MeshStandardMaterial;
   readonly spawnStar: MeshStandardMaterial;
   readonly tierTip: MeshStandardMaterial;
+  readonly propStone: MeshStandardMaterial;
+  readonly propGold: MeshStandardMaterial;
 }
 
 /**
@@ -224,6 +238,14 @@ export interface MaterialsByRole {
  * limit: it exists so that adding an entity material is a *decision*.
  * `tests/render/models.test.ts` pins the current count against it, which is why
  * `bulletTrail` slipping in unnoticed at T2.4 cannot happen again.
+ *
+ * **T3.3 spent the last two**, and the budget is now exactly consumed: 12 of 12
+ * (six tank skins, bullet head, tracer, spawn star, tier tip, `propStone`,
+ * `propGold`). The next entity material is a budget decision for an owner, not
+ * an implementation detail — art §8 raised this number once already and the
+ * argument for raising it again is the same one (arch §11 caps the scene near
+ * 120 and a populated board with the props measures **37** GL draws at High,
+ * `docs/calibration/post.json → cost`), but it has to be *made*.
  */
 export const ENTITY_DRAW_BUDGET = 12;
 
@@ -559,6 +581,36 @@ export function createMaterials(): Materials {
     metalness: 0,
   });
 
+  // --- Props (art §4's eagle base, fidelity §8's power-ups) — T3.3 ---------
+  //
+  // TWO materials for two props and seven objects, which is the whole reason
+  // they fit: `propStone` carries the pedestal in both its states, and
+  // `propGold` carries the eagle's emblem *and* all six power-up shapes,
+  // because art §3.1 authors them the **same token** ("Power-up / gold …
+  // star, pickups, eagle emblem"). One shared emissive material, not seven.
+  const propStone = litSurface(PALETTE.eagleStone);
+
+  // Art §4 calls the emblem "emissive at low intensity" and art §1 pillar 2
+  // lists power-ups among the rationed emissives, so both belong on this one
+  // material — and `emissive` is a *material* property, so they necessarily
+  // share an intensity. A power-up reads as the brighter of the two by AREA
+  // instead (a whole 12 u object against a 10 u plate) and, once T4.x lands
+  // art §6's dynamic point light, by the light it throws.
+  //
+  // **0.40, measured down from 0.55.** At 0.55 the emblem blew to a white core
+  // under art §7's High bloom and took its own stepped relief with it — the
+  // boss and the shoulders vanished into one glowing blob, which is the exact
+  // opposite of §11's "silhouette before colour". 0.40 keeps the gold reading
+  // as gold, still blooms, and sits between the tracer's 0.35 and the tier
+  // pip's 0.7 — right for something that is on screen for a whole stage.
+  const propGold = new MeshStandardMaterial({
+    color: srgb(PALETTE.powerupGold),
+    emissive: srgb(PALETTE.powerupGold),
+    emissiveIntensity: 0.4,
+    roughness: 0.4,
+    metalness: 0,
+  });
+
   // The single source of truth. `all` below is derived from it, so a new
   // material cannot be half-registered: adding it here without adding it to
   // `MaterialsByRole` is a compile error, and there is no third list to forget.
@@ -581,6 +633,8 @@ export function createMaterials(): Materials {
     bulletTrail,
     spawnStar,
     tierTip,
+    propStone,
+    propGold,
   };
 
   // Keyed rather than `Object.values`, which types a plain interface as `any[]`.

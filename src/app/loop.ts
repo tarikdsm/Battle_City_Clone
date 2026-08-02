@@ -32,7 +32,14 @@ const MAX_DT_MS = 250;
 const MAX_STEPS_PER_TICK = 10;
 
 export interface LoopCallbacks {
-  /** Advance the simulation exactly one tick. */
+  /**
+   * Advance the simulation exactly one tick.
+   *
+   * Called **once on a paused frame too**, and must therefore be safe to run
+   * while frozen: a paused `stepGame` resolves the pause toggle from the pad
+   * and returns without advancing anything. That call is the only thing that
+   * can ever unpause the game — see `isPaused` and the branch in `tickOnce`.
+   */
   step(): void;
   /**
    * Draw one frame. `alpha` is the interpolation factor between the previous
@@ -47,7 +54,11 @@ export interface LoopCallbacks {
    * effects; it keeps ticking while paused so overlays can still animate.
    */
   render(alpha: number, dtMs: number): void;
-  /** When true the loop neither steps nor accumulates, and pins alpha to 1. */
+  /**
+   * When true the loop does not **accumulate**, and pins alpha to 1. It still
+   * calls `step` exactly once per frame — a paused core is the only thing that
+   * can unpause itself, and it needs the pad to reach it (T3.3).
+   */
   isPaused(): boolean;
 }
 
@@ -106,8 +117,23 @@ export function createLoop(cb: LoopCallbacks, opts?: LoopOptions): Loop {
     }
 
     if (cb.isPaused()) {
-      // The core freezes on pause: prev == current for every entity, so alpha
-      // must be pinned. A cycling alpha would visibly jitter every tank between
+      // **One step, and that is not a contradiction** (fixed at T3.3). A paused
+      // `stepGame` runs its pause preamble ONLY: it reads the pad, resolves the
+      // toggle edge, and returns without advancing `tick`, without touching a
+      // timer and without running a system — `game.ts` says so in as many
+      // words, "the pad has to work when nothing else does, or a paused game
+      // could never be unpaused".
+      //
+      // Until T3.3 this branch skipped `step()` altogether, which meant nothing
+      // polled the pad again and **the pause was a one-way door**: the only code
+      // that can clear `state.paused` is the very code the loop had stopped
+      // calling. It shipped that way and no test caught it, because the e2e's
+      // resume check compares pixels and the renderer kept animating through the
+      // pause — a wedged loop still produced a moving picture. Freezing
+      // presentation animation (the other half of T3.3) is what made it visible.
+      cb.step();
+      // The core froze, so prev == current for every entity and alpha must be
+      // pinned. A cycling alpha would visibly jitter every tank between
       // prevX/prevY and x/y for the whole pause (contract from T1.6/T1.7).
       // The accumulator is deliberately NOT advanced, so unpausing cannot
       // release a burst of catch-up steps.

@@ -52,6 +52,9 @@ Fixed tokens (render constants; UI mirrors via CSS custom properties):
 | Power-up / gold | `#ffd76b` (emissive) | star, pickups, eagle emblem |
 | Spawn star / UI accent | `#7fc4ff` (emissive) | spawn, focus rings |
 | Danger | `#e24b4a` | carrier flash, base-threat UI |
+| Eagle pedestal | `#8d94a3` | granite plinth; the emblem on it uses the gold token above |
+
+*(The pedestal row was added 2026-08-02 with T3.3 — §4 asked the eagle for a "stone pedestal" and §3.1 authored a colour for its emblem but none for the stone it stands on, so the prop shipped as the doc's first unauthored surface. Chosen against its neighbours rather than in isolation: **1.36× `brickTop`** in luminance so the base reads out of its own brick nest, **0.77× `steelTop`** so it is not mistaken for the steel the Shovel stamps around it. Its saturation is 13.5%, i.e. below §6's "≥ 55% to hold hue on a shaded face" threshold, so it reads **warm-sided by design** — the outcome §6 already pre-ruled for near-neutral tokens.)*
 
 ## 4. Entity models (all procedural — primitives + bevels, no imported meshes)
 
@@ -65,7 +68,7 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 | Power | standard hull, **barrel is the silhouette**: noticeably longer and thicker than any other type, ending in a blocky muzzle brake. Basic-vs-Power measured as the weakest grayscale pair at T2.4 (11% strongly-different area) — the fix is barrel mass, which reads from all four facings, not turret height, which does not. |
 | Armor | tall stacked plates (+2 u height), twin exhausts; plates tint by HP |
 | Bullet | 4×4 u emissive capsule + short additive tracer trail |
-| Eagle base | stone pedestal + gold shield emblem (emissive at low intensity); destroyed → cracked pedestal, fallen dimmed emblem, smoke wisps |
+| Eagle base | stone pedestal + gold shield emblem (emissive at low intensity); destroyed → cracked pedestal, fallen dimmed emblem, smoke wisps. **The emblem is billboarded** (ruled 2026-08-02, T3.3): stood upright as §2's camera sees it, a 9 u shield is foreshortened to 53% and measures ~37 × 18 px at 1600×900 — a gold stripe. Turned to face the camera the same geometry is ~40 × 45 px. An emblem is a plaque, so nothing in this recipe fights it, and the doc's own "readability wins" rule is the licence. **"Dimmed" is implemented by leaving the emissive material**: `emissive` is a material property that no per-instance colour can reach, so the fallen emblem is drawn on the *pedestal's* material as a gold-against-stone ratio. |
 | Carrier state | whole-tank red emissive pulse at 4 Hz (fidelity §3.2) |
 | Spawn star | flat emissive 4-point star billboard, twinkle scale 1.3 s + 2 rising rings |
 
@@ -101,10 +104,11 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 - **The vertical target measures emergent side appearance** — the probe applies the *top* token as albedo and scores the resulting shaded face against the *side* token. Any change to how sides get their colour must change the probe (`scripts/calibrate-lighting.ts`) and this target together, or the harness will print PASS against its own fixture while real geometry sits off target.
 - **Uncovered band:** the blend weight is `0.5·cos θ + 0.5`, so surfaces that are neither horizontal nor vertical sample the mid-range — and `FILL_GROUND` is now **22× brighter** than the authored value, so deviation from vertical costs far more than it used to. Tree canopies (§5, flattened spheres) and bevelled model edges live in that band, and a downward-facing normal samples pure ground at full fill intensity. No target covers it yet; measure when the first such surface exists.
 - **The flat-graphic path has no vertical probe.** The frame wall's vertical faces measure −34.3% against `boardFrame` — the one place §3.0's "the authored hex appears" promise is not kept. T2.3's water pit walls join it. Add a vertical flat-graphic probe when convenient.
-- **Target 1 does not generalise across tokens by inspection.** The gold tank's +4.1% led to an assumption that mid-tones carry; `waterDeep` (dark, saturated) failed by +18.0% at the same settings. **Probe each new material rather than assuming**, especially dark or saturated tokens. Measured so far: board +1.2%, frame +0.8%, tank +4.1%, water (glossed) +0.1%, ice −8.2%, tree apex +1.0%.
+- **Target 1 does not generalise across tokens by inspection.** The gold tank's +4.1% led to an assumption that mid-tones carry; `waterDeep` (dark, saturated) failed by +18.0% at the same settings. **Probe each new material rather than assuming**, especially dark or saturated tokens. Measured so far: board +1.2%, frame +0.8%, tank +4.1%, water (glossed) +0.1%, ice −8.2%, tree apex +1.0%, **eagle pedestal +5.4%** (T3.3, the one token added since).
 - **Target 3 constrains luminance, not hue. The trigger fired at T2.4 and the trade is now permanent — this is the rig's signature.** With seven data points the failure is a clean function of the token's **saturation**, not its hue: above ~55% saturation the shaded face holds its hue (P1, P2, Fast all within 11° — P1 is −10.09°); below ~50% `FILL_GROUND`'s warmth dominates and near-neutral tokens invert to warm tan (Basic +162.2°, Armor +171.0°, Power +53.1°, steel likewise).
   **Decision (2026-08-02): keep the warm ground.** A neutral ground was measured at T2.2 to split brick and steel side luminance by 41.6 points — wider than the ±20% window — so no neutral value satisfies target 3 at all. The effect is physically coherent (a warm ground bounce tinting shaded faces), and it does not touch §11's actual requirement, which is **grayscale** separation.
   **The rule that follows:** a token that must hold its hue on shaded faces needs **saturation ≥ 55%** — raise the token, never retune the rig. Any new token below that threshold will read warm-sided by design.
+  **The rule made a prediction and T3.3 tested it.** `eagleStone` `#8d94a3` is the first token authored *after* the rule, at 13.5% saturation, and its shaded wall measures **50.4% of its lit top at Δhue +165°** — warm tan, exactly as predicted and within a few degrees of Basic (+162°) and Armor (+171°). The rule is now confirmed rather than merely inferred, and a near-neutral prop token is a choice made with its consequence known.
 - **Curved surfaces fall off, and that is physics, not miscalibration.** A tree canopy measures +1.0% at its apex (target 1 applies and passes) but spans **−6.5% to −54.7%** around its 45° band as the key falls off the curve. Do not tune the rig to flatten this.
 
 ## 7. Post-processing per quality preset
@@ -142,6 +146,8 @@ Global cap ~180 live particles (High); FxSystem drops lowest-priority when excee
 
 **Emissive budget (ruled 2026-08-02).** §1 pillar 2 rations emissive surfaces so bloom stays special, and T2.4 found `emissive` is a *material* property, so per-instance glow is impossible without extra materials. The ruling: the **spawn star** and the **tier-3 barrel tip** each get **one shared emissive material** (both are uniform in colour across every tank that shows them), and the **carrier pulse stays diffuse** because it tints a whole tank per instance and already reads as the strongest overlay on the board. That is +2 materials, not +6. The entity draw-call budget rises from 8 to **12** to absorb them — arch §11 caps the whole scene near 120 and a full board currently measures 24, so the constraint was a brief's round number, not an architectural limit. Bullets and tracers blooming while the spawn star does not would have inverted §4's intent exactly.
 
+**T3.3 spent the last two, and the budget is now exactly consumed: 12 of 12.** The two static props cost one material each — `propStone` for the pedestal in both its states, and one shared emissive `propGold` for the eagle's emblem **and all six power-ups**, which is §3.1's own grouping ("Power-up / gold … star, pickups, eagle emblem") rather than an economy measure. The pedestal is the item the emissive ruling did not anticipate: a non-emissive stone surface that no existing material could carry, and the reason 10 + emblem + power-ups did not add up to 12 on its own. The next entity material is therefore an owner's decision, and the argument for raising the number again is the same one made here — arch §11 caps the scene near 120 and a *populated* board with the props measures **37** GL draws at High (`docs/calibration/post.json → cost`, which is +3 on the identical board before them: two beauty draws plus one shadow draw, since the pedestal casts and the emissive gold does not).
+
 ## 9. Animation
 
 | Thing | Spec |
@@ -150,11 +156,15 @@ Global cap ~180 live particles (High); FxSystem drops lowest-priority when excee
 | Turret recoil | 2 u back, 80 ms out-back ease per shot |
 | Turn | hull yaw snaps logically; visual eases 100 ms with 2.5° lean into the turn |
 | Engine idle | 0.3 u vertical vibration @ 9 Hz while moving (pairs with engine hum audio) |
-| Power-up | bob ±2 u @ 1.2 s + 0.5 rps yaw + light pulse |
+| Power-up | bob ±2 u @ 1.2 s + 0.5 rps yaw + light pulse. *(Bob and yaw ship with T3.3; the pulse is §6's dynamic point light and lands with T4.x. The bob is measured from a **hover height of 2.5 u**, so the item is between 0.5 u and 4.5 u off the board and never rests on it.)* |
 | Water | UV flow 0.05/s + secondary 0.023/s counter-flow |
 | Trees | vertex sway noise, amplitude 0.6 u, frequency 0.4 Hz |
 | Carrier flash | emissive pulse 4 Hz square (reads at small size) |
 | Armor HP tint | crossfade 150 ms on hit + white hit-flash 60 ms (all tanks) |
+
+**Every animation in this table freezes while `state.paused` is true** (ruled 2026-08-02, T3.3). The loop hands the renderer a real `dtMs` even on a paused frame — that is T2.1's contract, so overlays *outside* the board may still move — but the field itself is a still picture: the simulation is frozen, `prevX` equals `x`, and `alpha` is pinned to exactly 1. Tracks that keep scrolling over a stopped board read as a bug, and did: it shipped that way through T3.1 and was found by playing, not by testing. `alpha` is **not** clamped as part of this; clamping it is the separate failure T2.1's own comment warns about.
+
+*That change also uncovered a second one, in the loop rather than the art: a moving picture over a frozen board was hiding the fact that **the pause could not be undone**. See arch §3.4.*
 
 ## 10. HUD & UI style
 

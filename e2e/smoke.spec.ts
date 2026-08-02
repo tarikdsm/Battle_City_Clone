@@ -111,14 +111,27 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
     20 - enemiesLeft,
   );
 
-  // Pause round-trip. Deliberately NOT asserted on pixels: the loop keeps
-  // handing `dtMs` to the renderer while paused (T2.1's contract, so overlays
-  // can still animate), so a paused frame is not pixel-identical even though
-  // the simulation is frozen — the tracks of a tank that was moving keep
-  // scrolling. What is asserted is that the toggle does not wedge the loop:
-  // after pausing and unpausing, the game is still running and still drawing.
+  // Pause round-trip, in two halves — and BOTH halves are asserted on pixels,
+  // which they could not be before T3.3.
+  //
+  // Half one: a paused frame is a **still** frame. The loop still hands the
+  // renderer a real `dtMs` while paused (T2.1's contract, so overlays outside
+  // the board can animate), but everything on the board zeroes it, so two
+  // screenshots a second apart are byte-identical. Until T3.3 the tracks kept
+  // scrolling and this was simply not true.
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(400);
+  const frozenA = await canvas.screenshot();
+  await page.waitForTimeout(700);
+  expect(
+    Buffer.compare(frozenA, await canvas.screenshot()),
+    'the board kept animating while the simulation was paused',
+  ).toBe(0);
+
+  // Half two: the toggle does not wedge the loop. This is the assertion the old
+  // version *meant* to make and could not: while the picture kept moving
+  // through a pause, a loop that had stopped polling the pad — which is what it
+  // did, so the pause was a one-way door — still looked alive.
   await page.keyboard.press('Escape');
   const resumed = await canvas.screenshot();
   await page.keyboard.down('KeyD');

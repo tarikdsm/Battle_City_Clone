@@ -75,6 +75,10 @@ const ART_PALETTE: readonly (readonly [PaletteKey, number])[] = [
   ['enemyArmorHp2', 0xb8963c],
   ['enemyArmorHp1', 0x6e7684],
 
+  // Art §3.1 gained this row with T3.3: §4 asks the eagle for a "stone
+  // pedestal" and §3.1 authored a colour for its emblem and none for the stone.
+  ['eagleStone', 0x8d94a3],
+
   ['powerupGold', 0xffd76b],
   ['spawnAccent', 0x7fc4ff],
   ['danger', 0xe24b4a],
@@ -204,6 +208,8 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     | 'bulletTrail'
     | 'spawnStar'
     | 'tierTip'
+    | 'propStone'
+    | 'propGold'
   )[] = [
     // Art §6's definitive list puts ALL terrain on the lit path. Terrain is
     // something the light falls on, not part of the board's diagram.
@@ -222,6 +228,9 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     'bulletTrail',
     'spawnStar',
     'tierTip',
+    // Art §6's definitive list: "props and power-ups" are lit objects.
+    'propStone',
+    'propGold',
   ];
 
   it.each(FLAT)('%s opts out of tone mapping', (key) => {

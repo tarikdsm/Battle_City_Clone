@@ -41,6 +41,93 @@ const DH = 1800;
 /** The crop the detail shots use — one row of tanks across the board. */
 const ROW = { x: 700, y: 760, width: 1900, height: 400 };
 
+// --- T3.3: the two static props -------------------------------------------
+
+/**
+ * Fidelity §2's base brick ring, as terrain-spec entries. The rig builds its
+ * levels with `noAutoBase`, so the nest the eagle sits in has to be asked for.
+ */
+const BASE_NEST: [number, number, string][] = [
+  [5, 11, 'B'],
+  [6, 11, 'B'],
+  [7, 11, 'B'],
+  [5, 12, 'B'],
+  [7, 12, 'B'],
+];
+
+/**
+ * Where a tile lands in the `W × H` frame, in pixels.
+ *
+ * Written out rather than projected through the camera because the rig's
+ * renderer does not expose one — and it is a *fixed* camera (art §2), so this
+ * is arithmetic and not a guess. Derived exactly as `sceneRoot.ts` does it:
+ * the frustum fits `2·HALF_Y = 222.4 u` into 900 px, the camera aims at
+ * `(104, 8, 104)`, and screen height is `y·sin 32° − z·cos 32°`.
+ */
+const SIN32 = Math.sin((32 * Math.PI) / 180);
+const COS32 = Math.cos((32 * Math.PI) / 180);
+/** `sceneRoot.ts`'s `HALF_Y`, and the screen height of its camera target. */
+const HALF_Y = (224 * COS32) / 2 + (16 * SIN32) / 2 + 12;
+const TARGET_HV = 8 * SIN32 - 104 * COS32;
+
+function projector(
+  w: number,
+  h: number,
+): {
+  perU: number;
+  x(x: number): number;
+  y(y: number, z: number): number;
+} {
+  // Contain-fit: at every viewport this script uses, height is the binding
+  // axis, so one number scales both.
+  const perU = h / (2 * HALF_Y);
+  return {
+    perU,
+    x: (x) => w / 2 + (x - 104) * perU,
+    y: (y, z) => h / 2 - (y * SIN32 - z * COS32 - TARGET_HV) * perU,
+  };
+}
+
+const VIEW = projector(W, H);
+const DETAIL = projector(DW, DH);
+
+/** A box around tile (6,6) big enough for the tallest power-up at full bob. */
+const POWERUP_CLIP = {
+  x: Math.round(VIEW.x(104 - 9)),
+  y: Math.round(VIEW.y(19, 104)),
+  w: Math.round(18 * VIEW.perU),
+  h: Math.round(VIEW.y(0, 113) - VIEW.y(19, 104)),
+};
+
+/** …and one around the eagle's tile (6,12) plus a margin of its brick nest. */
+const EAGLE_CLIP = {
+  x: Math.round(VIEW.x(104 - 12)),
+  y: Math.round(VIEW.y(20, 200)),
+  w: Math.round(24 * VIEW.perU),
+  h: Math.round(VIEW.y(0, 210) - VIEW.y(20, 200)),
+};
+
+/** The same region on the 3200×1800 detail pass, as a Playwright clip. */
+const EAGLE_DETAIL = {
+  x: Math.round(DETAIL.x(104 - 22)),
+  y: Math.round(DETAIL.y(22, 192)),
+  width: Math.round(44 * DETAIL.perU),
+  height: Math.round(DETAIL.y(0, 214) - DETAIL.y(22, 192)),
+};
+
+/** The page-side rig members the prop section uses. */
+interface RigProps {
+  init(q: string, t?: [number, number, string][]): void;
+  render(d?: number): void;
+  advance(ms: number, steps?: number): void;
+  bullet(x: number, y: number, dir: number): void;
+  powerup(type: string | null, tx?: number, ty?: number): void;
+  eagle(alive: boolean): void;
+  crop(x: number, y: number, w: number, h: number): HTMLCanvasElement;
+  sheet(cells: { label: string; canvas: HTMLCanvasElement }[]): void;
+  graySheet(on: boolean): void;
+}
+
 /** A tank the rig puts on the field. Mirrors `Tank` minus the AI bookkeeping. */
 interface TankSpec {
   id?: number;
@@ -78,11 +165,36 @@ interface Silhouette {
   pairs: Record<string, PairSeparation>;
 }
 
+/** T3.3: what the two static props measure. */
+interface Props {
+  /** Every pair of the six power-ups, scored on the same bar as the tanks. */
+  powerupPairs: Record<string, PairSeparation>;
+  /** Lit area of each power-up's crop, in px — the size half of readability. */
+  powerupAreaPx: Record<string, number>;
+  /**
+   * The eagle's own before/after, over the tile it occupies: how much of the
+   * base's screen area changes when it falls, and how much darker it gets.
+   * This is the game-over signal, quantified.
+   */
+  eagleLoss: {
+    intactAreaPx: number;
+    destroyedAreaPx: number;
+    changedPx: number;
+    strongDiffPct: number;
+    intactMeanGray: number;
+    destroyedMeanGray: number;
+    /** Peak brightness in the tile — the emblem, and then what replaces it. */
+    intactMaxGray: number;
+    destroyedMaxGray: number;
+  };
+}
+
 interface Results {
   /** Keyed by facing — art §4's barrel rule is "reads from all four facings". */
   silhouette: Record<string, Silhouette>;
   concealment: Record<string, Concealment>;
   drawCalls: Record<string, number>;
+  props: Props;
   steadyState: { objectAdds: number; msPerFrame: number };
   midPoolDeath: { changedPx: number; changedOutsideTheDeadTankPx: number };
   previewConsole: Record<string, string[] | string>;
@@ -225,6 +337,77 @@ async function installRig(): Promise<void> {
       return t;
     },
 
+    /** T3.3: put a power-up on the field (fidelity §8 — at most one). */
+    powerup(type: string | null, tx = 0, ty = 0): void {
+      const s = H.state as {
+        powerup: { type: string; x: number; y: number } | null;
+      };
+      s.powerup = type === null ? null : { type, x: tx * 16, y: ty * 16 };
+    },
+
+    /** T3.3: the eagle's state flag — the view's source of truth. */
+    eagle(alive: boolean): void {
+      (H.state as { eagleAlive: boolean }).eagleAlive = alive;
+    },
+
+    /**
+     * A copy of a region of the drawing buffer as an ordinary 2D canvas.
+     *
+     * `readPixels` is bottom-left origin and the row order is therefore
+     * upside down; this flips it. Used to build the six-up power-up sheet,
+     * which cannot be a single render — the core allows exactly one power-up on
+     * the field, so the six have to be rendered one at a time and assembled.
+     */
+    crop(x: number, y: number, w: number, h: number): HTMLCanvasElement {
+      const gl = H.canvas.getContext('webgl2');
+      if (gl === null) throw new Error('no webgl2 context');
+      const bh = gl.drawingBufferHeight;
+      const data = new Uint8Array(w * h * 4);
+      // y is given top-down; readPixels wants the bottom edge.
+      gl.readPixels(x, bh - (y + h), w, h, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      const out = document.createElement('canvas');
+      out.width = w;
+      out.height = h;
+      const ctx = out.getContext('2d');
+      if (ctx === null) throw new Error('no 2d context');
+      const img = ctx.createImageData(w, h);
+      for (let row = 0; row < h; row++) {
+        const src = (h - 1 - row) * w * 4;
+        img.data.set(data.subarray(src, src + w * 4), row * w * 4);
+      }
+      ctx.putImageData(img, 0, 0);
+      return out;
+    },
+
+    /** Lays crops out in a labelled row for one screenshot. */
+    sheet(cells: { label: string; canvas: HTMLCanvasElement }[]): void {
+      document.querySelectorAll('.sheet').forEach((n) => {
+        n.remove();
+      });
+      const box = document.createElement('div');
+      box.className = 'sheet';
+      box.style.cssText =
+        'position:fixed;left:0;top:0;z-index:100;display:flex;gap:8px;' +
+        'padding:12px;background:#10121b;font:12px monospace;color:#cfd6e4;';
+      for (const c of cells) {
+        const cell = document.createElement('div');
+        cell.style.cssText = 'text-align:center;';
+        cell.append(c.canvas);
+        const tag = document.createElement('div');
+        tag.textContent = c.label;
+        cell.append(tag);
+        box.append(cell);
+      }
+      document.body.append(box);
+    },
+
+    graySheet(on: boolean): void {
+      const box = document.querySelector('.sheet');
+      if (box instanceof HTMLElement) {
+        box.style.filter = on ? 'grayscale(1)' : 'none';
+      }
+    },
+
     bullet(x: number, y: number, dir: number): void {
       const bullets = (H.state as { bullets: unknown[] }).bullets;
       bullets.push({
@@ -290,7 +473,14 @@ async function shot(
   }, gray);
   // One composite after the render, so the screenshot captures this frame.
   await page.waitForTimeout(120);
-  await page.screenshot({ path: join(OUT, `${name}.png`), clip });
+  // Playwright's 30 s default is not enough for the 3200×1800 detail pass under
+  // SwiftShader — it timed out mid-run on the T3.3 machine and cost the whole
+  // capture, results.json included, because the artifact is written last.
+  await page.screenshot({
+    path: join(OUT, `${name}.png`),
+    clip,
+    timeout: 180_000,
+  });
   await page.evaluate(() => {
     (globalThis as unknown as { H: { gray(b: boolean): void } }).H.gray(false);
   });
@@ -428,6 +618,227 @@ async function main(): Promise<void> {
   });
   await shot(page, 'spawn-shield-stun');
 
+  // --- T3.3: the two static props -----------------------------------------
+  //
+  // The eagle first, in its own brick nest and at gameplay scale — the whole
+  // point of the task is that "does defending the base feel right" cannot be
+  // judged from a detail crop, so the full frame is the deliverable and the
+  // crop is the follow-up.
+  for (const alive of [true, false]) {
+    await setScene(
+      page,
+      'high',
+      [
+        { kind: 'player', playerIndex: 0, tx: 4, ty: 12, id: 0 },
+        { enemyType: 'basic', tx: 6, ty: 9, ordinal: 1, dir: 2 },
+      ],
+      BASE_NEST,
+    );
+    await page.evaluate((a: boolean) => {
+      (globalThis as unknown as { H: RigProps }).H.eagle(a);
+    }, alive);
+    await shot(page, alive ? 'eagle-intact' : 'eagle-destroyed');
+  }
+
+  // The six power-ups, side by side. They cannot be one render — fidelity §8
+  // allows exactly one on the field — so each is rendered on its own and its
+  // crop is assembled into a contact sheet, which is then shot in colour and
+  // again through a grayscale filter (art §11's bar).
+  results.props = {} as Props;
+  const sheetMeasure = await page.evaluate(
+    (a: { clip: { x: number; y: number; w: number; h: number } }) => {
+      const H = (globalThis as unknown as { H: RigProps }).H;
+      const TYPES = ['star', 'helmet', 'clock', 'shovel', 'grenade', 'tank'];
+      // Low, so shadows are off: a shadow is not part of a silhouette.
+      H.init('low');
+      H.eagle(true);
+      H.powerup(null);
+      H.render(0);
+      const empty = H.crop(a.clip.x, a.clip.y, a.clip.w, a.clip.h);
+      const ectx = empty.getContext('2d');
+      if (ectx === null) throw new Error('no 2d context');
+      const ref = ectx.getImageData(0, 0, a.clip.w, a.clip.h).data;
+
+      const cells: { label: string; canvas: HTMLCanvasElement }[] = [];
+      const masks: Record<
+        string,
+        { m: Uint8Array; n: number; lum: Float32Array }
+      > = {};
+      for (const type of TYPES) {
+        H.powerup(type, 6, 6);
+        // A third of the way into the bob and a fifth of a turn: neither the
+        // top nor the bottom of the arc, so the sheet shows the shape in the
+        // pose a player usually meets it in rather than a lucky one.
+        H.advance(400, 8);
+        const c = H.crop(a.clip.x, a.clip.y, a.clip.w, a.clip.h);
+        cells.push({ label: type, canvas: c });
+        const ctx = c.getContext('2d');
+        if (ctx === null) throw new Error('no 2d context');
+        const px = ctx.getImageData(0, 0, a.clip.w, a.clip.h).data;
+        const m = new Uint8Array(a.clip.w * a.clip.h);
+        const lum = new Float32Array(m.length);
+        let n = 0;
+        for (let i = 0; i < m.length; i++) {
+          const j = i * 4;
+          lum[i] = 0.2126 * px[j] + 0.7152 * px[j + 1] + 0.0722 * px[j + 2];
+          const d = Math.max(
+            Math.abs(ref[j] - px[j]),
+            Math.abs(ref[j + 1] - px[j + 1]),
+            Math.abs(ref[j + 2] - px[j + 2]),
+          );
+          if (d > 16) {
+            m[i] = 1;
+            n++;
+          }
+        }
+        masks[type] = { m, n, lum };
+      }
+      H.sheet(cells);
+
+      const pairs: Record<string, unknown> = {};
+      for (const a1 of TYPES) {
+        for (const b1 of TYPES) {
+          if (a1 >= b1) continue;
+          let inter = 0;
+          let uni = 0;
+          let sum = 0;
+          let strong = 0;
+          for (let i = 0; i < masks[a1].m.length; i++) {
+            const x = masks[a1].m[i];
+            const y = masks[b1].m[i];
+            if (x | y) {
+              uni++;
+              const d = Math.abs(masks[a1].lum[i] - masks[b1].lum[i]);
+              sum += d;
+              if (d > 40) strong++;
+            }
+            if (x & y) inter++;
+          }
+          pairs[`${a1}|${b1}`] = {
+            outlineIouPct: +((inter / uni) * 100).toFixed(1),
+            grayMeanDelta: +(sum / uni).toFixed(1),
+            strongDiffPct: +((strong / uni) * 100).toFixed(1),
+          };
+        }
+      }
+      const areaPx: Record<string, number> = {};
+      for (const t of TYPES) areaPx[t] = masks[t].n;
+      return { pairs, areaPx };
+    },
+    { clip: POWERUP_CLIP },
+  );
+  results.props.powerupPairs = sheetMeasure.pairs as Record<
+    string,
+    PairSeparation
+  >;
+  results.props.powerupAreaPx = sheetMeasure.areaPx;
+
+  await page.waitForTimeout(120);
+  await page.screenshot({ path: join(OUT, 'powerups-colour.png') });
+  await page.evaluate(() => {
+    (globalThis as unknown as { H: RigProps }).H.graySheet(true);
+  });
+  await page.waitForTimeout(120);
+  await page.screenshot({ path: join(OUT, 'powerups-grayscale.png') });
+  await page.evaluate(() => {
+    document.querySelectorAll('.sheet').forEach((n) => {
+      n.remove();
+    });
+  });
+
+  // How much of the base's own tile changes when it falls — the game-over
+  // signal, as a number rather than as an opinion.
+  results.props.eagleLoss = await page.evaluate(
+    (a: {
+      clip: { x: number; y: number; w: number; h: number };
+      nest: [number, number, string][];
+    }) => {
+      const H = (globalThis as unknown as { H: RigProps }).H;
+      const read = (alive: boolean | null): Uint8ClampedArray => {
+        H.init('low', a.nest);
+        if (alive !== null) H.eagle(alive);
+        H.render(0);
+        const c = H.crop(a.clip.x, a.clip.y, a.clip.w, a.clip.h);
+        const ctx = c.getContext('2d');
+        if (ctx === null) throw new Error('no 2d context');
+        return ctx.getImageData(0, 0, a.clip.w, a.clip.h).data;
+      };
+      // Both states are read over the same crop — the base's tile plus a
+      // margin of its nest — and compared against each other rather than
+      // against an empty board: what is being measured is what a player sees
+      // change, and the brick around it does not.
+      const intact = read(true);
+      const ruin = read(false);
+      const gray = (d: Uint8ClampedArray, i: number): number =>
+        0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      let changed = 0;
+      let strong = 0;
+      let n = 0;
+      let sumI = 0;
+      let sumR = 0;
+      let maxI = 0;
+      let maxR = 0;
+      let areaI = 0;
+      let areaR = 0;
+      for (let i = 0; i < intact.length; i += 4) {
+        n++;
+        const gi = gray(intact, i);
+        const gr = gray(ruin, i);
+        sumI += gi;
+        sumR += gr;
+        if (gi > maxI) maxI = gi;
+        if (gr > maxR) maxR = gr;
+        // "Lit" = brighter than the near-black board, i.e. something is there.
+        if (gi > 30) areaI++;
+        if (gr > 30) areaR++;
+        const d = Math.abs(gi - gr);
+        if (d > 16) changed++;
+        if (d > 40) strong++;
+      }
+      return {
+        intactAreaPx: areaI,
+        destroyedAreaPx: areaR,
+        changedPx: changed,
+        strongDiffPct: +((100 * strong) / n).toFixed(1),
+        intactMeanGray: +(sumI / n).toFixed(1),
+        destroyedMeanGray: +(sumR / n).toFixed(1),
+        intactMaxGray: +maxI.toFixed(1),
+        destroyedMaxGray: +maxR.toFixed(1),
+      };
+    },
+    { clip: EAGLE_CLIP, nest: BASE_NEST },
+  );
+
+  // …and the same scene in play: a populated board with a power-up on it,
+  // mid-bob, at gameplay scale.
+  await setScene(
+    page,
+    'high',
+    [
+      { kind: 'player', playerIndex: 0, tx: 4, ty: 10, id: 0, dir: 0 },
+      { enemyType: 'basic', tx: 2, ty: 4, ordinal: 1, dir: 2 },
+      { enemyType: 'fast', tx: 9, ty: 3, ordinal: 2, dir: 1, carrier: true },
+      { enemyType: 'armor', tx: 6, ty: 6, hp: 4, ordinal: 3, dir: 2 },
+    ],
+    [
+      ...BASE_NEST,
+      [3, 7, 'B'],
+      [4, 7, 'B'],
+      [8, 7, 'S'],
+      [9, 7, 'S'],
+      [1, 9, 'T'],
+      [11, 5, 'W'],
+    ],
+  );
+  await page.evaluate(() => {
+    const H = (globalThis as unknown as { H: RigProps }).H;
+    H.powerup('helmet', 8, 9);
+    H.bullet(4 * 16 + 6, 9 * 16, 0);
+    // Mid-bob and mid-spin: 400 ms is a third of art §9's 1.2 s arc.
+    H.advance(400, 8);
+  });
+  await shot(page, 'play-powerup');
+
   // --- draw calls ---------------------------------------------------------
   results.drawCalls = await page.evaluate(() => {
     const H = (
@@ -436,6 +847,7 @@ async function main(): Promise<void> {
           init(q: string): void;
           tank(o: Record<string, unknown>): unknown;
           bullet(x: number, y: number, d: number): void;
+          powerup(type: string | null, tx?: number, ty?: number): void;
           render(d?: number): void;
           calls(): number;
           resetCalls(): void;
@@ -454,7 +866,8 @@ async function main(): Promise<void> {
     // Worst case: two players and four DISTINCT enemy types alive at once, so
     // all six tank materials draw — plus both of art §8's shared emissive
     // meshes, which only draw while something is spawning (the star) or
-    // somebody is at tier 3 (the tip).
+    // somebody is at tier 3 (the tip), plus T3.3's two prop meshes, which draw
+    // whenever there is a base (always) and a power-up on the field.
     const worst = (): void => {
       H.tank({ kind: 'player', playerIndex: 0, tx: 0, ty: 6, id: 0, tier: 3 });
       H.tank({ kind: 'player', playerIndex: 1, tx: 2, ty: 6, id: 1 });
@@ -463,8 +876,11 @@ async function main(): Promise<void> {
       H.tank({ enemyType: 'power', tx: 8, ty: 6, ordinal: 3 });
       H.tank({ enemyType: 'armor', tx: 10, ty: 6, hp: 4, ordinal: 4 });
       for (let i = 0; i < 4; i++) H.bullet(40 + i * 20, 100, 0);
+      H.powerup('star', 3, 9);
     };
-    // Typical: enemies share a type most of the time.
+    // Typical: enemies share a type most of the time, and there is no power-up
+    // on the field — so the gold prop mesh is at `count === 0` and draws
+    // nothing, exactly like the two emissive tank meshes.
     const typical = (): void => {
       H.tank({ kind: 'player', playerIndex: 0, tx: 0, ty: 6, id: 0 });
       for (let i = 0; i < 4; i++) {
@@ -880,6 +1296,29 @@ async function main(): Promise<void> {
     ],
   );
   await shot(detail, 'detail-canopy-armor', ROW);
+
+  // T3.3: the eagle, close enough to read the emblem and the break. The full
+  // frames above are the deliverable — "does defending the base feel right" is
+  // a gameplay-scale question — and these are the follow-up.
+  for (const alive of [true, false]) {
+    await setScene(detail, 'high', [], BASE_NEST);
+    await detail.evaluate((a: boolean) => {
+      (globalThis as unknown as { H: RigProps }).H.eagle(a);
+    }, alive);
+    await shot(
+      detail,
+      alive ? 'detail-eagle-intact' : 'detail-eagle-destroyed',
+      EAGLE_DETAIL,
+    );
+    await shot(
+      detail,
+      alive
+        ? 'detail-eagle-intact-grayscale'
+        : 'detail-eagle-destroyed-grayscale',
+      EAGLE_DETAIL,
+      true,
+    );
+  }
   await detail.close();
 
   // --- the REAL dev preview's console, at DPR 1 / 2 / 3 -------------------
@@ -913,6 +1352,10 @@ silhouette separation — facing ${facing}`);
     console.table(results.silhouette[facing].pairs);
   }
   console.table(results.concealment);
+  console.log('\npower-up separation (art §11 bar, same as the tanks)');
+  console.table(results.props.powerupPairs);
+  console.log('power-up lit area, px:', results.props.powerupAreaPx);
+  console.log('eagle intact vs destroyed:', results.props.eagleLoss);
   console.log('steady state:', results.steadyState);
   console.log('mid-pool death:', results.midPoolDeath);
   console.log('dev preview console:', results.previewConsole);
