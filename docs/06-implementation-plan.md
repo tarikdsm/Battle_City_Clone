@@ -425,15 +425,15 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 9 — Inputs & platform (Lane main)
 
-### - [ ] T9.1 Gamepad
+### - [x] T9.1 Gamepad
 **Files:** create `src/input/gamepad.ts`; extend input.ts + menus nav. Test `tests/input/gamepad.test.ts` (fake Gamepad API: standard mapping, hot-plug assignment first-free-slot, stick 4-way latch with 0.4 deadzone, menu nav events).
 **Spec:** GDD §7; arch §7. **Commit:** `feat(input): hot-plug gamepads for both players`
 
-### - [ ] T9.2 Touch & responsive
+### - [x] T9.2 Touch & responsive
 **Files:** create `src/input/touch.ts`, touch CSS; portrait HUD layout. Test `tests/input/touch.test.ts` (virtual stick vector→4-way latch; fire button; only on touch devices flag).
 **Spec:** GDD §7; art §10 portrait. **Commit:** `feat(input): touch controls with responsive layouts`
 
-### - [ ] T9.3 PWA & build
+### - [x] T9.3 PWA & build
 **Files:** modify `vite.config.ts` (vite-plugin-pwa precache-all, manifest), create `scripts/gen-icons.ts` (renders icon SVG → PNGs via Playwright screenshot), `public/` icons. Test: `npm run build` + `npm run preview` + e2e against preview; offline reload works (Playwright offline context).
 **Spec:** arch §10; GDD §3. **Commit:** `feat(app): installable offline PWA`
 **⛔ Gate G4** — owner tests on phone + gamepad.
