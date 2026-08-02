@@ -325,12 +325,12 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 3 — First playable (Lane main)
 
-### - [ ] T3.1 Keyboard input
+### - [x] T3.1 Keyboard input
 **Files:** create `src/input/{keyboard,input}.ts`; test `tests/input/keyboard.test.ts` (fake KeyboardEvents: WASD+J → P1 intent; arrows+Numpad0 → P2; dominant-axis latch — pressing D while W held keeps last-pressed axis; fire edge + hold; pause edge; rebinding map applied).
 **Spec:** GDD §7; arch §7.
 **Commit:** `feat(input): remappable 2-player keyboard with 4-way latch`
 
-### - [ ] T3.2 Playable stage integration + smoke E2E
+### - [x] T3.2 Playable stage integration + smoke E2E
 **Files:** modify `src/app/{main,screens,session}.ts`; create `src/ui/hud.ts` (minimal: enemies-left icons, lives, score, stage — DOM, event-driven), `src/levels/original/stage01.json` (**provisional** hand-made approximation clearly marked `"name":"Stage 1 (provisional)"` — replaced in Phase 7), `e2e/smoke.spec.ts` (extend): boot → title → start 1P → 10 s of scripted keys → expect canvas pixels changing, HUD counters, zero console errors; editor route stub excluded.
 **Spec:** GDD §5–6, §9.
 **Steps:** standard cycle + run `npm run e2e` locally green.
