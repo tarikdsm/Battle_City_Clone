@@ -22,6 +22,26 @@
       that Vite handles from a <link> without one. Vite rewrites this path in a
       production build and respects `--mode pages`' base path.
     -->
+    <!--
+      Art §10's two OFL faces, bundled (no runtime network — GDD pillar 4).
+      Preloaded because `font-display: swap` would otherwise paint the title in
+      the fallback and reflow it a moment later; `crossorigin` is required even
+      for same-origin font preloads, or the browser fetches the file twice.
+    -->
+    <link
+      rel="preload"
+      href="/src/ui/fonts/orbitron-latin-var.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/src/ui/fonts/inter-latin-var.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <link rel="stylesheet" href="/src/ui/styles.css" />
     <style>
       html,

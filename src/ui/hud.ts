@@ -1,10 +1,14 @@
-// src/ui/hud.ts — the minimal in-game HUD (GDD §9, arch §8).
+// src/ui/hud.ts — the in-game HUD (GDD §9, art §10, arch §8).
 //
-// Scope is deliberately T3.2's: enemies left to spawn, per-player lives / score
-// / tier, stage number. The full treatment (art §10, fonts, score popups) is
-// T6.3 — this exists so the first playable tells you what is happening.
+// ## Two halves, and the split is what makes it testable
 //
-// Two rules it is built around:
+// Everything above `--- The view ---` is **pure**: {@link hudModel} turns a
+// `GameState` into the handful of numbers a HUD shows, with no DOM anywhere.
+// That is what `tests/ui/hud.test.ts` asserts in the Vitest **node**
+// environment, where there is no `document`. Everything below builds markup and
+// is verified by screenshot.
+//
+// ## Two rules it is built around
 //
 // - **DOM, never canvas.** Anything drawn to the canvas after
 //   `renderer.render()` is swallowed by the post chain's composer blit (T2.5),
@@ -14,20 +18,111 @@
 //   holds actually changed. A HUD that assigned `textContent` 60 times a second
 //   would dirty layout every frame for a number that changes a few times a
 //   minute (arch §8).
+//
+// ## Glyphs, not characters
+//
+// GDD §9 asks for "a grid of mini tank icons" and "lives as tank pips", and art
+// §10 for "tier stars" and a "stage flag". Those are **inline SVG**, not font
+// characters: a tank glyph has no Unicode code point, and ★/⚑ render as
+// whatever the platform emoji font decides — colour on some, monochrome on
+// others, and a different width on every one. Three hand-built paths cost
+// nothing (they are created once, never per frame) and read identically
+// everywhere, which is the point of art §11's grayscale rule.
 
 import { ENEMY_TOTAL } from '../core/constants';
 import type { GameState } from '../core/types';
 
+// ---------------------------------------------------------------------------
+// --- The model (pure) ------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+export interface HudPlayer {
+  /** 1 or 2, as the label reads. */
+  readonly slot: 1 | 2;
+  readonly active: boolean;
+  readonly score: number;
+  readonly lives: number;
+  /** 0…3 (fidelity §3.1's star tiers). */
+  readonly tier: 0 | 1 | 2 | 3;
+  /** Filled life pips to draw, capped by {@link LIFE_PIPS}. */
+  readonly pips: number;
+  /** Lives beyond the pips, or 0. Shown as `+n` so a Tank power-up is visible. */
+  readonly overflow: number;
+}
+
+export interface HudView {
+  /** Enemies still to spawn — the queue length, which is GDD §9's icon count. */
+  readonly enemiesLeft: number;
+  /** One entry per icon, true when that icon has been consumed by a spawn. */
+  readonly spent: readonly boolean[];
+  /** The number the player is told (fidelity §11.5's looped stage). */
+  readonly stage: number;
+  readonly players: readonly [HudPlayer, HudPlayer];
+}
+
+/**
+ * Life pips drawn before the count falls back to `+n`.
+ *
+ * Three is the start (fidelity §3.1) and the Tank power-up can push it higher;
+ * four keeps the common case pictorial without letting a lucky run stretch the
+ * dock wide enough to squeeze the board.
+ */
+export const LIFE_PIPS = 4;
+
+/** Star tiers, 0…3 — how many pips there are to fill. */
+export const TIER_PIPS = 3;
+
+function playerOf(state: GameState, index: 0 | 1): HudPlayer {
+  const meta = state.players[index];
+  // Tank slot index === playerIndex for the whole life of a run, by
+  // construction in `createGame` (the spawner only ever recycles a dead slot
+  // whose kind is 'enemy'), so this is a lookup and not a search.
+  const tier = state.tanks[index]?.tier ?? 0;
+  const lives = Math.max(0, meta.lives);
+  return {
+    slot: (index + 1) as 1 | 2,
+    active: meta.active,
+    score: meta.score,
+    lives,
+    tier,
+    pips: Math.min(LIFE_PIPS, lives),
+    overflow: Math.max(0, lives - LIFE_PIPS),
+  };
+}
+
+/**
+ * The whole HUD as data.
+ *
+ * `displayStage` exists because after stage 35 the two stage numbers stop being
+ * the same one (fidelity §11.5): core's `state.stageNumber` keeps rising so the
+ * spawn formula keeps tightening, while the campaign "loops to stage 1" and
+ * that is the number a player is told. Defaults to core's, so a caller with no
+ * loop to represent passes nothing.
+ */
+export function hudModel(state: GameState, displayStage?: number): HudView {
+  // The QUEUE is the "left to spawn" count: the spawner shifts an entry on the
+  // tick it emits `enemySpawnStarted`, which is the event GDD §9 pins the icon
+  // grid to. Reading the state rather than counting events keeps the HUD right
+  // even if a state is ever restored or re-entered.
+  const enemiesLeft = state.spawner.queue.length;
+  const spent: boolean[] = new Array<boolean>(ENEMY_TOTAL);
+  for (let i = 0; i < ENEMY_TOTAL; i++) {
+    spent[i] = i >= enemiesLeft;
+  }
+  return {
+    enemiesLeft,
+    spent,
+    stage: displayStage ?? state.stageNumber,
+    players: [playerOf(state, 0), playerOf(state, 1)],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// --- The view --------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
 export interface Hud {
-  /**
-   * Reflect `state` into the DOM, writing only the nodes that changed.
-   *
-   * `displayStage` exists because after stage 35 the two stage numbers stop
-   * being the same one (fidelity §11.5): core's `state.stageNumber` keeps
-   * rising so the spawn formula keeps tightening, while the campaign "loops to
-   * stage 1" and that is the number a player is told. Defaults to the core's,
-   * so a caller with no loop to represent passes nothing.
-   */
+  /** Reflect `state` into the DOM, writing only the nodes that changed. */
   sync(state: GameState, displayStage?: number): void;
   /**
    * Re-dock for the current viewport and report the space the HUD occupies, in
@@ -35,25 +130,30 @@ export interface Hud {
    * area — the HUD is *docked* beside the board (GDD §9, art §10), never
    * painted over it.
    *
+   * Landscape reserves on the **right**; portrait reserves at the **top**, per
+   * art §10's "slim top bar + bottom control zone" — the bottom belongs to
+   * Phase 9's touch controls, so the HUD may not take it.
+   *
    * Measured from the live element rather than assumed from a constant: the
    * blocks are text, so a different font or a five-digit score changes the
    * width, and a dock that is one glyph too narrow puts a tank behind the
-   * word LIVES.
+   * score.
    */
-  dock(): { right: number; bottom: number };
+  dock(): { right: number; bottom: number; top: number };
   /** Remove everything this HUD added to the document. */
   dispose(): void;
 }
 
-/** Star pips for tiers 0..3 (GDD §9). */
-const TIER_PIPS: readonly string[] = ['—', '★', '★★', '★★★'];
-
 const STYLE_ID = 'bc-hud-style';
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// Placeholder styling, in a single <style> the HUD owns and removes. T6.3
-// replaces this with the real stylesheet and CSS custom properties; the palette
-// here follows art §3's UI foreground over the near-black board so the first
-// playable does not read as a debug overlay.
+/**
+ * The HUD's own stylesheet, in a single `<style>` it owns and removes.
+ *
+ * It uses `styles.css`'s custom properties rather than literals — one palette,
+ * one place — with the token values as fallbacks, so the HUD still reads
+ * correctly if it is ever mounted without the app stylesheet.
+ */
 const CSS = `
 .bc-hud {
   position: fixed;
@@ -62,9 +162,10 @@ const CSS = `
   /* The overlay must never eat a click meant for the game. */
   pointer-events: none;
   user-select: none;
-  font: 13px/1.35 ui-monospace, "Cascadia Mono", "Courier New", monospace;
-  letter-spacing: 0.06em;
-  color: #e8e8e8;
+  font-family: var(--bc-font-body, system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--bc-text, #e8e8e8);
 }
 /* Landscape: docked right, a column beside the board. */
 .bc-hud.landscape {
@@ -73,61 +174,192 @@ const CSS = `
   height: 100%;
   flex-direction: column;
   justify-content: center;
-  gap: 1.5rem;
-  padding: 1rem 1.25rem;
-  min-width: 7.5rem;
+  gap: 1.35rem;
+  padding: 1rem 1.15rem;
+  min-width: 8.5rem;
 }
-/* Portrait: docked bottom, a row under the board (GDD §9). */
+/* Portrait: a slim bar along the TOP (art §10 — the bottom is the touch zone). */
 .bc-hud.portrait {
   left: 0;
-  bottom: 0;
+  top: 0;
   width: 100%;
   flex-direction: row;
-  align-items: center;
-  justify-content: space-around;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.7rem 0.6rem;
+  background: linear-gradient(to bottom, rgb(6 7 11 / 92%), rgb(6 7 11 / 0%));
+}
+.bc-hud-label {
+  font-family: var(--bc-font-display, system-ui, sans-serif);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--bc-text-dim, #8b93a7);
+}
+.bc-hud-value {
+  font-family: var(--bc-font-display, system-ui, sans-serif);
+  font-size: 20px;
+  font-weight: 700;
+  /* Art §10: "Tabular numerals for scores." A score that changes width as it
+     counts up makes the whole dock jitter, and the dock sizes the board. */
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.bc-hud.portrait .bc-hud-value {
+  font-size: 15px;
+}
+
+/* --- enemies left to spawn (GDD §9: a 4x5 grid of mini tanks) ------------ */
+.bc-hud-icons {
+  display: grid;
+  grid-template-columns: repeat(4, 10px);
+  gap: 3px;
+  margin: 0.4rem 0 0.25rem;
 }
 .bc-hud.portrait .bc-hud-icons {
   grid-template-columns: repeat(10, 8px);
-}
-.bc-hud-label {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: #7f8996;
-}
-.bc-hud-value {
-  font-size: 20px;
-  font-variant-numeric: tabular-nums;
-}
-.bc-hud-icons {
-  display: grid;
-  grid-template-columns: repeat(4, 8px);
-  gap: 3px;
-  margin: 0.4rem 0 0.2rem;
+  gap: 2px;
+  margin: 0.15rem 0 0;
 }
 .bc-hud-icon {
+  width: 10px;
+  height: 10px;
+  color: var(--bc-text, #e8e8e8);
+  transition:
+    color 150ms ease-out,
+    opacity 150ms ease-out;
+}
+.bc-hud.portrait .bc-hud-icon {
   width: 8px;
   height: 8px;
-  background: #d8d8d8;
-  border-radius: 1px;
 }
+/* "dimming as consumed" (art §10) — dimmed, not removed: the grid's SHAPE is
+   the readout, so a shrinking grid would lose the "out of twenty" reference. */
 .bc-hud-icon.spent {
-  background: #2a2f38;
+  color: #2a2f38;
+  opacity: 0.55;
 }
-.bc-hud-tier {
-  color: #ffd76b;
+
+/* --- per-player card ----------------------------------------------------- */
+.bc-hud-player {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 .bc-hud-player[hidden] {
   display: none;
 }
+.bc-hud-player.p1 .bc-hud-label {
+  color: var(--bc-p1, #f2c14e);
+}
+.bc-hud-player.p2 .bc-hud-label {
+  color: var(--bc-p2, #7fd695);
+}
+.bc-hud-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 13px;
+}
+.bc-hud-pips {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.bc-hud-pip {
+  width: 11px;
+  height: 11px;
+}
+.bc-hud-player.p1 .bc-hud-pip {
+  color: var(--bc-p1, #f2c14e);
+}
+.bc-hud-player.p2 .bc-hud-pip {
+  color: var(--bc-p2, #7fd695);
+}
+.bc-hud-pip.empty {
+  color: #2a2f38;
+}
+.bc-hud-extra {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--bc-text-dim, #8b93a7);
+}
+.bc-hud-tier {
+  display: flex;
+  gap: 1px;
+  align-items: center;
+  margin-left: 0.25rem;
+}
+.bc-hud-star {
+  width: 11px;
+  height: 11px;
+  color: var(--bc-gold, #ffd76b);
+}
+.bc-hud-star.empty {
+  color: #2a2f38;
+}
+
+/* --- stage flag + number ------------------------------------------------- */
+.bc-hud-stage {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.bc-hud-flag {
+  width: 15px;
+  height: 15px;
+  color: var(--bc-gold, #ffd76b);
+}
 `;
+
+/** A tank seen from above — the same silhouette the board draws (art §4). */
+function tankGlyph(className: string): HTMLElement {
+  return glyph(
+    className,
+    'M1.5 3.5h2.6v9H1.5zM11.9 3.5h2.6v9h-2.6zM4.8 4.2h6.4v8.3H4.8zM7.1 0.8h1.8v4.6H7.1z',
+  );
+}
+
+/** A five-pointed star, for art §10's tier pips. */
+function starGlyph(className: string): HTMLElement {
+  return glyph(
+    className,
+    'M8 1l1.9 4.2 4.6.5-3.4 3.1 1 4.5L8 11l-4.1 2.3 1-4.5L1.5 5.7l4.6-.5z',
+  );
+}
+
+/** A pennant on a pole, for art §10's stage flag. */
+function flagGlyph(className: string): HTMLElement {
+  return glyph(className, 'M3 1.5h1.6v13H3zM5.2 2.4h8.4l-2 3 2 3H5.2z');
+}
+
+function glyph(className: string, d: string): HTMLElement {
+  const node = document.createElementNS(SVG_NS, 'svg');
+  node.setAttribute('viewBox', '0 0 16 16');
+  node.setAttribute('aria-hidden', 'true');
+  node.setAttribute('focusable', 'false');
+  node.setAttribute('class', className);
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', d);
+  // `currentColor` is what lets one path be a live pip, a spent icon and a
+  // player-tinted pip without three copies of it.
+  path.setAttribute('fill', 'currentColor');
+  node.append(path);
+  // An `SVGElement` is an `Element` with `classList` and `style`, which is all
+  // this file ever asks of it; the cast keeps the node arrays one type.
+  return node as unknown as HTMLElement;
+}
 
 interface PlayerNodes {
   block: HTMLElement;
   score: HTMLElement;
+  pips: HTMLElement[];
+  extra: HTMLElement;
+  stars: HTMLElement[];
+  /** Kept for the e2e/capture selectors, which read lives as a number. */
   lives: HTMLElement;
-  tier: HTMLElement;
 }
 
 interface Last {
@@ -151,28 +383,42 @@ function el(tag: string, className?: string, text?: string): HTMLElement {
 }
 
 function playerBlock(index: 0 | 1): PlayerNodes {
-  const block = el('section', 'bc-hud-player');
+  const block = el('section', `bc-hud-player p${index + 1}`);
   block.dataset.hud = `p${index + 1}`;
   block.append(el('div', 'bc-hud-label', `${index + 1}P`));
 
   const score = el('div', 'bc-hud-value', '0');
   score.dataset.hud = `p${index + 1}-score`;
 
-  const lives = el('span', undefined, '3');
+  const meta = el('div', 'bc-hud-meta');
+  const pipRow = el('div', 'bc-hud-pips');
+  const pips: HTMLElement[] = [];
+  for (let i = 0; i < LIFE_PIPS; i++) {
+    const pip = tankGlyph('bc-hud-pip');
+    pips.push(pip);
+    pipRow.append(pip);
+  }
+  const extra = el('span', 'bc-hud-extra', '');
+  // The numeric lives readout the e2e suite and `capture-play` assert on. Kept
+  // in the DOM and out of sight: pips are the *design* (GDD §9), a number is
+  // what a test can compare, and dropping it would break both harnesses for a
+  // cosmetic reason.
+  const lives = el('span', 'bc-hud-extra', '3');
   lives.dataset.hud = `p${index + 1}-lives`;
-  const tier = el('span', 'bc-hud-tier', TIER_PIPS[0]);
+  lives.hidden = true;
+
+  const tier = el('div', 'bc-hud-tier');
   tier.dataset.hud = `p${index + 1}-tier`;
+  const stars: HTMLElement[] = [];
+  for (let i = 0; i < TIER_PIPS; i++) {
+    const star = starGlyph('bc-hud-star empty');
+    stars.push(star);
+    tier.append(star);
+  }
 
-  const meta = el('div');
-  meta.append(
-    document.createTextNode('LIVES '),
-    lives,
-    document.createTextNode('  '),
-    tier,
-  );
-
+  meta.append(pipRow, extra, lives, tier);
   block.append(score, meta);
-  return { block, score, lives, tier };
+  return { block, score, pips, extra, stars, lives };
 }
 
 /**
@@ -198,20 +444,22 @@ export function createHud(root: HTMLElement): Hud {
   icons.dataset.hud = 'enemy-icons';
   const iconNodes: HTMLElement[] = [];
   for (let i = 0; i < ENEMY_TOTAL; i++) {
-    const icon = el('div', 'bc-hud-icon');
+    const icon = tankGlyph('bc-hud-icon');
     iconNodes.push(icon);
     icons.append(icon);
   }
   const enemiesLeft = el('div', 'bc-hud-value', String(ENEMY_TOTAL));
   enemiesLeft.dataset.hud = 'enemies-left';
-  enemyBlock.append(el('div', 'bc-hud-label', 'ENEMY'), icons, enemiesLeft);
+  enemyBlock.append(el('div', 'bc-hud-label', 'Enemy'), icons, enemiesLeft);
 
   const players: [PlayerNodes, PlayerNodes] = [playerBlock(0), playerBlock(1)];
 
   const stageBlock = el('section');
+  const stageRow = el('div', 'bc-hud-stage');
   const stage = el('div', 'bc-hud-value', '1');
   stage.dataset.hud = 'stage';
-  stageBlock.append(el('div', 'bc-hud-label', 'STAGE'), stage);
+  stageRow.append(flagGlyph('bc-hud-flag'), stage);
+  stageBlock.append(el('div', 'bc-hud-label', 'Stage'), stageRow);
 
   hud.append(enemyBlock, players[0].block, players[1].block, stageBlock);
   root.append(hud);
@@ -228,7 +476,7 @@ export function createHud(root: HTMLElement): Hud {
   };
 
   return {
-    dock(): { right: number; bottom: number } {
+    dock(): { right: number; bottom: number; top: number } {
       // Orientation decides the edge. Chosen from the viewport rather than
       // from a media query so the play screen and the HUD can never disagree
       // about which one is in force on the frame that matters.
@@ -237,58 +485,57 @@ export function createHud(root: HTMLElement): Hud {
       hud.classList.toggle('portrait', !landscape);
       const box = hud.getBoundingClientRect();
       return landscape
-        ? { right: Math.ceil(box.width), bottom: 0 }
-        : { right: 0, bottom: Math.ceil(box.height) };
+        ? { right: Math.ceil(box.width), bottom: 0, top: 0 }
+        : { right: 0, bottom: 0, top: Math.ceil(box.height) };
     },
 
     sync(state: GameState, displayStage?: number): void {
-      // The queue IS the "left to spawn" count: the spawner shifts an entry on
-      // the tick it emits `enemySpawnStarted`, which is the event GDD §9 pins
-      // the icon grid to. Reading the state rather than counting events keeps
-      // the HUD right even if a state is ever restored or re-entered.
-      const remaining = state.spawner.queue.length;
-      if (remaining !== last.remaining) {
+      const view = hudModel(state, displayStage);
+
+      if (view.enemiesLeft !== last.remaining) {
         // 20 idempotent class toggles, and only on a tick where the count
         // actually changed — i.e. 20 times in a whole stage.
         for (let i = 0; i < ENEMY_TOTAL; i++) {
-          iconNodes[i].classList.toggle('spent', i >= remaining);
+          iconNodes[i].classList.toggle('spent', view.spent[i]);
         }
-        enemiesLeft.textContent = String(remaining);
-        last.remaining = remaining;
+        enemiesLeft.textContent = String(view.enemiesLeft);
+        last.remaining = view.enemiesLeft;
       }
 
-      const shown = displayStage ?? state.stageNumber;
-      if (shown !== last.stage) {
-        stage.textContent = String(shown);
-        last.stage = shown;
+      if (view.stage !== last.stage) {
+        stage.textContent = String(view.stage);
+        last.stage = view.stage;
       }
 
       for (let i = 0; i < players.length; i++) {
-        const meta = state.players[i];
+        const p = view.players[i];
         const nodes = players[i];
-        if (meta.active !== last.active[i]) {
+        if (p.active !== last.active[i]) {
           // 1P hides the second block rather than showing a dead player.
-          nodes.block.hidden = !meta.active;
-          last.active[i] = meta.active;
+          nodes.block.hidden = !p.active;
+          last.active[i] = p.active;
         }
-        if (!meta.active) {
+        if (!p.active) {
           continue;
         }
-        if (meta.score !== last.score[i]) {
-          nodes.score.textContent = String(meta.score);
-          last.score[i] = meta.score;
+        if (p.score !== last.score[i]) {
+          nodes.score.textContent = p.score.toLocaleString('en-US');
+          last.score[i] = p.score;
         }
-        if (meta.lives !== last.lives[i]) {
-          nodes.lives.textContent = String(meta.lives);
-          last.lives[i] = meta.lives;
+        if (p.lives !== last.lives[i]) {
+          for (let j = 0; j < nodes.pips.length; j++) {
+            nodes.pips[j].classList.toggle('empty', j >= p.pips);
+          }
+          // `+n` only when a Tank power-up has pushed the count past the pips.
+          nodes.extra.textContent = p.overflow > 0 ? `+${p.overflow}` : '';
+          nodes.lives.textContent = String(p.lives);
+          last.lives[i] = p.lives;
         }
-        // Tank slot index === playerIndex for the whole life of a run, by
-        // construction in `createGame` (the spawner only ever recycles a dead
-        // slot whose kind is 'enemy').
-        const tier = state.tanks[i].tier;
-        if (tier !== last.tier[i]) {
-          nodes.tier.textContent = TIER_PIPS[tier];
-          last.tier[i] = tier;
+        if (p.tier !== last.tier[i]) {
+          for (let j = 0; j < nodes.stars.length; j++) {
+            nodes.stars[j].classList.toggle('empty', j >= p.tier);
+          }
+          last.tier[i] = p.tier;
         }
       }
     },

@@ -249,18 +249,28 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     // a different font widens the reservation instead of covering the board.
     let lastW = -1;
     let lastH = -1;
+    let lastTop = -1;
     const fit = (): void => {
-      const reserved = panel?.dock() ?? { right: 0, bottom: 0 };
+      const reserved = panel?.dock() ?? { right: 0, bottom: 0, top: 0 };
       const w = Math.max(1, Math.floor(window.innerWidth - reserved.right));
-      const h = Math.max(1, Math.floor(window.innerHeight - reserved.bottom));
+      const h = Math.max(
+        1,
+        Math.floor(window.innerHeight - reserved.bottom - reserved.top),
+      );
       // Idempotent: `setSize` writes the canvas's inline style, which the
       // observer below sees as a resize. Without this the two would ping-pong
       // forever at one frame per bounce.
-      if (w === lastW && h === lastH) {
+      if (w === lastW && h === lastH && reserved.top === lastTop) {
         return;
       }
       lastW = w;
       lastH = h;
+      lastTop = reserved.top;
+      // Art §10 docks the portrait HUD along the TOP (the bottom is Phase 9's
+      // touch zone), so the board has to start below it. `index.html` pins the
+      // canvas at `top: 0`; this is the only thing that ever moves it, and it
+      // is written before `resize` so the two land in one layout pass.
+      opts.canvas.style.top = `${reserved.top}px`;
       view.resize(w, h);
     };
     fit();

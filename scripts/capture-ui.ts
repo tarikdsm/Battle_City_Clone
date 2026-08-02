@@ -100,6 +100,8 @@ interface Results {
   /** Console/page errors seen over the whole session. Must stay empty. */
   consoleErrors: string[];
   highContrast: HighContrastReport;
+  /** HUD dock boxes per orientation; `overlap` must be 0 in both. */
+  hudDock: Record<string, { canvas: number[]; hud: number[]; overlap: number }>;
 }
 
 interface HighContrastReport {
@@ -198,9 +200,13 @@ function measureHighContrast(): HighContrastReport {
 // The walks
 // ---------------------------------------------------------------------------
 
-async function newPage(browser: Browser, results: Results): Promise<Page> {
+async function newPage(
+  browser: Browser,
+  results: Results,
+  size?: { width: number; height: number },
+): Promise<Page> {
   const context = await browser.newContext({
-    viewport: { width: W, height: H },
+    viewport: size ?? { width: W, height: H },
     deviceScaleFactor: 1,
   });
   const page = await context.newPage();
@@ -509,6 +515,58 @@ async function walkFullLoop(browser: Browser, results: Results): Promise<void> {
   await page.close();
 }
 
+/**
+ * The final HUD (T6.3) in both orientations.
+ *
+ * Art §10 docks it right in landscape and along the **top** in portrait — the
+ * bottom is Phase 9's touch zone, so the HUD may not take it — which means the
+ * portrait pass is also the only proof that the board is offset below the bar
+ * rather than hidden behind it.
+ */
+async function walkHud(browser: Browser, results: Results): Promise<void> {
+  for (const [label, size] of [
+    ['landscape', { width: 1280, height: 800 }],
+    ['portrait', { width: 480, height: 900 }],
+  ] as const) {
+    const page = await newPage(browser, results, size);
+    await page.addInitScript(() => {
+      globalThis.localStorage?.clear();
+    });
+    await page.goto(`${BASE}?quality=high&seed=${SEED}&stage=7`);
+    await page.locator('[data-hud="root"]').waitFor({ timeout: 30_000 });
+    // Play a little so the grid has spent icons, the score is non-zero and a
+    // star has been collected if the rolls allow — a HUD shot of all-defaults
+    // proves only that the defaults render.
+    await sleep(INTRO_MS + 400);
+    await page.keyboard.down('KeyJ');
+    await sleep(9000);
+    await page.keyboard.up('KeyJ');
+    await shot(page, `hud-${label}`);
+
+    // The board must not be behind the bar: in portrait the canvas starts
+    // below it, and the two boxes are disjoint in both orientations.
+    const boxes = await page.evaluate(() => {
+      const c = (
+        document.querySelector('canvas#game') as HTMLCanvasElement
+      ).getBoundingClientRect();
+      const h = (
+        document.querySelector('[data-hud="root"]') as HTMLElement
+      ).getBoundingClientRect();
+      return {
+        canvas: [c.left, c.top, c.width, c.height],
+        hud: [h.left, h.top, h.width, h.height],
+        overlap: Math.round(
+          Math.max(0, Math.min(c.right, h.right) - Math.max(c.left, h.left)) *
+            Math.max(0, Math.min(c.bottom, h.bottom) - Math.max(c.top, h.top)),
+        ),
+      };
+    });
+    results.hudDock[label] = boxes;
+    console.log(`  ${label}: overlap ${boxes.overlap} px²`);
+    await page.close();
+  }
+}
+
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   mkdirSync(join('docs', 'calibration'), { recursive: true });
@@ -521,12 +579,15 @@ async function main(): Promise<void> {
     loop: [],
     consoleErrors: [],
     highContrast: measureHighContrast(),
+    hudDock: {},
   };
 
   // Headed, like `capture-play`: headless Chromium renders through SwiftShader,
   // and a screenshot of a software rasteriser is not what anybody sees.
   const browser = await chromium.launch({ headless: false });
   try {
+    console.log('hud…');
+    await walkHud(browser, results);
     console.log('shell…');
     await walkShell(browser, results);
     console.log('tally…');
@@ -551,6 +612,13 @@ async function main(): Promise<void> {
     `worst player-vs-enemy separation: ${results.highContrast.worstOff} → ` +
       `${results.highContrast.worstOn} (×${results.highContrast.improvementFactor})`,
   );
+  console.table(results.hudDock);
+  for (const [label, box] of Object.entries(results.hudDock)) {
+    if (box.overlap > 0) {
+      console.error(`HUD overlaps the board in ${label}: ${box.overlap} px²`);
+      process.exitCode = 1;
+    }
+  }
   if (results.consoleErrors.length > 0) {
     console.error('\nconsole errors:', results.consoleErrors);
     process.exitCode = 1;
