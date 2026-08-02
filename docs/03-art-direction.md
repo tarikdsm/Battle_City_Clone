@@ -111,9 +111,13 @@ Shared proportions: tank footprint 16×16 u, height ~10 u. Parts: track blocks �
 
 | Preset | Effects |
 |---|---|
-| High | UnrealBloom (strength 0.55, radius 0.4, threshold 0.85) + SMAA + vignette 0.25 + grade (slight teal shadows / warm highlights); DPR ≤ 2; shadows on |
+| High | Selective bloom (strength 0.55, radius 0.4, **threshold 0.0** — see below) + SMAA + vignette 0.25 + grade (slight teal shadows / warm highlights); DPR ≤ 2; shadows on |
 | Medium | Bloom (0.4) + FXAA + vignette; DPR ≤ 1.5; shadows on (1024) |
 | Low | FXAA only; DPR 1; shadows off; lights pool halved; particle budgets halved |
+
+**Selection is done by layer, not by threshold** (measured, T2.5). The bloom source is a render of a dedicated emissive layer alone, with lights culled out — so only what is *put* on that layer can glow, and the threshold becomes redundant. It ships at **0.0** because the authored value of 0.85 was unreachable in either direction: emissive materials measure 0.512/0.497 linear in the source pass, while the brightest non-emissive pixel in a High frame reaches 0.817. A threshold-based selection would therefore have glowed almost nothing while sitting only 4% below a bright terrain highlight — the fragility §7 was warned about, quantified. Proof of the arrangement: with brick, steel, six tank bodies, a pulsing carrier and two bullets with tracers on screen and nothing on the layer, adding the bloom pass changes **0 pixels**.
+
+**Calibration measures the raw render, before the chain** — the chain is a strictly-after authored layer. All art §6 targets were re-measured *through* each preset and still pass: Low is bit-identical, Medium moves one probe (the frame, −2.3 pp, where the vignette reaches), High's worst is −2.47 pp. Recorded in `docs/calibration/lighting.json` (raw + one row per chain) and `docs/calibration/post.json`.
 
 ## 8. VFX event table (budgets are hard caps; pooled)
 
