@@ -845,15 +845,21 @@ export function createSfxPlayer(graph: AudioGraph, pool: VoicePool): SfxPlayer {
         note.gain = 0.5;
         layer('pulse25', when, dest, slot);
         // The spring: a fast rise with heavy vibrato, which is the whole joke.
+        // Filtered and shortened at the top on the measurement: unfiltered and
+        // sweeping to 1.5 kHz it was the brightest thing in the sound and the
+        // buzz underneath it disappeared, which made a stun read as a cartoon
+        // boing rather than as a tank that has stopped working.
         resetNote(note);
         note.pan = pan;
         note.freq = 300;
-        note.sweepToHz = 1500;
+        note.sweepToHz = 1100;
         note.sweepMs = 220;
         note.vibratoCents = 140;
         note.holdMs = 200;
         note.releaseMs = 140;
-        note.gain = 0.22;
+        note.filterType = 'lowpass';
+        note.filterHz = 2800;
+        note.gain = 0.18;
         layer('pulse50', when + 0.12, dest, null);
         break;
       }

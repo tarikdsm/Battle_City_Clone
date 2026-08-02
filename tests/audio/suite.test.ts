@@ -24,6 +24,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CLOCK_FILTER,
   MUSIC,
+  PAUSE_CHIRP,
   SUITE_L1_BARS,
   SUITE_L2_ENEMIES_ON_FIELD,
   SUITE_L3_ENEMIES_LEFT,
@@ -67,7 +68,6 @@ const MUSIC_IDS: readonly MusicId[] = [
   'tally',
   'gameover',
   'hiscore',
-  'pause',
 ];
 
 function game(players: 1 | 2 = 1): GameState {
@@ -117,11 +117,20 @@ describe('the music map (audio §4)', () => {
   it('only ever names instruments the §3 registry has', () => {
     // A typo in a track's `instrument` is a track that silently plays nothing,
     // and nothing else in the project would notice.
-    for (const id of MUSIC_IDS) {
-      for (const track of MUSIC[id].song.tracks) {
-        expect(PATCH_IDS, `${id}/${track.layer}`).toContain(track.instrument);
+    for (const piece of [...MUSIC_IDS.map((id) => MUSIC[id]), PAUSE_CHIRP]) {
+      for (const track of piece.song.tracks) {
+        expect(PATCH_IDS, track.layer).toContain(track.instrument);
       }
     }
+  });
+
+  it('keeps the pause chirp OUT of the music map', () => {
+    // Everything in `MUSIC` is played by `playMusic`, and `playMusic` routes to
+    // the music bus. The chirp has to survive a muted music slider, so the way
+    // it is kept off that bus is by not being spellable as music at all.
+    expect(Object.keys(MUSIC)).not.toContain('pause');
+    expect(PAUSE_CHIRP.loops).toBe(false);
+    expect(PAUSE_CHIRP.durationS).toBeLessThan(0.3);
   });
 
   it('uses audio §2s ppq and keeps every step inside its own loop', () => {
@@ -146,7 +155,7 @@ describe('the music map (audio §4)', () => {
     expect(MUSIC.suite.loops).toBe(true);
     expect(MUSIC.title.loops).toBe(true);
     expect(MUSIC.hiscore.loops).toBe(true);
-    for (const id of ['fanfare', 'tally', 'gameover', 'pause'] as const) {
+    for (const id of ['fanfare', 'tally', 'gameover'] as const) {
       expect(MUSIC[id].loops, id).toBe(false);
     }
   });
@@ -158,7 +167,7 @@ describe('the music map (audio §4)', () => {
     // Namco's original game-over runs 0:03.
     expect(MUSIC.gameover.durationS).toBeCloseTo(3.0, 6);
     // A chirp is a chirp: two notes and out.
-    expect(MUSIC.pause.durationS).toBeLessThan(0.3);
+    expect(PAUSE_CHIRP.durationS).toBeLessThan(0.3);
     // §4: "Stage clear / tally … 6 s".
     expect(MUSIC.tally.durationS).toBeCloseTo(6.0, 6);
   });
@@ -378,16 +387,52 @@ describe('the music driver', () => {
     audio.update(state, 16);
     expect(audio.stats().music).toBe('suite');
 
+    const before = fake.nodes('oscillator').length;
+
     state.paused = true;
     audio.update(state, 16);
-    expect(audio.stats().music).toBe('pause');
-    // …and the chirp is short, so the halt is the silence after it.
+    // Two things, not one: the chirp answers the button, and the music halts.
+    expect(fake.nodes('oscillator').length).toBe(before + 2);
+    expect(audio.stats().music).toBeNull();
+
     run(fake, audio, state, 0.5);
     expect(audio.stats().music).toBeNull();
 
     state.paused = false;
     audio.update(state, 16);
+    // …and it answers the button on the way out too, because a press that
+    // makes no sound reads as a press that was dropped.
+    expect(fake.nodes('oscillator').length).toBeGreaterThan(before + 2);
     expect(audio.stats().music).toBe('suite');
+    audio.dispose();
+  });
+
+  it('chirps on the SFX bus, so a muted music slider still answers the button', () => {
+    const { fake, audio } = rig();
+    const state = game();
+    state.phase = 'playing';
+    // The player has pulled the music slider to zero and kept the SFX.
+    audio.setVolumes({ music: 0, sfx: 0.8 });
+    audio.update(state, 16);
+    const graph = audio.graph;
+    if (graph === null) {
+      throw new Error('expected a graph');
+    }
+    const before = fake.nodes('oscillator').length;
+
+    state.paused = true;
+    audio.update(state, 16);
+
+    const fresh = fake.nodes('oscillator').slice(before);
+    expect(fresh).toHaveLength(2); // E6 and A6
+    for (const osc of fresh) {
+      // On the SFX bus, which is at 0.8 …
+      expect(fake.reaches(osc, fakeGain(graph.sfxBus))).toBe(true);
+      // … and nowhere near the music bus, which is at 0.
+      expect(fake.reaches(osc, fakeGain(graph.musicBus))).toBe(false);
+    }
+    expect(fakeGain(graph.sfxBus).gain.value).toBeCloseTo(0.8, 9);
+    expect(fakeGain(graph.musicBus).gain.value).toBe(0);
     audio.dispose();
   });
 

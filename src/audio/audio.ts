@@ -52,15 +52,20 @@ import { createSfxPlayer, type SfxId, type SfxPlayer } from './sfx';
 import { fanfare } from './songs/fanfare';
 import { gameover } from './songs/gameover';
 import { hiscore } from './songs/hiscore';
-import { pause as pauseJingle } from './songs/pause';
+import { pauseChirp } from './songs/pause';
 import { SUITE_LAYERS, suite, type SuiteLayer } from './songs/suite';
 import { tally } from './songs/tally';
 import { title } from './songs/title';
 import {
+  createNote,
   createSynthRuntime,
   createVoiceSlot,
   dbToGain,
+  midiToFreq,
+  playNote,
+  resetNote,
   stopVoice,
+  type Note,
   type SynthRuntime,
   type VoiceSlot,
 } from './synth';
@@ -606,9 +611,15 @@ export function createAudioGraph(
 // ---------------------------------------------------------------------------
 
 export type MusicId =
-  'title' | 'fanfare' | 'suite' | 'tally' | 'gameover' | 'hiscore' | 'pause';
+  'title' | 'fanfare' | 'suite' | 'tally' | 'gameover' | 'hiscore';
 
-/** Audio §4's music map. Every piece is note data; nothing here is a file. */
+/**
+ * Audio §4's music map. Every piece is note data; nothing here is a file.
+ *
+ * The pause chirp is §4's seventh entry and is **not** here, because everything
+ * in this map is played by `playMusic` onto the music bus and the chirp must
+ * survive a muted music slider — see {@link PAUSE_CHIRP}.
+ */
 export const MUSIC: Readonly<Record<MusicId, MusicPiece>> = Object.freeze({
   title,
   fanfare,
@@ -616,8 +627,57 @@ export const MUSIC: Readonly<Record<MusicId, MusicPiece>> = Object.freeze({
   tally,
   gameover,
   hiscore,
-  pause: pauseJingle,
 });
+
+/**
+ * Audio §4's pause jingle, played on the **SFX** bus.
+ *
+ * A pause chirp is UI feedback, not music: silence in answer to a button press
+ * reads as a dropped input rather than as a muted soundtrack, so a player who
+ * has pulled the music slider to zero still has to hear it. Kept out of
+ * {@link MUSIC} so it cannot be routed onto the music bus by accident.
+ */
+export const PAUSE_CHIRP: MusicPiece = pauseChirp;
+
+/** One reused note record for {@link playPiece}. */
+const uiNote: Note = createNote();
+
+/**
+ * Plays a short piece of note data **directly**, without the sequencer.
+ *
+ * The sequencer exists to keep a long piece in sync with a clock over minutes;
+ * a two-note chirp needs none of that, and routing it through the sequencer
+ * would also pin it to the sequencer's one destination — the music bus, which
+ * is the whole thing the pause chirp must not depend on.
+ *
+ * The whole piece is scheduled up front, so it is correct on an
+ * `OfflineAudioContext` too. Voices are unpooled: a UI cue that can be stolen
+ * by a busy board is a UI cue that sometimes does not answer the button.
+ */
+export function playPiece(
+  synth: SynthRuntime,
+  music: MusicPiece,
+  dest: AudioNode,
+  when: number,
+): void {
+  const spt = secondsPerTick(music.song.bpm);
+  for (const track of music.song.tracks) {
+    for (const step of track.steps) {
+      resetNote(uiNote);
+      uiNote.freq = midiToFreq(step[1]);
+      uiNote.vel = step[3];
+      uiNote.holdMs = step[2] * spt * 1000;
+      playNote(
+        synth,
+        track.instrument,
+        uiNote,
+        when + step[0] * spt,
+        dest,
+        null,
+      );
+    }
+  }
+}
 
 /** Audio §4: "L1 groove … enters after 2 bars". */
 export const SUITE_L1_BARS = 2;
@@ -956,11 +1016,13 @@ export function createAudio(opts: AudioOptions = {}): AudioSystem {
 
     if (state.paused !== wasPaused) {
       wasPaused = state.paused;
+      // Audio §4: "faithful two-note pause chirp; music halts while paused" —
+      // and they are two actions, deliberately. The chirp answers the button on
+      // the SFX bus, so it is still there when the music slider is at zero;
+      // halting the music is its own line right under it.
+      playPiece(graph.synth, PAUSE_CHIRP, graph.sfxBus, now);
       if (state.paused) {
-        // Audio §4: "faithful two-note pause chirp; music halts while paused".
-        // One action, not two: the chirp REPLACES the suite, and because it is
-        // a one-shot the silence after it is the halt.
-        playMusic('pause');
+        stopMusic();
       } else if (state.phase === 'playing') {
         playMusic('suite');
       }

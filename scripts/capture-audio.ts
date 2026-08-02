@@ -84,12 +84,13 @@ const CLIPS: readonly Clip[] = [
   { name: 'powerup-pickup', seconds: 1.4, note: 'audio §5 powerupPickup: major-triad bell arp + shimmer tail' }, // prettier-ignore
   { name: 'extra-life', seconds: 1.6, note: 'audio §5 extraLife: the rising jingle' }, // prettier-ignore
   { name: 'duck-probe', seconds: 3.0, note: 'a steady music tone with the baseExplode duck fired at 0.8 s and NO boom — the duck depth, measurable' }, // prettier-ignore
+  { name: 'stun-buzz', seconds: 1.2, note: 'audio 5 stunBuzz: the wobble buzz and its comedic spring - the row the T5.1 report was least sure of' }, // prettier-ignore
   { name: 'skirmish', seconds: 6.0, note: 'a scripted 6 s of play over the engine hum: the only clip where the mix is audible' }, // prettier-ignore
 
   // --- T5.3: the music map (audio 4) and the faithfulness ledger (7) ------
   { name: 'music-fanfare', seconds: 3.0, note: 'audio 7 FAITHFUL: the stage-intro fanfare. One bar at 120 BPM = 2.000 s, ending on the downbeat of the suite; the tail rings past it' }, // prettier-ignore
   { name: 'music-gameover', seconds: 4.5, note: 'audio 7 FAITHFUL: the game-over motif. A doubled descent over i-VII-VI-V that stops on the dominant, unresolved' }, // prettier-ignore
-  { name: 'music-pause', seconds: 1.0, note: 'audio 7 FAITHFUL: the two-note pause chirp, E6 to A6' }, // prettier-ignore
+  { name: 'pause-chirp', seconds: 1.0, note: 'audio 7 FAITHFUL: the two-note pause chirp, E6 to A6 - on the SFX bus, so a muted music slider still answers the button' }, // prettier-ignore
   { name: 'music-title', seconds: 12.0, note: 'audio 4 NEW: the title theme, first eight bars. Opens on the fanfare motif with the third flattened' }, // prettier-ignore
   { name: 'music-tally', seconds: 7.0, note: 'audio 4 NEW: the stage-clear jingle. F-G-C climbing, the game-over descent answered' }, // prettier-ignore
   { name: 'music-hiscore', seconds: 8.0, note: 'audio 4 NEW: the high-score bell loop, first four bars' }, // prettier-ignore
@@ -410,8 +411,15 @@ async function installAudioHarness(): Promise<void> {
         case 'music-gameover':
           music(audioMod.MUSIC.gameover, seconds);
           break;
-        case 'music-pause':
-          music(audioMod.MUSIC.pause, seconds);
+        case 'pause-chirp':
+          // NOT through the sequencer and NOT onto the music bus: this is the
+          // routing the whole ruling is about, so the clip renders the real one.
+          audioMod.playPiece(
+            graph.synth,
+            audioMod.PAUSE_CHIRP,
+            graph.sfxBus,
+            0.02,
+          );
           break;
         case 'music-title':
           music(audioMod.MUSIC.title, seconds);
@@ -469,6 +477,9 @@ async function installAudioHarness(): Promise<void> {
           break;
         case 'brick-hit':
           player.trigger('brickHit', 0, 1, 0.02);
+          break;
+        case 'stun-buzz':
+          player.trigger('stunBuzz', 0, 1, 0.02);
           break;
         case 'steel-break':
           player.trigger('steelBreak', 0, 1, 0.02);
