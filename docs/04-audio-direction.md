@@ -21,7 +21,7 @@
 
 | Patch | Recipe (ADSR in ms) |
 |---|---|
-| `pulse50 / pulse25 / pulse12` | square via wave-shaper duty; vibrato 6 Hz ±10 cents optional; A5 D40 S0.7 R60 |
+| `pulse50 / pulse25 / pulse12` | square via **`PeriodicWave`** (measured, T5.1: a wave-shaper aliases audibly at 12.5% duty); vibrato 6 Hz ±10 cents optional; A5 D40 S0.7 R60 |
 | `triBass` | triangle osc + `subSine` one octave down at −12 dB; A5 D30 S0.9 R80 |
 | `kick` | sine pitch-swept 150→48 Hz over 90 ms + click transient; A0 D90 |
 | `snare` | white noise bandpass 1.8 kHz + 200 Hz sine body 60 ms |
@@ -78,7 +78,7 @@ Rules: layers fade in/out over 250 ms on state change (recomputed from `GameEven
 | shovelClank | 3 hammer clanks; reverse-sweep warning at blink phase | high | 1 |
 | extraLife | rising jingle (faithful spirit) | top | 1 |
 | stunBuzz | wobble buzz 300 ms + comedic spring | med | 1 |
-| engineIdle / engineMove | the classic two-note buzz: pulse12 alternating semitone at 8 Hz; pitch +0…+3 st with speed; per-player, always audible while alive (quiet) | low | 2 |
+| engineIdle / engineMove | the classic buzz: pulse12 alternating a semitone at 8 Hz; pitch +0…+3 st with speed; per-player, always audible while alive (quiet) | low | 2 |
 | iceSlide | filtered noise whoosh, gain ∝ slide speed | low | 2 |
 | treeRustle | short leaf-noise chiff | low | 2 |
 | uiMove / uiSelect / uiBack | pulse blip / bell confirm / low blip | med | 2 |
@@ -88,7 +88,8 @@ Retrigger guard: identical SFX ≥ 30 ms apart; beyond poly cap, steal the oldes
 
 ## 6. Mix
 
-- Targets: music bed ~−16 LUFS-ish under gameplay, SFX peaks −6 dB below limiter ceiling; master limiter −1 dBTP.
+- Targets: music bed ~−16 LUFS-ish under gameplay, SFX peaks −6 dB below limiter ceiling; master ceiling −1 dB. **Web Audio has no true-peak limiter** (T5.1), so this ships as a brick-wall compressor with peaks *measured* in `docs/calibration/audio.json` rather than a dBTP guarantee.
+- **The engine hum reads as roughness, not two distinguishable pitches** — a semitone alternating at 8 Hz gives a modulation index of 0.41, which the ear resolves as timbre. That is correct and matches the NES; "two-note" in §5 describes the construction, not the percept. Measured duck: **−11.99 dB** against the −12 target, recovering to −0.13 dB.
 - Ducking matrix: baseExplode → all −12 dB, 1.2 s, 400 ms release; playerExplode → music −6 dB, 400 ms; clockFreeze → music lowpassed (no gain duck).
 - Stereo: subtle SFX pan by world x (±0.35 max); music mostly center with pad width.
 - Everything through the shared compressor so the mix "breathes" as one.
