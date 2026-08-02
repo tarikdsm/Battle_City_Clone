@@ -1,0 +1,24 @@
+{
+  "builtAt": "2026-08-02T18:05:44.741Z",
+  "chunks": [
+    {
+      "file": "index-BxAt7F2q.js",
+      "bytes": 815895
+    },
+    {
+      "file": "editor-tdg213vo.js",
+      "bytes": 13854
+    }
+  ],
+  "entry": {
+    "file": "index-BxAt7F2q.js",
+    "bytes": 815895
+  },
+  "editor": {
+    "file": "editor-tdg213vo.js",
+    "bytes": 13854
+  },
+  "editorShareOfEntry": "1.7%",
+  "entryMentionsEditorSource": false,
+  "entryReferencesEditorChunk": true
+}

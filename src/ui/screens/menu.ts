@@ -27,8 +27,6 @@ export interface MenuScreenOptions {
   audio?: AudioSystem | null;
 }
 
-const PHASE_8 = 'Arrives with the construction mode.';
-
 export function menuItems(): MenuItem[] {
   return [
     { kind: 'action', id: 'campaign', label: 'Campaign' },
@@ -43,15 +41,14 @@ export function menuItems(): MenuItem[] {
       kind: 'action',
       id: 'construction',
       label: 'Construction',
-      disabled: true,
-      hint: PHASE_8,
+      hint: 'Build a stage of your own.',
     },
     {
       kind: 'action',
       id: 'custom',
       label: 'Custom stage',
       disabled: true,
-      hint: PHASE_8,
+      hint: 'Arrives with saving and sharing.',
     },
     { kind: 'action', id: 'scores', label: 'High scores' },
     { kind: 'action', id: 'settings', label: 'Settings' },

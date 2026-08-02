@@ -41,7 +41,12 @@ import {
 import { parseDebugFlags } from './debug';
 import { createErrorRail, createErrorScreen } from './errorScreen';
 import { loadSettings, saveSettings, type SettingsV1 } from './storage';
-import { createScreenMachine, OVERLAY_STYLE, type Screen } from './screens';
+import {
+  createLazyScreen,
+  createScreenMachine,
+  OVERLAY_STYLE,
+  type Screen,
+} from './screens';
 import type { LevelData } from '../core/types';
 import { createAudio } from '../audio/audio';
 import {
@@ -195,6 +200,17 @@ let session: Session | null = null;
 let pendingEntry: { score: number; stage: number; playerIndex: 0 | 1 } | null =
   null;
 
+/**
+ * The stage being built in the construction mode, or `null`.
+ *
+ * It lives up here because it has to outlive the editor *screen*: a test-play
+ * tears the editor down to give the board its GL context back, and the draft
+ * has to be there on the way in. Typed as `LevelData` rather than held inside
+ * the editor's own module so this file stays the composition root and the
+ * editor chunk stays reachable only through the dynamic import below.
+ */
+let editorDraft: LevelData | null = null;
+
 const play = createPlayScreen({
   canvas,
   quality: settled ?? PROBE_QUALITY,
@@ -304,9 +320,43 @@ screens.register(
         screens.show('settings');
         return;
       }
-      // The three Phase 8 entries are disabled rows and never reach here.
+      if (choice === 'construction') {
+        // Through the hash, not straight to the screen: `#editor` is the route
+        // (arch §9), so the back button and a shared link land in the same
+        // place the menu row does, and there is one code path instead of two.
+        window.location.hash = '#editor';
+        return;
+      }
+      // The remaining Phase 8 entries are disabled rows and never reach here.
     },
   }),
+);
+
+/**
+ * The editor, fetched the first time it is opened.
+ *
+ * The dynamic `import()` is the whole code-split: nothing above this line
+ * mentions `src/editor/` or `ui/screens/editor.ts`, so Rollup gives the
+ * construction mode a chunk of its own and a player who never opens it never
+ * downloads it. The boot panel stands in while the chunk is in flight.
+ */
+screens.register(
+  'editor',
+  createLazyScreen(
+    async () =>
+      (await import('../ui/screens/editor')).createEditorScreen({
+        audio,
+        onDraftChanged: (level) => {
+          // Held here rather than inside the editor module, so a test-play can
+          // tear the screen down and hand the same draft back on the way in.
+          editorDraft = level;
+        },
+        onExit: () => {
+          leaveEditor();
+        },
+      }),
+    createBootScreen(),
+  ),
 );
 
 screens.register(
@@ -481,6 +531,54 @@ function toMenu(focus?: string): void {
   audio.stopMusic();
 }
 
+// --- the #editor route (arch §9) --------------------------------------------
+
+const EDITOR_HASH = '#editor';
+
+/**
+ * Show the editor if the URL asks for it. Returns whether it did.
+ *
+ * The draft travels as the screen's params, so re-entering after a test-play
+ * resumes the field the author left rather than a blank one.
+ */
+function applyRoute(): boolean {
+  if (window.location.hash !== EDITOR_HASH) {
+    return false;
+  }
+  session = null;
+  audio.stopMusic();
+  screens.show('editor', editorDraft);
+  return true;
+}
+
+/**
+ * Leave the construction mode.
+ *
+ * `replaceState` rather than `location.hash = ''`: assigning an empty hash
+ * leaves a bare `#` in the address bar *and* pushes a history entry, so the
+ * back button would walk the player through every visit to the editor. It also
+ * fires no `hashchange`, which is what keeps this from re-entering itself
+ * through the listener below.
+ */
+function leaveEditor(): void {
+  window.history.replaceState(
+    null,
+    '',
+    window.location.pathname + window.location.search,
+  );
+  toMenu('construction');
+}
+
+window.addEventListener('hashchange', () => {
+  if (applyRoute()) {
+    return;
+  }
+  if (screens.current() === 'editor') {
+    // The player used the back button rather than the Back row.
+    toMenu('construction');
+  }
+});
+
 /**
  * Put a run's current stage on the board and announce it.
  *
@@ -544,7 +642,11 @@ function applySettings(next: SettingsV1): void {
 
 // --- boot into the flow -----------------------------------------------------
 
-if (debug.stage !== undefined) {
+if (applyRoute()) {
+  // `#editor` — a bookmark, a shared link, or a reload from inside the editor.
+  // Checked first: a route is the player's explicit destination, and it should
+  // not be overridden by a debug flag left in the query string.
+} else if (debug.stage !== undefined) {
   // `?stage=` means "put me on the board at stage N" — the path the capture
   // scripts and the calibration harnesses drive. Dev-only: `parseDebugFlags`
   // returns all-inert flags in a production bundle.

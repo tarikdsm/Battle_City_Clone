@@ -601,3 +601,341 @@
   outline: 2px solid var(--bc-cyan);
   outline-offset: -1px;
 }
+
+/* --- construction mode (arch §9) ---------------------------------------- */
+
+/*
+  The one screen that is not a narrow column: a 13x13 field next to its tools
+  needs the width, and an author scrolling between the brush and the board
+  would be an editor nobody wants to spend twelve stages in.
+*/
+.bc-screen[data-screen='editor'] .bc-panel {
+  width: min(72rem, 100%);
+}
+
+.bc-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+/*
+  The field. `aspect-ratio` plus a viewport-relative cap keeps it square at
+  every size — a rectangular field would misrepresent the tiles an author is
+  placing, which is the one thing this surface must not do.
+*/
+.bc-editor-field {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  width: min(30rem, 100%);
+  aspect-ratio: 1;
+  gap: 0;
+  background: var(--bc-board);
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  overflow: hidden;
+  touch-action: none; /* a drag paints; it does not scroll the panel */
+  cursor: crosshair;
+}
+
+.bc-tile {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  box-shadow: inset 0 0 0 1px rgb(38 43 61 / 55%);
+}
+
+/* Spawn tiles, the eagle and its ring: hatched, so "reserved" is visible
+   before the brush refuses rather than after. */
+.bc-tile.is-reserved {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(139 147 167 / 16%) 0 3px,
+    transparent 3px 6px
+  );
+  cursor: not-allowed;
+}
+
+.bc-sub {
+  display: block;
+}
+
+.bc-sub.is-brick {
+  background: #c1663f;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 28%);
+}
+
+.bc-sub.is-steel {
+  background: #c9ccd6;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 28%);
+}
+
+.bc-sub.is-water {
+  background: #2b6fb5;
+}
+
+.bc-sub.is-trees {
+  background: #3f9d54;
+}
+
+.bc-sub.is-ice {
+  background: #9fd8ea;
+}
+
+.bc-sub.is-eagle {
+  background: var(--bc-gold);
+}
+
+/* The cursor lands on a tile or on a single subcell, depending on the mode —
+   which is also how the mode is legible without reading the button. */
+.bc-tile.is-cursor,
+.bc-sub.is-cursor {
+  outline: 2px solid var(--bc-cyan);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.bc-editor-side {
+  flex: 1 1 20rem;
+  min-width: 17rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.bc-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bc-editor-heading {
+  margin: 0;
+  font-family: var(--bc-font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-note {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-modes,
+.bc-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.bc-editor-mode,
+.bc-editor-action,
+.bc-editor-brush,
+.bc-editor-slot {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--bc-text);
+  background: rgb(38 43 61 / 35%);
+  border: 1px solid var(--bc-border);
+  border-radius: 5px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  transition:
+    background var(--bc-transition) ease-out,
+    border-color var(--bc-transition) ease-out;
+}
+
+.bc-editor-mode:hover,
+.bc-editor-action:hover,
+.bc-editor-brush:hover,
+.bc-editor-slot:hover {
+  background: rgb(127 196 255 / 12%);
+}
+
+.bc-editor-mode.is-active,
+.bc-editor-brush.is-active {
+  background: rgb(255 215 107 / 14%);
+  border-color: rgb(255 215 107 / 55%);
+  color: var(--bc-gold);
+}
+
+.bc-editor-mode:focus-visible,
+.bc-editor-action:focus-visible,
+.bc-editor-brush:focus-visible,
+.bc-editor-slot:focus-visible,
+.bc-editor-text:focus-visible {
+  outline: 2px solid var(--bc-cyan);
+  outline-offset: 1px;
+}
+
+.bc-editor-palette {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.bc-editor-brush {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: left;
+}
+
+/* Water, trees and ice have no half-tiles (content §1): the palette says so
+   while half-tile mode is on, instead of the brush refusing after the click. */
+.bc-editor-brush.is-whole-only {
+  opacity: 0.42;
+}
+
+.bc-editor-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 2px;
+  border: 1px solid rgb(38 43 61 / 90%);
+  background: rgb(16 18 27 / 90%);
+  flex: 0 0 auto;
+}
+
+/* The swatch shows the material, not a generic chip: a palette whose entries
+   all look alike is a palette you have to read every time. Empty keeps the
+   board colour, which is what erasing leaves behind. */
+.bc-editor-swatch.is-brick {
+  background: #c1663f;
+}
+
+.bc-editor-swatch.is-steel {
+  background: #c9ccd6;
+}
+
+.bc-editor-swatch.is-water {
+  background: #2b6fb5;
+}
+
+.bc-editor-swatch.is-trees {
+  background: #3f9d54;
+}
+
+.bc-editor-swatch.is-ice {
+  background: #9fd8ea;
+}
+
+.bc-editor-brush-label {
+  flex: 1 1 auto;
+}
+
+.bc-editor-brush kbd {
+  font-family: var(--bc-font-mono);
+  font-size: 0.62rem;
+  color: var(--bc-text-off);
+}
+
+.bc-editor-textrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-textlabel {
+  flex: 0 0 3.5rem;
+}
+
+.bc-editor-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--bc-text);
+  background: rgb(10 11 16 / 70%);
+  border: 1px solid var(--bc-border);
+  border-radius: 4px;
+  padding: 0.3rem 0.45rem;
+}
+
+.bc-editor-wave {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.3rem;
+}
+
+.bc-editor-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.3rem 0.15rem;
+  font-size: 0.66rem;
+  position: relative;
+}
+
+.bc-editor-slot-n {
+  font-family: var(--bc-font-display);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6rem;
+  color: var(--bc-text-off);
+}
+
+/* A carrier slot is a rule, not a setting: it is marked, its type is still
+   the author's, and there is no control anywhere that moves the marker. */
+.bc-editor-slot.is-carrier {
+  border-color: rgb(255 215 107 / 60%);
+  background: rgb(255 215 107 / 10%);
+}
+
+.bc-editor-slot-carrier {
+  font-family: var(--bc-font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bc-gold);
+}
+
+.bc-editor-slot[data-type='fast'] .bc-editor-slot-type {
+  color: #7fd695;
+}
+
+.bc-editor-slot[data-type='power'] .bc-editor-slot-type {
+  color: #7fc4ff;
+}
+
+.bc-editor-slot[data-type='armor'] .bc-editor-slot-type {
+  color: #e2a04a;
+}
+
+.bc-editor-status {
+  margin: 0;
+  min-height: 1.1rem;
+  font-size: 0.76rem;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-status.is-warning {
+  color: var(--bc-gold);
+}
+
+.bc-editor-errors {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
+.bc-editor-error {
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--bc-danger);
+}
+
+.bc-editor-errors.is-ok .bc-editor-error {
+  color: var(--bc-p2);
+}

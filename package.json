@@ -25,7 +25,8 @@
     "capture:fx": "tsx scripts/capture-fx.ts",
     "capture:audio": "tsx scripts/capture-audio.ts",
     "capture:ui": "tsx scripts/capture-ui.ts",
-    "capture:campaign": "tsx scripts/capture-campaign.ts"
+    "capture:campaign": "tsx scripts/capture-campaign.ts",
+    "capture:editor": "tsx scripts/capture-editor.ts"
   },
   "dependencies": {
     "three": "0.185.1"
