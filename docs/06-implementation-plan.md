@@ -395,11 +395,11 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 7 — Content: original 35 (Lane C after G1 for T7.1; T7.2–4 parallelizable, disjoint files)
 
-### - [ ] T7.1 Level tooling & validation suite
+### - [x] T7.1 Level tooling & validation suite
 **Files:** create `scripts/level-preview.ts` (ASCII contact sheet: all levels → `docs/assets/level-contact-sheet.txt`, includes openness metric per content §4), extend `tests/levels/schema.test.ts` with completability check (BFS from each spawn over non-blocking tiles reaches ≥40% of field).
 **Spec:** content §2.2, §4. **Commit:** `feat(levels): preview tooling and completability validation`
 
-### - [ ] T7.2 / T7.3 / T7.4 Transcribe stages 1–12 / 13–24 / 25–35
+### - [x] T7.2 / T7.3 / T7.4 Transcribe stages 1–12 / 13–24 / 25–35
 **Files:** create `src/levels/original/stageNN.json` for the range (replacing T3.2's provisional stage01 in T7.2).
 **Spec:** content §2 (sources + protocol). Each stage: terrain rows + partials (half-tiles!) + 20-enemy composition from the cited FAQs (WebFetch; if a source 403s, report to orchestrator who fetches/mirrors).
 **Process per stage:** transcribe → `npm run levels:preview` → self-check against source → validation tests green. After the batch: orchestrator dispatches an **independent verifier agent** (sees only JSON + sources) whose diff report must be clean before the gate.
