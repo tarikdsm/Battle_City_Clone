@@ -36,6 +36,85 @@ test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });
 
+test('reframes: a resize re-fits the board area and keeps the HUD docked', async ({
+  page,
+}) => {
+  // The guard for a class of bug that cost a Gate G2 round: a board that frames
+  // correctly on a fresh load but not after a resize. The reported instance
+  // turned out to be an artifact of the reviewer's viewer rather than a defect
+  // — the same sequence in real Chromium renders correctly — but the failure
+  // mode is real enough to be worth a permanent test, and a fresh-load-only
+  // suite structurally cannot see it.
+  //
+  // Scope note: this asserts the LAYOUT contract, which is all a Playwright
+  // test can reach — the canvas has no `preserveDrawingBuffer`, so pixels are
+  // not readable after presentation. The pixel-level assertion (board fill
+  // fraction after a resize must match a fresh load at the same size, ±0.01)
+  // lives in `npm run capture:play`, rows 6–8, which reads back inside the
+  // frame and is mutation-checked.
+  test.setTimeout(60_000);
+  const consoleErrors = watchErrors(page);
+
+  const box = async (): Promise<{
+    canvas: { x: number; y: number; w: number; h: number };
+    hud: { x: number; y: number; w: number; h: number };
+    overlap: number;
+    viewport: { w: number; h: number };
+  }> =>
+    page.evaluate(() => {
+      const c = (
+        document.querySelector('canvas#game') as HTMLCanvasElement
+      ).getBoundingClientRect();
+      const h = (
+        document.querySelector('[data-hud="root"]') as HTMLElement
+      ).getBoundingClientRect();
+      return {
+        canvas: { x: c.left, y: c.top, w: c.width, h: c.height },
+        hud: { x: h.left, y: h.top, w: h.width, h: h.height },
+        overlap:
+          Math.max(0, Math.min(c.right, h.right) - Math.max(c.left, h.left)) *
+          Math.max(0, Math.min(c.bottom, h.bottom) - Math.max(c.top, h.top)),
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      };
+    });
+
+  await page.setViewportSize({ width: 640, height: 460 });
+  await page.goto('/?quality=low&seed=20260802');
+  await expect(hud(page, 'root')).toBeVisible();
+  await page.waitForTimeout(1200);
+
+  const small = await box();
+  expect(small.overlap, 'HUD overlaps the board at 640x460').toBe(0);
+  // The canvas takes the viewport minus whatever the HUD docks — landscape here,
+  // so the dock is on the right and the canvas keeps the full height.
+  expect(Math.round(small.canvas.w + small.hud.w)).toBe(small.viewport.w);
+  expect(Math.round(small.canvas.h)).toBe(small.viewport.h);
+
+  // …and again after a resize, which is the path a fresh load never exercises.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(1200);
+
+  const large = await box();
+  expect(large.overlap, 'HUD overlaps the board after the resize').toBe(0);
+  expect(Math.round(large.canvas.w + large.hud.w)).toBe(large.viewport.w);
+  expect(Math.round(large.canvas.h)).toBe(large.viewport.h);
+  // The canvas really did grow — a stale fit would leave it at the old size
+  // while the HUD moved to the new right edge, which is how the phantom looked.
+  expect(large.canvas.w).toBeGreaterThan(small.canvas.w);
+  expect(large.canvas.h).toBeGreaterThan(small.canvas.h);
+
+  // Still drawing after the reframe.
+  const canvas = page.locator('canvas#game');
+  const before = await canvas.screenshot();
+  await page.waitForTimeout(600);
+  expect(
+    Buffer.compare(before, await canvas.screenshot()),
+    'canvas stopped drawing after the resize',
+  ).not.toBe(0);
+
+  expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+});
+
 test('plays: scripted keys drive a live stage with a live HUD', async ({
   page,
 }) => {
