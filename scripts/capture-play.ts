@@ -59,15 +59,29 @@ const VIEWPORTS: readonly {
   h: number;
   dpr: number;
   quality: Quality;
+  /** Resize AFTER load, then measure. The path a fresh load never exercises. */
   resizeTo?: [number, number];
+  /** Background the tab, front it again, then measure. */
+  visibility?: boolean;
 }[] = [
+  // Fresh loads. These also become the baselines the trigger rows are
+  // compared against, so every size below appears here first.
   { w: 1600, h: 900, dpr: 1, quality: 'high' },
   { w: 1280, h: 720, dpr: 1.5, quality: 'low' },
   { w: 770, h: 587, dpr: 1.5, quality: 'low' },
   { w: 1024, h: 1024, dpr: 1, quality: 'medium' },
   { w: 480, h: 900, dpr: 2, quality: 'low' }, // portrait: HUD docks to the bottom
   { w: 1200, h: 400, dpr: 1, quality: 'medium' }, // letterbox
+  // Trigger rows. A fresh load runs the init path; these run the paths that
+  // only exist *after* first layout, which is where a framing regression can
+  // hide from a sweep that only ever loads clean.
+  // dpr and quality are matched to the fresh row at the DESTINATION size, so
+  // every trigger row has a baseline to be held against.
   { w: 770, h: 587, dpr: 1.5, quality: 'low', resizeTo: [1280, 720] },
+  { w: 1600, h: 900, dpr: 1, quality: 'medium', resizeTo: [1024, 1024] },
+  { w: 1280, h: 720, dpr: 2, quality: 'low', resizeTo: [480, 900] }, // landscape → portrait
+  { w: 1280, h: 720, dpr: 1.5, quality: 'low', visibility: true },
+  { w: 1600, h: 900, dpr: 1, quality: 'high', visibility: true },
 ];
 
 /**
@@ -101,6 +115,13 @@ const EXPECT = {
   maxCenterOffsetX: 3,
   maxCenterOffsetYFrac: 0.06,
   maxHudOverlapPx2: 0,
+  /**
+   * How far a RESIZED or RE-FRONTED viewport may drift from a fresh load of the
+   * same size. Effectively zero: the init path and the post-layout paths run
+   * the same `applyViewport`, so they must agree exactly, and the tolerance is
+   * here only to absorb an antialiased edge pixel.
+   */
+  maxFillDrift: 0.01,
 };
 
 interface FrameSample {
@@ -144,6 +165,9 @@ interface Results {
     hudOverlapPx2: number;
     board: BoardBox | null;
     boardAspect: number;
+    /** Fill of a fresh load at the same size, for the triggered rows. */
+    baselineFill: number | null;
+    matchesBaseline: boolean;
     pass: boolean;
   }[];
   /**
@@ -386,10 +410,14 @@ async function newInstrumentedPage(
   results: Results,
   size?: { width: number; height: number; dpr: number },
 ): Promise<Page> {
-  const page = await browser.newPage({
+  // An explicit context, not `browser.newPage()`: the implicit context that
+  // creates refuses a second page, and the visibility rows need a scratch tab
+  // to front in order to background the game.
+  const context = await browser.newContext({
     viewport: { width: size?.width ?? W, height: size?.height ?? H },
     deviceScaleFactor: size?.dpr ?? 1,
   });
+  const page = await context.newPage();
   page.on('pageerror', (e) => {
     results.consoleErrors.push(`pageerror: ${e.message}`);
   });
@@ -513,6 +541,12 @@ async function measure(
  * would have called it green.
  */
 async function sweep(browser: Browser, results: Results): Promise<void> {
+  // Fresh-load fill per final size, so a trigger row can be held against a
+  // clean load of the SAME size rather than against a hand-written constant.
+  const baselines = new Map<string, number>();
+  const key = (w: number, h: number, dpr: number, q: string): string =>
+    `${w}x${h}@${dpr} ${q}`;
+
   for (const v of VIEWPORTS) {
     const page = await newInstrumentedPage(browser, results, {
       width: v.w,
@@ -530,7 +564,20 @@ async function sweep(browser: Browser, results: Results): Promise<void> {
         width: v.resizeTo[0],
         height: v.resizeTo[1],
       });
-      await sleep(1200);
+      await sleep(1500);
+    }
+
+    // Background the tab and front it again. No size changes at all — this
+    // exercises the path where the drawing buffer can be released and
+    // reallocated underneath the renderer while nothing tells it to resize.
+    if (v.visibility) {
+      const other = await page.context().newPage();
+      await other.goto('about:blank');
+      await other.bringToFront();
+      await sleep(3000);
+      await page.bringToFront();
+      await sleep(2000);
+      await other.close();
     }
 
     await page.evaluate(() => {
@@ -559,23 +606,39 @@ async function sweep(browser: Browser, results: Results): Promise<void> {
     });
     await page.close();
 
-    const size = v.resizeTo
-      ? `${v.resizeTo[0]}x${v.resizeTo[1]}`
-      : `${v.w}x${v.h}`;
+    const [fw, fh] = v.resizeTo ?? [v.w, v.h];
+    const k = key(fw, fh, v.dpr, v.quality);
+    const trigger = v.resizeTo ? 'resized' : v.visibility ? 'refronted' : null;
     const aspect = box === null ? 0 : box.rect[2] / box.rect[3];
+    const fill = box === null ? 0 : Math.max(box.fillW, box.fillH);
+
+    // A fresh load of this size is the baseline; a triggered row must match it.
+    // This is the check a load-only sweep cannot make, and it is the one that
+    // would have caught a resize path that framed differently from init.
+    const baseline = baselines.get(k);
+    if (trigger === null) {
+      baselines.set(k, fill);
+    }
+    const matchesBaseline =
+      baseline === undefined ||
+      Math.abs(fill - baseline) <= EXPECT.maxFillDrift;
+
     results.viewports.push({
-      label: `${size}@${v.dpr}${v.resizeTo ? ' (resized)' : ''} ${v.quality}`,
+      label: `${fw}x${fh}@${v.dpr}${trigger ? ` (${trigger})` : ''} ${v.quality}`,
       ...layout,
       board: box,
       boardAspect: +aspect.toFixed(4),
+      baselineFill: baseline ?? null,
+      matchesBaseline,
       pass:
         box !== null &&
-        Math.max(box.fillW, box.fillH) >= EXPECT.minLimitingFill &&
+        fill >= EXPECT.minLimitingFill &&
         Math.abs(aspect - EXPECT.boardAspect) <= EXPECT.boardAspectTol &&
         Math.abs(box.centerOffsetX) <= EXPECT.maxCenterOffsetX &&
         Math.abs(box.centerOffsetY) <=
           EXPECT.maxCenterOffsetYFrac * box.buffer[1] &&
-        layout.hudOverlapPx2 <= EXPECT.maxHudOverlapPx2,
+        layout.hudOverlapPx2 <= EXPECT.maxHudOverlapPx2 &&
+        matchesBaseline,
     });
   }
 }
@@ -668,6 +731,7 @@ async function main(): Promise<void> {
       viewport: v.label,
       board: v.board === null ? '—' : `${v.board.rect[2]}x${v.board.rect[3]}`,
       limitFill: v.board === null ? 0 : Math.max(v.board.fillW, v.board.fillH),
+      baseline: v.baselineFill ?? '—',
       aspect: v.boardAspect,
       offX: v.board?.centerOffsetX ?? 0,
       hudOverlap: v.hudOverlapPx2,

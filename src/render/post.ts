@@ -406,17 +406,19 @@ export function createPostChain(
   const gradeSlot = createSlot<ShaderPass>();
 
   // Scratch — `render()` runs every frame and allocates nothing.
-  const bufferSize = new Vector2();
   const clearColour = new Color();
   let cssW = 1;
   let cssH = 1;
   let preset: PostPreset = POST_PRESETS.low;
 
   function bloomSourceSize(): [number, number] {
-    gl.getDrawingBufferSize(bufferSize);
+    // Same real-buffer rule as the beauty texture: the bloom source is a
+    // half-resolution render of the same frame, so it has to scale off what
+    // the buffer actually is.
+    const [w, h] = realBufferSize();
     return [
-      Math.max(1, Math.floor(bufferSize.x * BLOOM_SOURCE_SCALE)),
-      Math.max(1, Math.floor(bufferSize.y * BLOOM_SOURCE_SCALE)),
+      Math.max(1, Math.floor(w * BLOOM_SOURCE_SCALE)),
+      Math.max(1, Math.floor(h * BLOOM_SOURCE_SCALE)),
     ];
   }
 
@@ -512,10 +514,47 @@ export function createPostChain(
     applySize();
   }
 
+  /**
+   * The **real** drawing buffer, read off the GL context.
+   *
+   * Deliberately not `gl.getDrawingBufferSize()`. That method answers from
+   * three's own bookkeeping — `three.module.js:16691`,
+   * `target.set( _width * _pixelRatio, _height * _pixelRatio )` — which is what
+   * the renderer *asked* for, not what the browser gave it. The two diverge
+   * whenever the drawing buffer is reallocated behind three's back (a clamped
+   * canvas size, a context restored at a different size, a second renderer
+   * sharing the canvas with its own `_width`/`_pixelRatio`).
+   *
+   * That divergence is not cosmetic here, because of how the copy is specified
+   * (`three.module.js:19233`):
+   *
+   *     const width  = Math.floor( texture.image.width  * levelScale );
+   *     const height = Math.floor( texture.image.height * levelScale );
+   *     _gl.copyTexSubImage2D( _gl.TEXTURE_2D, level, 0, 0, x, y, width, height );
+   *
+   * The copy rectangle comes from the **texture**, not from the framebuffer. So
+   * a beauty texture bigger than the real buffer has only its bottom-left
+   * corner written — GL clamps the read at the framebuffer edge — and the
+   * `TexturePass` then stretches the *whole* texture across the screen. The
+   * frame lands scaled by `realBuffer / textureSize` and anchored in the
+   * corner: bottom-left in GL, which is **top-left on screen** after the v
+   * flip, with the rest black.
+   *
+   * That is the failure mode reported against T3.2 — board small, anchored top
+   * left — and it is invisible to every obvious check, because `canvas.width`,
+   * `gl.drawingBufferWidth` and the GL viewport are all still correct. Only the
+   * texture is wrong, and only relative to a number three keeps privately.
+   */
+  function realBufferSize(): [number, number] {
+    const ctx = gl.getContext();
+    return [
+      Math.max(1, Math.floor(ctx.drawingBufferWidth)),
+      Math.max(1, Math.floor(ctx.drawingBufferHeight)),
+    ];
+  }
+
   function applySize(): void {
-    gl.getDrawingBufferSize(bufferSize);
-    const dbw = Math.max(1, Math.floor(bufferSize.x));
-    const dbh = Math.max(1, Math.floor(bufferSize.y));
+    const [dbw, dbh] = realBufferSize();
 
     // `FramebufferTexture` sizes its storage once, at first upload, so a resize
     // means a new texture — and the old one is a GPU allocation that has to go.
@@ -594,6 +633,21 @@ export function createPostChain(
     },
 
     render(): void {
+      // Self-heal, once per frame, for two integer compares. `setSize` is only
+      // called on a resize, so a drawing buffer that changes underneath the
+      // renderer between resizes — a restored context, a backgrounded tab
+      // whose buffer was released and reallocated — would otherwise stay
+      // mismatched until the next resize happened to come along, and the frame
+      // would be blitted scaled into a corner for all of that time (see
+      // `realBufferSize`). Catching it here means the worst case is one bad
+      // frame instead of an unbounded run of them.
+      const [dbw, dbh] = realBufferSize();
+      if (
+        beautyTexture.image.width !== dbw ||
+        beautyTexture.image.height !== dbh
+      ) {
+        applySize();
+      }
       // The beauty pass has already drawn to the canvas; copy it out before any
       // pass overwrites it. Bit-identical (measured), so nothing art §6 pinned
       // can move between `gl.render` and here.

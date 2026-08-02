@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T09:54:41.356Z",
+  "capturedAt": "2026-08-02T10:16:51.296Z",
   "url": "http://localhost:5173/",
   "viewport": {
     "w": 1600,
@@ -13,18 +13,18 @@
   },
   "autoProbe": {
     "picked": "low",
-    "fps": 31.894747335314324,
+    "fps": 22.496087634834318,
     "dpr": 1.0000000149011612,
     "cores": 16
   },
   "loop": {
     "high": {
-      "frames": 305,
-      "meanMs": 1.907,
-      "medianMs": 1.9,
-      "p95Ms": 3,
-      "maxMs": 4.8,
-      "fps": 38.1,
+      "frames": 223,
+      "meanMs": 2.222,
+      "medianMs": 2.1,
+      "p95Ms": 3.6,
+      "maxMs": 5.6,
+      "fps": 27.8,
       "drawCalls": {
         "min": 41,
         "median": 43,
@@ -32,12 +32,12 @@
       }
     },
     "medium": {
-      "frames": 378,
-      "meanMs": 1.58,
-      "medianMs": 1.5,
-      "p95Ms": 2.6,
-      "maxMs": 5.1,
-      "fps": 47.2,
+      "frames": 268,
+      "meanMs": 2.142,
+      "medianMs": 2,
+      "p95Ms": 3.5,
+      "maxMs": 6.8,
+      "fps": 33.5,
       "drawCalls": {
         "min": 39,
         "median": 41,
@@ -45,12 +45,12 @@
       }
     },
     "low": {
-      "frames": 486,
-      "meanMs": 0.69,
-      "medianMs": 0.6,
-      "p95Ms": 1.3,
-      "maxMs": 2.2,
-      "fps": 60.6,
+      "frames": 320,
+      "meanMs": 0.9,
+      "medianMs": 0.8,
+      "p95Ms": 1.8,
+      "maxMs": 2.4,
+      "fps": 40,
       "drawCalls": {
         "min": 14,
         "median": 16,
@@ -60,16 +60,16 @@
   },
   "scene": {
     "high": {
-      "enemiesLeftAtEnd": 15,
-      "scoreAtEnd": 100
-    },
-    "medium": {
-      "enemiesLeftAtEnd": 15,
-      "scoreAtEnd": 100
-    },
-    "low": {
       "enemiesLeftAtEnd": 16,
       "scoreAtEnd": 0
+    },
+    "medium": {
+      "enemiesLeftAtEnd": 14,
+      "scoreAtEnd": 200
+    },
+    "low": {
+      "enemiesLeftAtEnd": 15,
+      "scoreAtEnd": 100
     }
   },
   "budget": {
@@ -84,7 +84,8 @@
     "boardAspectTol": 0.05,
     "maxCenterOffsetX": 3,
     "maxCenterOffsetYFrac": 0.06,
-    "maxHudOverlapPx2": 0
+    "maxHudOverlapPx2": 0,
+    "maxFillDrift": 0.01
   },
   "viewports": [
     {
@@ -123,6 +124,8 @@
         "centerOffsetY": -22
       },
       "boardAspect": 1.1611,
+      "baselineFill": null,
+      "matchesBaseline": true,
       "pass": true
     },
     {
@@ -161,6 +164,8 @@
         "centerOffsetY": -17
       },
       "boardAspect": 1.1616,
+      "baselineFill": null,
+      "matchesBaseline": true,
       "pass": true
     },
     {
@@ -199,6 +204,8 @@
         "centerOffsetY": -14
       },
       "boardAspect": 1.1598,
+      "baselineFill": null,
+      "matchesBaseline": true,
       "pass": true
     },
     {
@@ -237,6 +244,8 @@
         "centerOffsetY": -19
       },
       "boardAspect": 1.1603,
+      "baselineFill": null,
+      "matchesBaseline": true,
       "pass": true
     },
     {
@@ -275,6 +284,8 @@
         "centerOffsetY": -10
       },
       "boardAspect": 1.1604,
+      "baselineFill": null,
+      "matchesBaseline": true,
       "pass": true
     },
     {
@@ -313,6 +324,8 @@
         "centerOffsetY": -10
       },
       "boardAspect": 1.1609,
+      "baselineFill": null,
+      "matchesBaseline": true,
       "pass": true
     },
     {
@@ -351,6 +364,168 @@
         "centerOffsetY": -17
       },
       "boardAspect": 1.1616,
+      "baselineFill": 0.8681,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1024x1024@1 (resized) medium",
+      "canvasBox": [
+        0,
+        0,
+        904,
+        1024
+      ],
+      "hudBox": [
+        904,
+        0,
+        120,
+        1024
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1024,
+        1024
+      ],
+      "board": {
+        "buffer": [
+          904,
+          1024
+        ],
+        "rect": [
+          43,
+          169,
+          818,
+          705
+        ],
+        "fillW": 0.9049,
+        "fillH": 0.6885,
+        "centerOffsetX": 0,
+        "centerOffsetY": -19
+      },
+      "boardAspect": 1.1603,
+      "baselineFill": 0.9049,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "480x900@2 (resized) low",
+      "canvasBox": [
+        0,
+        0,
+        480,
+        806
+      ],
+      "hudBox": [
+        0,
+        806.9000244140625,
+        480,
+        93.0999984741211
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        480,
+        900
+      ],
+      "board": {
+        "buffer": [
+          480,
+          806
+        ],
+        "rect": [
+          23,
+          221,
+          434,
+          374
+        ],
+        "fillW": 0.9042,
+        "fillH": 0.464,
+        "centerOffsetX": 0,
+        "centerOffsetY": -10
+      },
+      "boardAspect": 1.1604,
+      "baselineFill": 0.9042,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1280x720@1.5 (refronted) low",
+      "canvasBox": [
+        0,
+        0,
+        1160,
+        720
+      ],
+      "hudBox": [
+        1160,
+        0,
+        120,
+        720
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1280,
+        720
+      ],
+      "board": {
+        "buffer": [
+          1160,
+          720
+        ],
+        "rect": [
+          217,
+          56,
+          726,
+          625
+        ],
+        "fillW": 0.6259,
+        "fillH": 0.8681,
+        "centerOffsetX": 0,
+        "centerOffsetY": -17
+      },
+      "boardAspect": 1.1616,
+      "baselineFill": 0.8681,
+      "matchesBaseline": true,
+      "pass": true
+    },
+    {
+      "label": "1600x900@1 (refronted) high",
+      "canvasBox": [
+        0,
+        0,
+        1480,
+        900
+      ],
+      "hudBox": [
+        1480,
+        0,
+        120,
+        900
+      ],
+      "hudOverlapPx2": 0,
+      "viewport": [
+        1600,
+        900
+      ],
+      "board": {
+        "buffer": [
+          1480,
+          900
+        ],
+        "rect": [
+          286,
+          70,
+          908,
+          782
+        ],
+        "fillW": 0.6135,
+        "fillH": 0.8689,
+        "centerOffsetX": 0,
+        "centerOffsetY": -22
+      },
+      "boardAspect": 1.1611,
+      "baselineFill": 0.8689,
+      "matchesBaseline": true,
       "pass": true
     }
   ],
