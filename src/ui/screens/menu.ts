@@ -24,18 +24,43 @@ export type MenuChoice =
 export interface MenuScreenOptions {
   onChoose(choice: MenuChoice): void;
   onBack(): void;
+  /** How many players the next run starts with. Read on every `enter`. */
+  players(): 1 | 2;
+  /** The player count changed on the `players` row. */
+  onPlayers(n: 1 | 2): void;
   audio?: AudioSystem | null;
 }
 
-export function menuItems(): MenuItem[] {
+export function menuItems(players: 1 | 2 = 1): MenuItem[] {
   return [
+    // GDD §1 ships a two-player mode and the whole stack has carried it since
+    // T1.7 — separate scores, separate lives, a `players` term in the spawn
+    // cadence, p2 key bindings, a P2 HUD column. Until T10 the ONLY way to
+    // reach it was `?players=2`, a dev-only URL flag that a production bundle
+    // makes inert (`debug.ts`), so a shipped build had no two-player mode at
+    // all. This row is that missing entry point, and nothing below it changed.
+    {
+      kind: 'choice',
+      id: 'players',
+      label: 'Players',
+      value: String(players),
+      options: [
+        { value: '1', label: '1 player' },
+        { value: '2', label: '2 players' },
+      ],
+    },
     { kind: 'action', id: 'campaign', label: 'Campaign' },
     {
       kind: 'action',
       id: 'neo',
       label: 'Neo campaign',
       disabled: true,
-      hint: 'Twelve new stages. Not built yet.',
+      // Accurate as of T10: the twelve stages exist (`src/levels/neo/`,
+      // authored in T8.3) and are validated and completability-checked, but
+      // nothing routes a run through them — the campaign chain, the progress
+      // store and the tally all assume the original 35. Reaching them needs a
+      // campaign selector threaded through `Session`, which 1.0 does not have.
+      hint: 'Twelve new stages. Built, but not reachable in 1.0.',
     },
     {
       kind: 'action',
@@ -60,7 +85,7 @@ export function createMenuScreen(opts: MenuScreenOptions): Screen {
 
   return {
     enter(root: HTMLElement, params?: unknown): void {
-      const items = menuItems();
+      const items = menuItems(opts.players());
       const model = createMenu(items);
       // Coming back from a sub-screen restores the row you left from, so the
       // cursor does not reset to the top every time you glance at Settings.
@@ -81,7 +106,9 @@ export function createMenuScreen(opts: MenuScreenOptions): Screen {
         ['Esc', 'Back'],
       );
 
-      function act(ev: 'confirm' | 'up' | 'down' | 'back'): void {
+      function act(
+        ev: 'confirm' | 'up' | 'down' | 'back' | 'left' | 'right',
+      ): void {
         const res = model.handle(ev);
         if (res.moved) {
           opts.audio?.play('uiMove');
@@ -94,6 +121,13 @@ export function createMenuScreen(opts: MenuScreenOptions): Screen {
           opts.onBack();
           return;
         }
+        if (res.changed !== null && res.changed.id === 'players') {
+          opts.audio?.play('uiMove');
+          const item = res.changed;
+          if (item.kind === 'choice') {
+            opts.onPlayers(item.value === '2' ? 2 : 1);
+          }
+        }
         if (res.activated !== null) {
           opts.audio?.play('uiSelect');
           opts.onChoose(res.activated.id as MenuChoice);
@@ -102,10 +136,14 @@ export function createMenuScreen(opts: MenuScreenOptions): Screen {
       }
 
       detach = attachNav(window, (ev) => {
-        // Left/right mean nothing on a list of actions; folding them into
-        // up/down would make a stray press move the cursor unexpectedly.
+        // Left/right mean nothing on an ACTION row; folding them into up/down
+        // would make a stray press move the cursor unexpectedly. They do mean
+        // something on the `players` choice, so they are forwarded when that is
+        // the focused row and swallowed everywhere else.
         if (ev === 'left' || ev === 'right') {
-          return;
+          if (model.focused()?.kind !== 'choice') {
+            return;
+          }
         }
         act(ev);
       });

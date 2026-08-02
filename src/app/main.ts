@@ -199,10 +199,14 @@ function withDebugEnemies(level: LevelData): LevelData {
 }
 
 /**
- * How many players a run starts with. `?players=2` (dev-only) is the only way
- * to get two, because the 2P menu entry is a later phase — see debug.ts.
+ * How many players the next run starts with.
+ *
+ * Chosen on the menu's `players` row since T10; `?players=2` (dev-only) still
+ * seeds it so an automated capture can skip the menu. Held for the life of the
+ * page rather than persisted: it is a property of the sitting, not a setting,
+ * and GDD §10's settings list does not contain it.
  */
-const PLAYERS: 1 | 2 = debug.players ?? 1;
+let players: 1 | 2 = debug.players ?? 1;
 
 let settings: SettingsV1 = loadSettings();
 const settingsNow = (): SettingsV1 => settings;
@@ -372,6 +376,10 @@ screens.register(
     onBack: () => {
       toTitle();
     },
+    players: () => players,
+    onPlayers: (n) => {
+      players = n;
+    },
     onChoose: (choice: MenuChoice) => {
       if (choice === 'campaign') {
         screens.show('stageSelect');
@@ -536,7 +544,7 @@ screens.register(
     onPick: (stage: number) => {
       startStage(
         createSession({
-          players: PLAYERS,
+          players,
           stageNumber: stage,
           seed: debug.seed,
         }),
@@ -683,7 +691,7 @@ function startOneOff(level: LevelData, back: (outcome: string) => void): void {
   session = null;
   oneOffReturn = back;
   startBoard({
-    session: createSession({ players: PLAYERS, seed: debug.seed }),
+    session: createSession({ players, seed: debug.seed }),
     level: withDebugEnemies(level),
   });
   // Fidelity §11.1's curtain, with the stage's own name under it — a custom
@@ -792,7 +800,7 @@ if (applyRoute()) {
   // returns all-inert flags in a production bundle.
   startStage(
     createSession({
-      players: PLAYERS,
+      players,
       stageNumber: debug.stage,
       seed: debug.seed,
     }),

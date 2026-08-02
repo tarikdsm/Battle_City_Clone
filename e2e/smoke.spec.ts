@@ -15,6 +15,50 @@ function watchErrors(page: Page): string[] {
 }
 
 const hud = (page: Page, name: string) => page.locator(`[data-hud="${name}"]`);
+
+/**
+ * Signatures of a GPU/driver failure rather than an application one.
+ *
+ * T8.3 reported a one-off boot-smoke failure on "expected no console/page
+ * errors", immediately after a headed capture session had been driving the same
+ * dev server, and the message was gone before it could be read. T10 reproduced
+ * it exactly once — after fifteen consecutive headed captures — and never in
+ * eight isolated runs, five back-to-back boot runs, or a run following a single
+ * capture. That pattern is GPU/context pressure from concurrent headed
+ * browsers, which is also what `playwright.config.ts` already pins `workers: 1`
+ * for: at four workers this suite produced 26 `VALIDATE_STATUS false` shader
+ * errors in one boot, the signature of a lost context.
+ *
+ * These strings do NOT suppress anything — the assertion still demands an empty
+ * list, because a real shader bug looks the same from here and must not be
+ * excused. They only make the failure message say which of the two it looks
+ * like, so the next person does not spend an hour rediscovering it.
+ */
+const GPU_ERROR_SIGNATURES = [
+  'VALIDATE_STATUS',
+  'WebGLProgram',
+  'Shader Error',
+  'CONTEXT_LOST',
+  'context lost',
+  'Failed to create WebGL',
+] as const;
+
+function diagnose(errors: readonly string[]): string {
+  if (errors.length === 0) return 'expected no console/page errors';
+  const gpu = errors.filter((e) =>
+    GPU_ERROR_SIGNATURES.some((sig) => e.includes(sig)),
+  );
+  const base = `expected no console/page errors, got ${errors.length}`;
+  if (gpu.length === errors.length) {
+    return (
+      `${base} — and EVERY ONE is a GPU/driver signature. This is very likely ` +
+      'the environmental flake documented above (headed captures competing ' +
+      'for the same GPU), not an application fault. Re-run this file alone ' +
+      'with nothing else driving a browser before treating it as a defect.'
+    );
+  }
+  return `${base} (${gpu.length} GPU-shaped, ${errors.length - gpu.length} not)`;
+}
 const screen = (page: Page, name: string) =>
   page.locator(`[data-screen="${name}"]`);
 
@@ -44,7 +88,7 @@ test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
   // GDD §5: boot lands on the title, over a live attract board.
   await expect(screen(page, 'title')).toBeVisible();
   expect(sawBootOk, 'expected "boot ok" in the console').toBe(true);
-  expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+  expect(consoleErrors, diagnose(consoleErrors)).toEqual([]);
 });
 
 test('reframes: a resize re-fits the board area and keeps the HUD docked', async ({
@@ -463,9 +507,19 @@ test('loops: title → play → death → game over → high scores → title', 
 
   // --- menu → stage select -------------------------------------------------
   await expect(screen(page, 'menu')).toBeVisible();
-  // The Phase 8 placeholders are focusable and refuse to activate — they must
-  // read as deliberate, and a broken one would strand the cursor here.
+  // The Neo row is focusable and refuses to activate — it must read as
+  // deliberate, and a broken one would strand the cursor here. (T10 made its
+  // hint honest: the stages exist, nothing routes a run through them.)
   await expect(page.locator('[data-item="neo"]')).toHaveClass(/is-disabled/);
+  // The menu opens on T10's `players` row, so Campaign is one step down. Walked
+  // rather than counted, so another row above it cannot silently retarget this.
+  for (let i = 0; i < 8; i++) {
+    const cls =
+      (await page.locator('[data-item="campaign"]').getAttribute('class')) ??
+      '';
+    if (cls.includes('is-focused')) break;
+    await page.keyboard.press('ArrowDown');
+  }
   await page.keyboard.press('Enter'); // Campaign
   await expect(screen(page, 'stageSelect')).toBeVisible();
   await page.keyboard.press('Enter'); // the furthest unlocked stage (1)
