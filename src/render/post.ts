@@ -66,6 +66,7 @@ import {
   HalfFloatType,
   NoColorSpace,
   Vector2,
+  Vector4,
   WebGLRenderTarget,
   type Camera,
   type Scene,
@@ -576,10 +577,12 @@ export function createPostChain(
       beautyTexture = new FramebufferTexture(dbw, dbh);
       beautyTexture.colorSpace = NoColorSpace;
       beautyPass.map = beautyTexture;
+      note('beautyTexture created', dbw, dbh);
     }
 
     composer.setPixelRatio(gl.getPixelRatio());
     composer.setSize(cssW, cssH);
+    note('composer.setSize(css)', cssW, cssH);
 
     const source = bloomSourceSlot.current;
     if (source !== null) {
@@ -711,6 +714,28 @@ export function createPostChain(
       'aa resolution': passResolution(aaSlot.current),
       'gl VIEWPORT':
         vp === null ? '—' : `${vp[2]} x ${vp[3]} @ ${vp[0]},${vp[1]}`,
+      // What three THINKS it set, rather than the GL state left by whatever
+      // drew last. A divergence here is invisible to the raw VIEWPORT query.
+      'three viewport': (() => {
+        const v = gl.getViewport(new Vector4());
+        return `${v.z} x ${v.w} @ ${v.x},${v.y}`;
+      })(),
+      'three scissor': (() => {
+        const s = gl.getScissor(new Vector4());
+        return `${s.z} x ${s.w} @ ${s.x},${s.y} test=${String(gl.getScissorTest())}`;
+      })(),
+      MAX_TEXTURE_SIZE: String(ctx.getParameter(ctx.MAX_TEXTURE_SIZE)),
+      MAX_VIEWPORT_DIMS: Array.from(
+        (ctx.getParameter(ctx.MAX_VIEWPORT_DIMS) as Int32Array | null) ?? [],
+      ).join(' x '),
+      MAX_RENDERBUFFER_SIZE: String(
+        ctx.getParameter(ctx.MAX_RENDERBUFFER_SIZE),
+      ),
+      // The sizes objects were actually CREATED at, in order. If the newest
+      // entry is older than the current buffer, something was allocated once
+      // and never reallocated — the class of bug `getDrawingBufferSize` hid.
+      'allocation history': allocLog.join('  |  ') || '(none recorded)',
+      'GL error since last sample': glErrorSeen,
       'renderer css size': wh(cssSize.x, cssSize.y),
       'renderer pixelRatio': String(gl.getPixelRatio()),
       'post cssW/cssH': wh(cssW, cssH),
@@ -721,23 +746,120 @@ export function createPostChain(
   }
 
   let probeEnabled = false;
+  let bypassChain = false;
   let lastLadder = '';
+  let lastSampleMs = 0;
+  let glErrorSeen = 'none';
+  /** Sizes every GPU object was actually CREATED at, newest last. */
+  const allocLog: string[] = [];
 
-  function probe(): void {
+  function note(what: string, w: number, h: number): void {
+    if (!probeEnabled) {
+      return;
+    }
+    allocLog.push(`${allocLog.length}: ${what} ${w}x${h}`);
+    if (allocLog.length > 8) {
+      allocLog.shift();
+    }
+  }
+
+  /**
+   * The bounding box of everything brighter than the clear colour, read back
+   * from the **default framebuffer**. Measured twice per sampled frame — once
+   * on the beauty pass before the chain touches it, once on the finished frame
+   * — because that pair is the whole experiment: if the board is correct in
+   * `beauty` and collapsed in `final`, the chain did it and nothing upstream
+   * is implicated; if it is already collapsed in `beauty`, the chain is
+   * innocent and the cause is the camera, the viewport or the scene.
+   */
+  function measureBox(): string {
+    const ctx = gl.getContext();
+    const W = ctx.drawingBufferWidth;
+    const H = ctx.drawingBufferHeight;
+    const px = new Uint8Array(W * H * 4);
+    ctx.readPixels(0, 0, W, H, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+    let x0 = W;
+    let y0 = H;
+    let x1 = -1;
+    let y1 = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4;
+        if (px[i] > 16 || px[i + 1] > 16 || px[i + 2] > 16) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+    if (x1 < 0) {
+      return `nothing drawn (buffer ${W}x${H})`;
+    }
+    const w = x1 - x0 + 1;
+    const h = y1 - y0 + 1;
+    // GL's origin is bottom-left; `topPx` is the same edge counted from the top
+    // of the screen, so the anchor can be read without converting by hand.
+    const topPx = H - 1 - y1;
+    const anchor =
+      `${x0 === 0 ? 'LEFT' : `x=${x0}`}/` +
+      `${topPx === 0 ? 'TOP' : y0 === 0 ? 'BOTTOM' : `top=${topPx}`}`;
+    return (
+      `${w}x${h} at left=${x0} top=${topPx} (anchor ${anchor}) ` +
+      `fill ${(w / W).toFixed(3)}x${(h / H).toFixed(3)} of ${W}x${H}`
+    );
+  }
+
+  /** Rate-limited so the two readPixels calls cannot dominate the frame. */
+  function wantsSample(): boolean {
+    if (!probeEnabled) {
+      return false;
+    }
+    const now = Date.now();
+    if (now - lastSampleMs < 1000) {
+      return false;
+    }
+    lastSampleMs = now;
+    return true;
+  }
+
+  /**
+   * The whole experiment in one line. `beautyBox` is the board as the beauty
+   * pass drew it, straight off the drawing buffer before the chain has touched
+   * anything; `finalBox` is the same measurement after the chain has run.
+   *
+   *   beauty CORRECT + final COLLAPSED → the post chain did it.
+   *   beauty COLLAPSED                 → the chain is innocent; look at the
+   *                                      camera, the viewport or the scene.
+   *
+   * No other reading of that pair is available, which is why it is worth two
+   * `readPixels` a second.
+   */
+  function probe(beautyBox: string | null, finalBox: string | null): void {
     if (!probeEnabled) {
       return;
     }
     const ladder = sizeLadder();
+    if (beautyBox !== null) {
+      ladder['BOARD before chain'] = beautyBox;
+      ladder['BOARD after chain'] = finalBox ?? '(chain bypassed)';
+    }
     const signature = Object.values(ladder).join('|');
-    if (signature === lastLadder) {
-      return; // only speak when something actually moves
+    // A sampled frame always speaks, because the two board boxes are the point
+    // and they are not part of the "did a size move" question.
+    if (signature === lastLadder && beautyBox === null) {
+      return;
     }
     lastLadder = signature;
     const real = ladder['REAL drawing buffer'];
     const beauty = ladder['beauty texture'];
     console.log(
-      `[post probe] ladder changed — real ${real}, beauty ${beauty}` +
-        (real === beauty ? '' : '  *** BEAUTY != REAL ***'),
+      `[post probe] real ${real}, beauty ${beauty}` +
+        (real === beauty ? '' : '  *** BEAUTY != REAL ***') +
+        (beautyBox === null ? '' : `\n  before chain: ${beautyBox}`) +
+        (beautyBox === null
+          ? ''
+          : `\n  after  chain: ${finalBox ?? 'bypassed'}`),
     );
     console.table(ladder);
   }
@@ -747,12 +869,16 @@ export function createPostChain(
   // has no Vite ambient types, so `import.meta.env` does not typecheck here the
   // way it does in `main.ts`. Nothing is attached and nothing is logged unless
   // the flag is present, so the inert cost is one `String.includes` at startup.
-  probeEnabled = globalThis.location?.search.includes('probe=post') === true;
+  const search = globalThis.location?.search ?? '';
+  probeEnabled = search.includes('probe=post');
+  bypassChain = search.includes('nopost=1');
   if (probeEnabled) {
     (
       globalThis as unknown as { __bcPost?: () => Record<string, string> }
     ).__bcPost = sizeLadder;
-    console.log('[post probe] armed — logging the size ladder on every change');
+    console.log(
+      `[post probe] armed${bypassChain ? ' — CHAIN BYPASSED (?nopost=1)' : ''}`,
+    );
   }
 
   rebuildPasses();
@@ -786,16 +912,37 @@ export function createPostChain(
         guardResyncs++;
         applySize();
       }
-      probe(); // inert unless `?probe=post`
+
+      // Sampled at most once a second, and only under `?probe=post`.
+      const sampling = wantsSample();
+      const beautyBox = sampling ? measureBox() : null;
+
       // The beauty pass has already drawn to the canvas; copy it out before any
       // pass overwrites it. Bit-identical (measured), so nothing art §6 pinned
       // can move between `gl.render` and here.
       gl.copyFramebufferToTexture(beautyTexture);
+      if (sampling) {
+        const ctx = gl.getContext();
+        const err = ctx.getError();
+        glErrorSeen = err === ctx.NO_ERROR ? 'none' : `0x${err.toString(16)}`;
+      }
+
+      // `?nopost=1` stops here, leaving the raw beauty frame on screen. That is
+      // the control for "is the chain doing this": the board either comes back
+      // or it does not, and no amount of reasoning about texture sizes is
+      // needed to tell which.
+      if (bypassChain) {
+        probe(beautyBox, null);
+        return;
+      }
+
       renderBloomSource();
       // Explicit `0`: no pass in this chain is time-dependent, and letting the
       // composer read its own `Timer` would make a frame's output depend on
       // when it was drawn — which a screenshot harness cannot reproduce.
       composer.render(0);
+
+      probe(beautyBox, sampling ? measureBox() : null);
     },
 
     dispose(): void {
