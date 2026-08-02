@@ -305,7 +305,7 @@ e2e/smoke.spec.ts             · Playwright
 **Build notes:** ortho camera pitch 32°, yaw 0; board plane + frame; key/hemi lights + shadow config per preset; ACES, exposure 1.1; DPR caps; resize letterboxing. Visual check: `npm run dev` shows lit board with placeholder entities on fixture level (orchestrator eyeballs screenshot in report).
 **Commit:** `feat(render): scene root with tilted ortho rig, lighting, presets`
 
-### - [ ] T2.3 Terrain renderer
+### - [x] T2.3 Terrain renderer
 **Files:** create `src/render/terrainView.ts`; extend renderer. Test `tests/render/terrainView.test.ts` (instance-count bookkeeping with mocked three via lightweight fake — count instances per kind for fixture level; dirty update removes exactly the subcells of a `brickHit` mask).
 **Spec:** art §5; arch §5.
 **Build notes:** InstancedMesh per material (brick/steel subcell boxes, water plane shader from materials.ts, tree canopies above tank layer, ice decals); event-driven dirty updates (`brickHit`/`steelHit`/shovel phases rebuild ring tiles).
