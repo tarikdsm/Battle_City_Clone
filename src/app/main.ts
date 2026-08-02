@@ -40,7 +40,13 @@ import {
 } from './session';
 import { parseDebugFlags } from './debug';
 import { createErrorRail, createErrorScreen } from './errorScreen';
-import { loadSettings, saveSettings, type SettingsV1 } from './storage';
+import {
+  loadCustomLevels,
+  loadSettings,
+  saveCustomLevels,
+  saveSettings,
+  type SettingsV1,
+} from './storage';
 import {
   createLazyScreen,
   createScreenMachine,
@@ -211,6 +217,16 @@ let pendingEntry: { score: number; stage: number; playerIndex: 0 | 1 } | null =
  */
 let editorDraft: LevelData | null = null;
 
+/**
+ * Where a **one-off** run goes when it ends, or `null` during a campaign.
+ *
+ * A test-play and a saved custom stage are the same thing from the board's
+ * side: one level, 1P, no progression, no high-score entry — the run belongs to
+ * whoever launched it. This is that caller's way back, and its presence is also
+ * what tells the three callbacks below not to run the campaign's flow.
+ */
+let oneOffReturn: ((outcome: string) => void) | null = null;
+
 const play = createPlayScreen({
   canvas,
   quality: settled ?? PROBE_QUALITY,
@@ -218,6 +234,17 @@ const play = createPlayScreen({
   settings: settingsNow,
   reducedMotion,
   onPauseChanged(paused: boolean): void {
+    if (oneOffReturn !== null) {
+      // Arch §9: "Esc returns to editing (draft kept)". Escape is the only way
+      // out of a test-play, so it is the way out rather than a pause menu —
+      // pausing a stage you are checking is not a thing anybody wants to do,
+      // and a Resume/Quit menu in between would be one press too many on a
+      // loop an author walks a hundred times.
+      if (paused) {
+        oneOffReturn('Test play ended.');
+      }
+      return;
+    }
     // Core owns the pause (P-26); this is the screen that answers it. Either
     // source can flip it — the player's Escape or the overlay's Resume — and
     // both arrive here as the same state change.
@@ -233,6 +260,10 @@ const play = createPlayScreen({
   },
 
   onStageCleared(state): void {
+    if (oneOffReturn !== null) {
+      oneOffReturn('Test play cleared — all twenty tanks destroyed.');
+      return;
+    }
     if (session === null) {
       return;
     }
@@ -251,6 +282,14 @@ const play = createPlayScreen({
   },
 
   onGameOver(state): void {
+    if (oneOffReturn !== null) {
+      oneOffReturn(
+        state.eagleAlive
+          ? 'Test play ended — out of lives.'
+          : 'Test play ended — the base was destroyed.',
+      );
+      return;
+    }
     if (session === null) {
       return;
     }
@@ -324,10 +363,14 @@ screens.register(
         // Through the hash, not straight to the screen: `#editor` is the route
         // (arch §9), so the back button and a shared link land in the same
         // place the menu row does, and there is one code path instead of two.
-        window.location.hash = '#editor';
+        window.location.hash = EDITOR_HASH;
         return;
       }
-      // The remaining Phase 8 entries are disabled rows and never reach here.
+      if (choice === 'custom') {
+        screens.show('customLevels');
+        return;
+      }
+      // The Neo campaign is still a disabled row and never reaches here.
     },
   }),
 );
@@ -351,8 +394,48 @@ screens.register(
           // tear the screen down and hand the same draft back on the way in.
           editorDraft = level;
         },
+        onTestPlay: (level) => {
+          editorDraft = level;
+          startOneOff(level, (outcome) => {
+            // Straight back to the editor, with the draft this file kept.
+            oneOffReturn = null;
+            screens.show('editor', { draft: editorDraft, status: outcome });
+          });
+        },
+        onSave: (level) => {
+          const kept = loadCustomLevels().filter((l) => l.id !== level.id);
+          // Newest first: the stage you just saved is the one you are working
+          // on, and a list that buries it under twelve older ones is a list you
+          // stop reading.
+          saveCustomLevels([level, ...kept]);
+        },
+        onDelete: (id) => {
+          saveCustomLevels(loadCustomLevels().filter((l) => l.id !== id));
+        },
+        savedLevels: () => loadCustomLevels(),
         onExit: () => {
           leaveEditor();
+        },
+      }),
+    createBootScreen(),
+  ),
+);
+
+screens.register(
+  'customLevels',
+  createLazyScreen(
+    async () =>
+      (await import('../ui/screens/customLevels')).createCustomLevelsScreen({
+        audio,
+        levels: () => loadCustomLevels(),
+        onPlay: (level) => {
+          startOneOff(level, () => {
+            oneOffReturn = null;
+            screens.show('customLevels');
+          });
+        },
+        onBack: () => {
+          toMenu('custom');
         },
       }),
     createBootScreen(),
@@ -546,9 +629,30 @@ function applyRoute(): boolean {
     return false;
   }
   session = null;
+  oneOffReturn = null;
   audio.stopMusic();
-  screens.show('editor', editorDraft);
+  screens.show('editor', { draft: editorDraft });
   return true;
+}
+
+/**
+ * Put one level on the board, outside the campaign.
+ *
+ * No session progression, no `unlockStage`, no high-score entry: `back` is
+ * where the run's outcome goes instead, and it is the only way out. Used by the
+ * editor's test-play and by the custom-stage list — the same board either way,
+ * which is the point (arch §9: "launches the standard game loop on the draft").
+ */
+function startOneOff(level: LevelData, back: (outcome: string) => void): void {
+  session = null;
+  oneOffReturn = back;
+  startBoard({
+    session: createSession({ players: 1, seed: debug.seed }),
+    level,
+  });
+  // Fidelity §11.1's curtain, with the stage's own name under it — a custom
+  // stage has a name and "Stage 1" alone would be a lie about which one.
+  screens.showOverlay('intro', { stage: 1, note: level.name });
 }
 
 /**

@@ -16,6 +16,7 @@ export type ScreenName =
   | 'hiScore'
   | 'settings'
   | 'editor'
+  | 'customLevels'
   | 'error';
 
 export interface Screen {

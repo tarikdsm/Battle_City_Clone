@@ -32,6 +32,12 @@ import {
   waveCounts,
   waveSlots,
 } from '../../editor/waveEditor';
+import {
+  encodeShare,
+  exportJson,
+  importText,
+  shareFileName,
+} from '../../editor/share';
 import { subcellRows } from '../../levels/analysis';
 import type { LevelData } from '../../core/types';
 import type { Screen } from '../../app/screens';
@@ -68,8 +74,32 @@ export interface EditorScreenOptions {
   draft?: LevelData | null;
   /** Fired on every change, so the composition root can hold the draft. */
   onDraftChanged?(level: LevelData): void;
+  /**
+   * Play the draft for real, in 1P.
+   *
+   * Only ever called with a level that has just passed {@link EditorModel.validate},
+   * because "test-play" and "crash the simulation" have to be different buttons.
+   */
+  onTestPlay?(level: LevelData): void;
+  /** Persist to `bc.customLevels.v1`. The app owns storage, not this chunk. */
+  onSave?(level: LevelData): void;
+  onDelete?(id: string): void;
+  /** What is in `bc.customLevels.v1` right now. */
+  savedLevels?(): LevelData[];
   /** Leave the editor (Esc, or the Back button). */
   onExit(): void;
+}
+
+/**
+ * What `screens.show('editor', …)` carries.
+ *
+ * A bare draft would have done, except that returning from a test-play wants to
+ * say *how it went* — and the editor is rebuilt on the way in, so there is
+ * nowhere else for that sentence to live.
+ */
+export interface EditorParams {
+  draft?: LevelData | null;
+  status?: string;
 }
 
 interface Cursor {
@@ -84,10 +114,14 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
 
   return {
     enter(root: HTMLElement, params?: unknown): void {
-      // `params` wins over the option, so `screens.show('editor', draft)` can
-      // hand a draft back after a test-play without rebuilding the screen.
-      const resume = (params as LevelData | undefined) ?? opts.draft ?? null;
+      // `params` wins over the option: this is how a draft comes *back* from a
+      // test-play, which tore the screen down to give the board its context.
+      const p = (params as EditorParams | undefined) ?? {};
+      const resume = p.draft ?? opts.draft ?? null;
       const ed = createEditor(resume ?? createDraft());
+      if (p.status !== undefined) {
+        ed.setStatus(p.status);
+      }
       let cursor: Cursor = { tx: 6, ty: 6, sub: 0 };
       let painting = false;
 
@@ -110,13 +144,14 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
       const errors = el('ul', 'bc-editor-errors');
       errors.dataset.role = 'errors';
 
-      view.body.append(layout, status, errors);
+      view.body.append(layout);
       legend(
         view.footer,
         ['Drag', 'Paint'],
         ['1 – 6', 'Material'],
         ['M', 'Tile / half-tile'],
         ['Ctrl+Z', 'Undo'],
+        ['P', 'Test play'],
         ['Esc', 'Back'],
       );
 
@@ -144,9 +179,15 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         sync();
       }
 
-      // --- tool box ---------------------------------------------------------
-
+      // --- the sidebar, in the order an author uses it -----------------------
+      //
+      // Tool and Actions first, and the status line and the validation list
+      // live *inside* Actions rather than under the whole panel. Found by
+      // capturing this screen: with Share and Your stages added, the sidebar
+      // grew past the viewport and the answer to a Validate press was two
+      // scrolls below the button that asked for it.
       const toolbox = section(side, 'Tool');
+      const actions = section(side, 'Actions');
       const modeRow = el('div', 'bc-editor-modes');
       const modeButtons = new Map<string, HTMLElement>();
       for (const [mode, label] of [
@@ -212,10 +253,10 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         el(
           'p',
           'bc-editor-note',
-          'Twenty tanks, in spawn order. The 4th, 11th and 18th always arrive ' +
-            'carrying a power-up — that is a rule of the game rather than part ' +
-            'of the stage, so those positions are fixed. Click a slot to change ' +
-            'its type, right-click to go back, shift-click to fill to the end.',
+          'Twenty tanks, in spawn order. Click a slot to change its type, ' +
+            'right-click to go back, shift-click to fill to the end. The 4th, ' +
+            '11th and 18th always arrive carrying a power-up — a rule of the ' +
+            'game rather than part of the stage, so those positions are fixed.',
         ),
       );
       const waveGrid = el('div', 'bc-editor-wave');
@@ -260,14 +301,65 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
 
       // --- actions ----------------------------------------------------------
 
-      const actions = section(side, 'Actions');
+      /**
+       * Run both gates and report. Returns the level only when it is clean.
+       *
+       * Every irreversible-feeling action goes through here — test-play, save,
+       * export, share — because arch §9 puts validation "before save/play" and
+       * because handing a broken level to `createGame` is a crash, not a bug
+       * report.
+       */
+      function checked(what: string): LevelData | null {
+        const problems = ed.validate();
+        showErrors(problems);
+        if (problems.length === 0) {
+          return ed.draft();
+        }
+        ed.setStatus(`Cannot ${what} yet — see below.`);
+        sync();
+        return null;
+      }
+
       const actionRow = el('div', 'bc-editor-actions');
       const buttons: [id: string, label: string, run: () => void][] = [
+        [
+          'testplay',
+          'Test play',
+          (): void => {
+            const level = checked('test play this');
+            if (level !== null) {
+              opts.onTestPlay?.(level);
+            }
+          },
+        ],
+        [
+          'save',
+          'Save',
+          (): void => {
+            const level = checked('save this');
+            if (level === null) {
+              return;
+            }
+            opts.onSave?.(level);
+            ed.setStatus(`Saved "${level.name}" to your stages.`);
+            refreshSaved();
+            sync();
+          },
+        ],
         [
           'validate',
           'Validate',
           (): void => {
             showErrors(ed.validate());
+          },
+        ],
+        [
+          'new',
+          'New stage',
+          (): void => {
+            ed.load(createDraft({ author: ed.draft().author }));
+            ed.setStatus('Started a new stage.');
+            changed();
           },
         ],
         [
@@ -319,7 +411,182 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         });
         actionRow.append(button);
       }
-      actions.append(actionRow);
+      actions.append(actionRow, status, errors);
+
+      // --- sharing (content §5) ---------------------------------------------
+
+      const share = section(side, 'Share');
+      const shareRow = el('div', 'bc-editor-actions');
+      const codeBox = document.createElement('input');
+      codeBox.type = 'text';
+      codeBox.className = 'bc-editor-text';
+      codeBox.readOnly = true;
+      codeBox.dataset.field = 'share-code';
+      codeBox.placeholder = 'Share code appears here';
+
+      const importBox = document.createElement('input');
+      importBox.type = 'text';
+      importBox.className = 'bc-editor-text';
+      importBox.dataset.field = 'import';
+      importBox.placeholder = 'Paste a BC1. code or a level';
+
+      const filePicker = document.createElement('input');
+      filePicker.type = 'file';
+      filePicker.accept = 'application/json,.json';
+      filePicker.hidden = true;
+      filePicker.addEventListener('change', () => {
+        const file = filePicker.files?.[0];
+        filePicker.value = ''; // so re-picking the same file fires again
+        if (file === undefined) {
+          return;
+        }
+        void file.text().then((text) => {
+          applyImport(text, file.name);
+        });
+      });
+
+      function applyImport(text: string, from: string): void {
+        const result = importText(text);
+        if (!result.ok) {
+          showErrors(result.errors);
+          ed.setStatus(`Could not import ${from}.`);
+          sync();
+          return;
+        }
+        ed.load(result.level);
+        ed.setStatus(`Imported "${result.level.name}".`);
+        changed();
+      }
+
+      const shareButtons: [id: string, label: string, run: () => void][] = [
+        [
+          'sharecode',
+          'Share code',
+          (): void => {
+            const level = checked('share this');
+            if (level === null) {
+              return;
+            }
+            const code = encodeShare(level);
+            codeBox.value = code;
+            codeBox.select();
+            // Best effort: the clipboard API needs a secure context, and this
+            // page is happily served over plain http on a LAN. The code is in
+            // a selected field either way, so Ctrl+C always works.
+            void navigator.clipboard
+              ?.writeText(code)
+              .then(() => {
+                ed.setStatus(`Share code copied — ${code.length} characters.`);
+                sync();
+              })
+              .catch(() => {
+                ed.setStatus('Share code ready — press Ctrl+C to copy it.');
+                sync();
+              });
+            ed.setStatus(`Share code ready — ${code.length} characters.`);
+            sync();
+          },
+        ],
+        [
+          'export',
+          'Export file',
+          (): void => {
+            const level = checked('export this');
+            if (level === null) {
+              return;
+            }
+            const url = URL.createObjectURL(
+              new Blob([exportJson(level)], { type: 'application/json' }),
+            );
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = shareFileName(level);
+            link.click();
+            // Revoked on the next turn: revoking synchronously can race the
+            // browser's own fetch of the blob it was just handed.
+            setTimeout(() => {
+              URL.revokeObjectURL(url);
+            }, 0);
+            ed.setStatus(`Exported ${link.download}.`);
+            sync();
+          },
+        ],
+        [
+          'import',
+          'Import',
+          (): void => {
+            applyImport(importBox.value, 'that text');
+            importBox.value = '';
+          },
+        ],
+        [
+          'importfile',
+          'Import file',
+          (): void => {
+            filePicker.click();
+          },
+        ],
+      ];
+      const shareFields = el('div', 'bc-editor-sharefields');
+      shareFields.append(codeBox, importBox);
+      for (const [id, label, run] of shareButtons) {
+        const button = el('button', 'bc-editor-action', label);
+        button.dataset.action = id;
+        button.addEventListener('click', () => {
+          opts.audio?.play('uiSelect');
+          run();
+        });
+        shareRow.append(button);
+      }
+      share.append(shareFields, shareRow, filePicker);
+
+      // --- saved stages ------------------------------------------------------
+
+      const saved = section(side, 'Your stages');
+      const savedList = el('div', 'bc-editor-saved');
+      savedList.dataset.role = 'saved';
+      saved.append(savedList);
+
+      /** Redraw the saved list from storage. Cheap, and always truthful. */
+      function refreshSaved(): void {
+        const levels = opts.savedLevels?.() ?? [];
+        savedList.replaceChildren();
+        if (levels.length === 0) {
+          savedList.append(
+            el(
+              'p',
+              'bc-editor-note',
+              'Nothing saved yet. Save a stage and it shows up here and in ' +
+                'the main menu under Custom stage.',
+            ),
+          );
+          return;
+        }
+        for (const level of levels) {
+          const row = el('div', 'bc-editor-savedrow');
+          row.dataset.level = level.id;
+          row.append(el('span', 'bc-editor-savedname', level.name));
+          const open = el('button', 'bc-editor-action', 'Open');
+          open.dataset.action = 'open';
+          open.addEventListener('click', () => {
+            ed.load(level);
+            ed.setStatus(`Opened "${level.name}".`);
+            opts.audio?.play('uiSelect');
+            changed();
+          });
+          const remove = el('button', 'bc-editor-action', 'Delete');
+          remove.dataset.action = 'delete';
+          remove.addEventListener('click', () => {
+            opts.onDelete?.(level.id);
+            ed.setStatus(`Deleted "${level.name}".`);
+            opts.audio?.play('uiBack');
+            refreshSaved();
+            sync();
+          });
+          row.append(open, remove);
+          savedList.append(row);
+        }
+      }
 
       // --- painting ---------------------------------------------------------
 
@@ -490,6 +757,14 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
             opts.audio?.play('uiMove');
             sync();
             return;
+          case 'KeyP': {
+            event.preventDefault();
+            const level = checked('test play this');
+            if (level !== null) {
+              opts.onTestPlay?.(level);
+            }
+            return;
+          }
           case 'Escape':
             event.preventDefault();
             opts.audio?.play('uiBack');
@@ -594,6 +869,7 @@ export function createEditorScreen(opts: EditorScreenOptions): Screen {
         }
       }
 
+      refreshSaved();
       sync();
     },
 

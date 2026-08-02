@@ -73,6 +73,17 @@ interface Results {
     trees: number;
     ice: number;
   };
+  /** The `BC1.` code the Share button produced, and its length. */
+  shareCode: string;
+  /** The draft, before a test-play and after coming back from one. */
+  draftBeforeTestPlay: string;
+  draftAfterTestPlay: string;
+  /** What `bc.customLevels.v1` held after pressing Save. */
+  savedIds: string[];
+  /** The status line the editor showed on the way back from the board. */
+  testPlayStatus: string;
+  /** What the UI said about a `BC2.` code. */
+  rejectedPrefix: string[];
   consoleErrors: string[];
 }
 
@@ -281,7 +292,89 @@ async function walkEditor(browser: Browser, results: Results): Promise<void> {
     ice: document.querySelectorAll('.bc-sub.is-ice').length,
   }));
 
+  // --- save, and the share code -------------------------------------------
+  await page.locator('[data-action="save"]').click();
+  await sleep(250);
+  results.savedIds = await page.evaluate(() => {
+    const raw = globalThis.localStorage?.getItem('bc.customLevels.v1') ?? '[]';
+    return (JSON.parse(raw) as { id: string }[]).map((l) => l.id);
+  });
+  await page.locator('[data-action="sharecode"]').click();
+  await sleep(250);
+  results.shareCode = await page
+    .locator('[data-field="share-code"]')
+    .inputValue();
+  await shot(page, 'saved-and-shared');
+
+  // --- test-play, and back to an intact draft ------------------------------
+  // The draft is fingerprinted from the DOM before and after, because "intact"
+  // is a claim about the field, not about the screen having reappeared.
+  results.draftBeforeTestPlay = await fieldSignature(page);
+  await page.locator('[data-action="testplay"]').click();
+  await page.locator('[data-hud="root"]').waitFor({ timeout: 30_000 });
+  await sleep(2600);
+  // Play it for real for a moment, so the shot is a live board and not a
+  // curtain: hold fire, exactly as the campaign capture does.
+  await page.keyboard.down('KeyJ');
+  await sleep(2500);
+  await page.keyboard.up('KeyJ');
+  await shot(page, 'test-play');
+
+  // Arch §9: "Esc returns to editing (draft kept)".
+  await page.keyboard.press('Escape');
+  await page.locator('[data-screen="editor"]').waitFor({ timeout: 30_000 });
+  await sleep(400);
+  results.draftAfterTestPlay = await fieldSignature(page);
+  results.testPlayStatus =
+    (await page.locator('[data-role="status"]').textContent()) ?? '';
+  await shot(page, 'back-from-test-play');
+
+  // --- an imported share code ---------------------------------------------
+  await page.locator('[data-action="new"]').click();
+  await sleep(200);
+  await page.locator('[data-field="import"]').fill(results.shareCode);
+  await page.locator('[data-action="import"]').click();
+  await sleep(300);
+  await shot(page, 'imported-share-code');
+  const imported = await fieldSignature(page);
+  if (imported !== results.draftAfterTestPlay) {
+    console.error('the imported code did not reproduce the field.');
+    process.exitCode = 1;
+  }
+
+  // --- an unknown prefix, refused in the UI --------------------------------
+  await page
+    .locator('[data-field="import"]')
+    .fill(`BC2.${results.shareCode.slice(4)}`);
+  await page.locator('[data-action="import"]').click();
+  await sleep(250);
+  results.rejectedPrefix = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-role="errors"] li')].map(
+      (n) => n.textContent ?? '',
+    ),
+  );
+  await shot(page, 'unknown-share-prefix');
+
+  // --- the saved stage, from the main menu ---------------------------------
+  await page.locator('[data-action="back"]').click();
+  await page.locator('[data-screen="menu"]').waitFor({ timeout: 20_000 });
+  await page.locator('[data-item="custom"]').click();
+  await page.locator('[data-screen="customLevels"]').waitFor({
+    timeout: 20_000,
+  });
+  await shot(page, 'custom-stage-list');
+
   await page.close();
+}
+
+/** A fingerprint of the painted field, straight out of the DOM. */
+async function fieldSignature(page: Page): Promise<string> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('[data-role="field"] .bc-sub')]
+      .map((n) => n.className.replace('bc-sub', '').replace('is-cursor', ''))
+      .join('')
+      .replace(/\s+/g, ''),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -350,6 +443,12 @@ async function main(): Promise<void> {
     validationErrors: [],
     validationAfterFix: [],
     drawn: { brick: 0, steel: 0, water: 0, trees: 0, ice: 0 },
+    shareCode: '',
+    draftBeforeTestPlay: '',
+    draftAfterTestPlay: '',
+    savedIds: [],
+    testPlayStatus: '',
+    rejectedPrefix: [],
     consoleErrors: [],
   };
 
@@ -378,6 +477,18 @@ async function main(): Promise<void> {
   console.log(`validation: ${JSON.stringify(results.validationErrors)}`);
   console.log(`after fix : ${JSON.stringify(results.validationAfterFix)}`);
   console.log(
+    `share code: ${results.shareCode.slice(0, 32)}… (${results.shareCode.length} chars)`,
+  );
+  console.log(`saved: ${JSON.stringify(results.savedIds)}`);
+  console.log(
+    `draft across test-play: ${
+      results.draftBeforeTestPlay === results.draftAfterTestPlay
+        ? 'intact'
+        : 'CHANGED'
+    } — "${results.testPlayStatus}"`,
+  );
+  console.log(`BC2. → ${JSON.stringify(results.rejectedPrefix)}`);
+  console.log(
     `entry ${chunkReport.entry.file} ${chunkReport.entry.bytes} B · ` +
       `editor ${chunkReport.editor.file} ${chunkReport.editor.bytes} B ` +
       `(${chunkReport.editorShareOfEntry} of the entry chunk)`,
@@ -385,6 +496,23 @@ async function main(): Promise<void> {
 
   if (JSON.stringify(results.carrierSlots) !== '[3,10,17]') {
     console.error('carrier slots are not the 4th, 11th and 18th.');
+    process.exitCode = 1;
+  }
+  if (
+    results.draftBeforeTestPlay === '' ||
+    results.draftBeforeTestPlay !== results.draftAfterTestPlay
+  ) {
+    console.error('the draft did not survive the test-play.');
+    process.exitCode = 1;
+  }
+  if (results.savedIds.length !== 1) {
+    console.error(
+      `bc.customLevels.v1 holds ${results.savedIds.length} levels.`,
+    );
+    process.exitCode = 1;
+  }
+  if (!results.rejectedPrefix.join(' ').includes('BC2')) {
+    console.error('a BC2. code was not refused by name.');
     process.exitCode = 1;
   }
   if (chunkReport.entryMentionsEditorSource) {

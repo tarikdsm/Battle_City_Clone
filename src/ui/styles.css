@@ -630,6 +630,15 @@
   grid-template-columns: repeat(13, 1fr);
   width: min(30rem, 100%);
   aspect-ratio: 1;
+  /*
+    Stuck to the top of the scrolling panel. The sidebar is taller than most
+    viewports once Share and Your stages are on it, and an author reordering a
+    wave while the field they are describing has scrolled away is working blind.
+  */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  z-index: 1;
   gap: 0;
   background: var(--bc-board);
   border: 1px solid var(--bc-border);
@@ -906,6 +915,35 @@
 
 .bc-editor-slot[data-type='armor'] .bc-editor-slot-type {
   color: #e2a04a;
+}
+
+.bc-editor-sharefields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.bc-editor-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 9rem;
+  overflow-y: auto;
+}
+
+.bc-editor-savedrow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bc-editor-savedname {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bc-editor-status {

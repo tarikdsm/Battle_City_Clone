@@ -1,24 +1,28 @@
 {
-  "builtAt": "2026-08-02T18:05:44.741Z",
+  "builtAt": "2026-08-02T18:19:35.197Z",
   "chunks": [
     {
-      "file": "index-BxAt7F2q.js",
-      "bytes": 815895
+      "file": "index-BzSLcfVH.js",
+      "bytes": 817010
     },
     {
-      "file": "editor-tdg213vo.js",
-      "bytes": 13854
+      "file": "editor-CBHHIKDf.js",
+      "bytes": 18470
+    },
+    {
+      "file": "customLevels-BTEvrBLt.js",
+      "bytes": 1076
     }
   ],
   "entry": {
-    "file": "index-BxAt7F2q.js",
-    "bytes": 815895
+    "file": "index-BzSLcfVH.js",
+    "bytes": 817010
   },
   "editor": {
-    "file": "editor-tdg213vo.js",
-    "bytes": 13854
+    "file": "editor-CBHHIKDf.js",
+    "bytes": 18470
   },
-  "editorShareOfEntry": "1.7%",
+  "editorShareOfEntry": "2.3%",
   "entryMentionsEditorSource": false,
   "entryReferencesEditorChunk": true
 }
