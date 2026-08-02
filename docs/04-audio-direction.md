@@ -21,7 +21,7 @@
 
 | Patch | Recipe (ADSR in ms) |
 |---|---|
-| `pulse50 / pulse25 / pulse12` | square via wave-shaper duty; vibrato 6 Hz ±10 cents optional; A5 D40 S0.7 R60 |
+| `pulse50 / pulse25 / pulse12` | square via **`PeriodicWave`** (measured, T5.1: a wave-shaper aliases audibly at 12.5% duty); vibrato 6 Hz ±10 cents optional; A5 D40 S0.7 R60 |
 | `triBass` | triangle osc + `subSine` one octave down at −12 dB; A5 D30 S0.9 R80 |
 | `kick` | sine pitch-swept 150→48 Hz over 90 ms + click transient; A0 D90 |
 | `snare` | white noise bandpass 1.8 kHz + 200 Hz sine body 60 ms |
@@ -37,7 +37,7 @@ Send FX: tempo-synced delay (3/16, feedback 0.25, music only), small plate-style
 | Piece | Basis | Notes |
 |---|---|---|
 | Title theme | **new**, quotes stage-fanfare motif | ~92 BPM, A minor, pulse lead over pad + triBass; loops 32 bars |
-| Stage intro fanfare | **faithful re-arrangement** of the iconic opening riff | ~4 s, plays over curtain/fly-in, ends on downbeat of Layer 0 |
+| Stage intro fanfare | **motif-shaped** (see §7's honesty note) | **2.0 s** — fidelity §11.1's curtain is 2 s and the piece must end on L0's downbeat; the earlier "~4 s" contradicted its own mechanism and loses |
 | Gameplay adaptive suite | **new** (the NES had no in-game music — only engine hum) | see below |
 | Stage clear / tally | **new**, rising resolution jingle + tally tick sounds | 6 s + per-line ticks |
 | Game over | **faithful re-arrangement** of the descending motif | somber, short tail |
@@ -78,7 +78,7 @@ Rules: layers fade in/out over 250 ms on state change (recomputed from `GameEven
 | shovelClank | 3 hammer clanks; reverse-sweep warning at blink phase | high | 1 |
 | extraLife | rising jingle (faithful spirit) | top | 1 |
 | stunBuzz | wobble buzz 300 ms + comedic spring | med | 1 |
-| engineIdle / engineMove | the classic two-note buzz: pulse12 alternating semitone at 8 Hz; pitch +0…+3 st with speed; per-player, always audible while alive (quiet) | low | 2 |
+| engineIdle / engineMove | the classic buzz: pulse12 alternating a semitone at 8 Hz; pitch +0…+3 st with speed; per-player, always audible while alive (quiet) | low | 2 |
 | iceSlide | filtered noise whoosh, gain ∝ slide speed | low | 2 |
 | treeRustle | short leaf-noise chiff | low | 2 |
 | uiMove / uiSelect / uiBack | pulse blip / bell confirm / low blip | med | 2 |
@@ -88,7 +88,8 @@ Retrigger guard: identical SFX ≥ 30 ms apart; beyond poly cap, steal the oldes
 
 ## 6. Mix
 
-- Targets: music bed ~−16 LUFS-ish under gameplay, SFX peaks −6 dB below limiter ceiling; master limiter −1 dBTP.
+- Targets: music bed ~−16 LUFS-ish under gameplay, SFX peaks −6 dB below limiter ceiling; master ceiling −1 dB. **Web Audio has no true-peak limiter** (T5.1), so this ships as a brick-wall compressor with peaks *measured* in `docs/calibration/audio.json` rather than a dBTP guarantee.
+- **The engine hum reads as roughness, not two distinguishable pitches** — a semitone alternating at 8 Hz gives a modulation index of 0.41, which the ear resolves as timbre. That is correct and matches the NES; "two-note" in §5 describes the construction, not the percept. Measured duck: **−11.99 dB** against the −12 target, recovering to −0.13 dB.
 - Ducking matrix: baseExplode → all −12 dB, 1.2 s, 400 ms release; playerExplode → music −6 dB, 400 ms; clockFreeze → music lowpassed (no gain duck).
 - Stereo: subtle SFX pan by world x (±0.35 max); music mostly center with pad width.
 - Everything through the shared compressor so the mix "breathes" as one.
@@ -99,4 +100,12 @@ Retrigger guard: identical SFX ≥ 30 ms apart; beyond poly cap, steal the oldes
 |---|---|
 | Stage intro fanfare, Game over, Pause chirp, engine hum concept, power-up pickup feel, extra-life spirit | Title, adaptive gameplay suite, tally, high-score |
 
-Review criterion for the faithful set: a Battle City player must recognize each within 2 seconds. The orchestrator gates the music tasks on this.
+Review criterion for the faithful set: a Battle City player must recognize each within 2 seconds.
+
+**Honesty note (2026-08-02) — this criterion is currently UNVERIFIED, and nothing in the build should claim otherwise.** Neither the implementing agent nor the orchestrator has an ear, and no note-level transcription of the originals could be found from a source worth trusting. The agent explicitly declined to lift one from an unverifiable source and present it as fidelity — the right call, because fabricated fidelity is worse than an admitted gap.
+
+What *is* verified: construction, duration, and spectrum. Score-vs-render agreement is exact (every melody plays its written notes at its written times), and the suite's L0 measures 110.6 Hz against the engine hum's 109.9 Hz, so the "musicalised descendant of the hum" claim holds.
+
+So the three are **motif-shaped, not transcribed**: the game-over piece falls in two voices and stops unresolved on the dominant in the original's ~3 s; the pause chirp is two high notes a fourth apart; the fanfare is new. They may read as "*a* game over" rather than "*that* game over".
+
+**This is owner-verifiable in minutes and is a one-array edit per tune** (`[tick, midi, dur, vel]`). It belongs on the same list as the `[CAL-nn]` constants in fidelity §16: things only someone with the original can settle.

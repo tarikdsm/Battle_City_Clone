@@ -15,8 +15,9 @@ const KEY_CUSTOM_LEVELS = 'bc.customLevels.v1';
 /** Campaign lengths (GDD §2): 35 original stages, 12 Neo stages. */
 const MAX_STAGE = 35;
 const MAX_NEO_STAGE = 12;
-/** Arcade table size (GDD §8). */
-const MAX_SCORES = 10;
+/** Arcade table size (GDD §8). Exported: `session.ts`'s qualifying rule is
+ *  "beats the table's tenth entry", and two copies of that ten would drift. */
+export const MAX_SCORES = 10;
 /** Arcade initials are 3 characters. */
 const MAX_INITIALS = 3;
 
@@ -37,6 +38,26 @@ export interface SettingsV1 {
   quality: 'auto' | 'low' | 'medium' | 'high';
   screenShake: boolean;
   reducedFlash: boolean;
+  /**
+   * Art §11's high-contrast mode — **required, not optional** (upgraded
+   * 2026-08-02 after T2.4 measured player-gold against enemy-gunmetal at ~18
+   * luma points on a 0–255 scale, and player-gold against enemy-sand at 2.6).
+   *
+   * Added to this record at T6.1. It is a *new field*, not a new key: the
+   * loader below is field-wise, so a `bc.settings.v1` written by an older build
+   * simply has no `highContrast` and takes the default. The version stays v1
+   * because nothing that was stored has changed meaning.
+   */
+  highContrast: boolean;
+  /**
+   * `"<pad>.<action>"` → `KeyboardEvent.code`, e.g. `"p1.fire"` → `"KeyK"`.
+   *
+   * One flat map for both players rather than two nested ones, because that is
+   * the shape this key already had when it was settled, and the validator below
+   * (which drops any non-string value and keeps the rest) works on it unchanged.
+   * `src/ui/screens/settings.ts` owns the key format and the merge over
+   * `DEFAULT_BINDINGS`.
+   */
   bindings: Record<string, string>;
 }
 
@@ -47,6 +68,7 @@ const DEFAULT_SETTINGS: SettingsV1 = {
   quality: 'auto',
   screenShake: true,
   reducedFlash: false,
+  highContrast: false,
   bindings: {},
 };
 const QUALITIES: readonly string[] = ['auto', 'low', 'medium', 'high'];
@@ -199,6 +221,7 @@ export function loadSettings(): SettingsV1 {
     quality: quality(rec?.quality) ?? DEFAULT_SETTINGS.quality,
     screenShake: bool(rec?.screenShake) ?? DEFAULT_SETTINGS.screenShake,
     reducedFlash: bool(rec?.reducedFlash) ?? DEFAULT_SETTINGS.reducedFlash,
+    highContrast: bool(rec?.highContrast) ?? DEFAULT_SETTINGS.highContrast,
     bindings: bindings(rec?.bindings) ?? { ...DEFAULT_SETTINGS.bindings },
   };
 }
@@ -210,6 +233,7 @@ export function saveSettings(v: SettingsV1): void {
     quality: v.quality,
     screenShake: v.screenShake,
     reducedFlash: v.reducedFlash,
+    highContrast: v.highContrast,
     bindings: v.bindings,
   });
 }

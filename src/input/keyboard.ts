@@ -20,6 +20,18 @@
 //    TICKS, not milliseconds, because `poll()` is called once per simulation
 //    tick — so the shot rate is identical on a 30 fps laptop and a 144 Hz
 //    monitor, which a wall-clock pulse would not be.
+//
+// 3. **The press latch.** Every value above is a LEVEL sampled once per tick,
+//    and a level has one failure mode: a key that goes down and up *between*
+//    two polls was never down as far as the simulation is concerned. A 60 Hz
+//    tick is 16.7 ms, and a fast tap is not much longer — so the driver latches
+//    a press the moment it arrives and holds it until the next `poll()` reports
+//    it. Without this, tapping fire quickly does nothing at all, which reads as
+//    an unresponsive game and quietly undermines fidelity §5.1's press-edge
+//    design: the core is waiting for an edge the driver already threw away.
+//    (Found at T6.1/T6.2 — Playwright's synthetic presses land inside one tick
+//    roughly half the time, and both the e2e suite and the capture script had
+//    to hold keys for 90 ms to work around it. Fixed here instead.)
 
 import type { Dir, PlayerIntent } from '../core/types';
 
@@ -121,10 +133,27 @@ interface Pad {
   pauseCodes: number;
   /** Ticks left before the next turbo pulse; 0 = the next poll fires. */
   turbo: number;
+  // --- the press latch (rule 3 in the header) -----------------------------
+  // Each of these records "a press arrived since the last poll", and each is
+  // cleared BY that poll. They only ever change the answer when the matching
+  // level is already back to zero — i.e. exactly the sub-tick tap that would
+  // otherwise vanish.
+  /** A direction pressed since the last poll, even if already released. */
+  tapDir: Dir | null;
+  firePressed: boolean;
+  pausePressed: boolean;
 }
 
 function makePad(): Pad {
-  return { stack: [], fireCodes: 0, pauseCodes: 0, turbo: 0 };
+  return {
+    stack: [],
+    fireCodes: 0,
+    pauseCodes: 0,
+    turbo: 0,
+    tapDir: null,
+    firePressed: false,
+    pausePressed: false,
+  };
 }
 
 function resetPad(pad: Pad): void {
@@ -132,6 +161,11 @@ function resetPad(pad: Pad): void {
   pad.fireCodes = 0;
   pad.pauseCodes = 0;
   pad.turbo = 0;
+  // Blur drops the latches too: a tap the player made on the way out of the
+  // window must not fire a shot when they come back.
+  pad.tapDir = null;
+  pad.firePressed = false;
+  pad.pausePressed = false;
 }
 
 function isAction(action: string): action is InputAction {
@@ -182,12 +216,15 @@ export function createKeyboard(bindings: Bindings): Keyboard {
     const dir = DIR_OF_ACTION[action];
     if (dir !== undefined) {
       pad.stack.push(dir);
+      pad.tapDir = dir;
       return;
     }
     if (action === 'pause') {
       pad.pauseCodes++;
+      pad.pausePressed = true;
       return;
     }
+    pad.firePressed = true;
     pad.fireCodes++;
     if (pad.fireCodes === 1) {
       // A fresh press fires on the NEXT poll, whatever the pulse phase was.
@@ -255,11 +292,22 @@ export function createKeyboard(bindings: Bindings): Keyboard {
       for (let i = 0; i < pads.length; i++) {
         const pad = pads[i];
         const intent = intents[i];
+
+        // A still-held direction wins over a latched tap: the latch's promise
+        // is "a press survives to the next poll", not "a tap overrides the key
+        // you are holding". Releasing the tapped key already fell back through
+        // the stack (rule 1), so the held key is the one still down.
         intent.dir =
-          pad.stack.length > 0 ? pad.stack[pad.stack.length - 1] : null;
-        intent.pause = pad.pauseCodes > 0;
+          pad.stack.length > 0 ? pad.stack[pad.stack.length - 1] : pad.tapDir;
+        pad.tapDir = null;
+
+        intent.pause = pad.pauseCodes > 0 || pad.pausePressed;
+        pad.pausePressed = false;
+
         if (pad.fireCodes === 0) {
-          intent.fire = false;
+          // Released — but report the tap if one came and went inside this
+          // tick. The core sees a clean single-tick edge either way.
+          intent.fire = pad.firePressed;
           pad.turbo = 0;
         } else if (pad.turbo <= 0) {
           intent.fire = true;
@@ -268,6 +316,7 @@ export function createKeyboard(bindings: Bindings): Keyboard {
           intent.fire = false;
           pad.turbo--;
         }
+        pad.firePressed = false;
       }
       return intents;
     },

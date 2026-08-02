@@ -20,7 +20,10 @@
     "calibrate:lighting": "tsx scripts/calibrate-lighting.ts",
     "capture:entities": "tsx scripts/capture-entities.ts",
     "capture:post": "tsx scripts/capture-post.ts",
-    "capture:play": "tsx scripts/capture-play.ts"
+    "capture:play": "tsx scripts/capture-play.ts",
+    "capture:fx": "tsx scripts/capture-fx.ts",
+    "capture:audio": "tsx scripts/capture-audio.ts",
+    "capture:ui": "tsx scripts/capture-ui.ts"
   },
   "dependencies": {
     "three": "0.185.1"

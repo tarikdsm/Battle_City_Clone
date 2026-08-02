@@ -1,0 +1,603 @@
+/*
+  src/ui/styles.css — art §10's UI treatment, as CSS custom properties.
+
+  The tokens below MIRROR `src/render/materials.ts`'s PALETTE (arch §8: "DOM
+  overlay … CSS custom properties"). They are duplicated rather than injected
+  because a stylesheet the browser can parse without running JavaScript is what
+  makes the first paint correct — but the names match the render layer's keys
+  exactly, so a drift is visible by grepping one word.
+
+  Loaded from index.html rather than imported from a module: the app program
+  compiles with `types: []` (tsconfig.json) and has no ambient `*.css`
+  declaration, and adding one would be a build-shaped fix for a link-shaped
+  problem.
+
+  Fonts are art §10's Orbitron (display) + Inter (body), bundled as OFL woff2
+  in `src/ui/fonts/` — no network at runtime (GDD pillar 4: offline-capable).
+  Every rule reaches them through `--bc-font-display` / `--bc-font-body`, so a
+  future change of typeface is two lines.
+*/
+
+/*
+  ## Two files, not four
+  Google Fonts serves both families as **variable** fonts, so `wght@700;800`
+  and `wght@100;900` return the same URL twice. One file per family covers the
+  whole axis and the `font-weight` RANGE below is what tells the browser so —
+  shipping the two weights as separate downloads would have doubled 60 KB for
+  bytes that are already in the file.
+
+  ## `swap`, and why the first paint is still right
+  `font-display: swap` shows the fallback until the woff2 lands, so the title
+  never blocks on a font. index.html preloads both, so that window is one
+  network round trip on a cold cache and zero on a warm one.
+
+  Latin subset only: GDD §3 fixes the language at English and §11 puts
+  localization out of scope for v1.
+*/
+@font-face {
+  font-family: 'Orbitron';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('./fonts/orbitron-latin-var.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/inter-latin-var.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* Art §3.1 tokens the UI uses. */
+  --bc-board: #10121b;
+  --bc-border: #262b3d;
+  --bc-gold: #ffd76b;
+  --bc-cyan: #7fc4ff;
+  --bc-danger: #e24b4a;
+  --bc-p1: #f2c14e;
+  --bc-p2: #7fd695;
+
+  --bc-text: #e8e8e8;
+  /* 6.07:1 against the panel — art §11's floor is 4.5:1. */
+  --bc-text-dim: #8b93a7;
+  --bc-text-off: #5b6274;
+
+  /* Art §10: "dark translucent panels (#10121b @ 92%) with 1 px #262b3d". */
+  --bc-panel-bg: rgb(16 18 27 / 92%);
+  --bc-panel-border: 1px solid var(--bc-border);
+  --bc-panel-radius: 10px;
+
+  /* Art §10: "150 ms slide/fade transitions". */
+  --bc-transition: 150ms;
+
+  --bc-font-display:
+    'Orbitron', 'Bahnschrift', 'DIN Alternate', system-ui, sans-serif;
+  --bc-font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bc-font-mono-fallback:
+    ui-monospace, 'Cascadia Mono', 'Courier New', monospace;
+  /* Only the key legend uses this: a `kbd` should look like a key cap. */
+  --bc-font-mono: ui-monospace, 'Cascadia Mono', 'Courier New', monospace;
+}
+
+/*
+  Art §11's reduced-motion rule reaches the DOM too: the panels' 150 ms slide is
+  exactly the kind of motion that carries no information. The fade is kept —
+  opacity is not vestibular — so the transition still reads as a transition.
+*/
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --bc-transition: 1ms;
+  }
+}
+
+/* --- the screen shell --------------------------------------------------- */
+
+.bc-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0.75rem, 4vmin, 2.5rem);
+  box-sizing: border-box;
+  font-family: var(--bc-font-body);
+  color: var(--bc-text);
+  /*
+    The shell itself never eats a click meant for the board; the panel inside
+    re-enables pointer events for its own rows.
+  */
+  pointer-events: none;
+  user-select: none;
+}
+
+/* GDD §5's pause: "freezes simulation, dims scene". */
+.bc-screen.is-modal {
+  background: rgb(6 7 11 / 62%);
+  pointer-events: auto;
+}
+
+.bc-panel {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: min(34rem, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: clamp(1rem, 3vmin, 1.75rem);
+  background: var(--bc-panel-bg);
+  border: var(--bc-panel-border);
+  border-radius: var(--bc-panel-radius);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 55%);
+  /* The start state of art §10's slide/fade; `.is-in` is the end state. */
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity var(--bc-transition) ease-out,
+    transform var(--bc-transition) ease-out;
+}
+
+.bc-panel.is-bare {
+  /*
+    No box — but not nothing. The title sits over a LIVE board (GDD §5's
+    attract diorama), and brick is the brightest thing in the palette, so a
+    transparent panel put "press any key" on top of a mortar line and lost it.
+    A radial scrim that fades to zero well before the panel's edge keeps the
+    board reading as a board while the type stays legible on any tile it
+    happens to land on.
+  */
+  background: radial-gradient(
+    ellipse 60% 55% at 50% 45%,
+    rgb(6 7 11 / 92%) 0%,
+    rgb(6 7 11 / 78%) 45%,
+    rgb(6 7 11 / 0%) 100%
+  );
+  border: none;
+  box-shadow: none;
+  align-items: center;
+  text-align: center;
+  width: min(46rem, 100%);
+  padding: clamp(2rem, 8vmin, 4.5rem) clamp(1rem, 6vmin, 3.5rem);
+  text-shadow: 0 2px 14px rgb(0 0 0 / 95%);
+}
+
+.bc-panel.is-bare .bc-footer {
+  border-top: none;
+  justify-content: center;
+}
+
+.bc-screen.is-in .bc-panel {
+  opacity: 1;
+  transform: none;
+}
+
+.bc-title {
+  margin: 0;
+  font-family: var(--bc-font-display);
+  font-size: clamp(1.4rem, 4.5vmin, 2.2rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bc-text);
+}
+
+.bc-subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--bc-text-dim);
+}
+
+.bc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.bc-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--bc-border);
+  font-size: 0.75rem;
+  color: var(--bc-text-dim);
+}
+
+.bc-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bc-footer kbd {
+  font-family: var(--bc-font-mono);
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--bc-border);
+  border-radius: 4px;
+  color: var(--bc-text);
+}
+
+/* --- menu rows ---------------------------------------------------------- */
+
+.bc-menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bc-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'label value' 'hint hint';
+  align-items: center;
+  gap: 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition:
+    background-color var(--bc-transition) ease-out,
+    color var(--bc-transition) ease-out;
+}
+
+.bc-row.is-label {
+  grid-template-columns: 1fr;
+  margin-top: 0.6rem;
+  padding-bottom: 0.15rem;
+  font-family: var(--bc-font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bc-text-dim);
+  cursor: default;
+}
+
+.bc-row-label {
+  grid-area: label;
+}
+
+.bc-row-value {
+  grid-area: value;
+  font-variant-numeric: tabular-nums;
+  color: var(--bc-text-dim);
+}
+
+.bc-row-hint {
+  grid-area: hint;
+  padding-top: 0.2rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--bc-text-off);
+}
+
+/*
+  Art §10: "gold accent for selection, cyan focus ring (gamepad/keyboard)".
+  Both, together, on the same row — the gold says *which* row is chosen and the
+  cyan says the choice belongs to a keyboard/pad rather than to a mouse hover.
+  The ring is an outline rather than a border so it cannot shift the layout by a
+  pixel as the cursor moves.
+*/
+.bc-row.is-focused {
+  background: rgb(255 215 107 / 12%);
+  border-color: rgb(255 215 107 / 45%);
+  color: var(--bc-gold);
+  outline: 2px solid var(--bc-cyan);
+  outline-offset: -1px;
+}
+
+.bc-row.is-focused .bc-row-value {
+  color: var(--bc-gold);
+}
+
+.bc-row.is-disabled {
+  color: var(--bc-text-off);
+  cursor: not-allowed;
+}
+
+.bc-row.is-disabled.is-focused {
+  background: rgb(139 147 167 / 10%);
+  border-color: rgb(139 147 167 / 35%);
+  color: var(--bc-text-dim);
+}
+
+.bc-row.is-listening .bc-row-value {
+  color: var(--bc-cyan);
+}
+
+/* Slider fill, art §10's accent. */
+.bc-bar {
+  grid-area: value;
+  justify-self: end;
+  align-self: center;
+  width: 7rem;
+  height: 5px;
+  margin-right: 3.4rem;
+  border-radius: 3px;
+  background: rgb(38 43 61 / 90%);
+  overflow: hidden;
+}
+
+.bc-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--bc-gold);
+  transition: width var(--bc-transition) ease-out;
+}
+
+.bc-row .bc-row-value {
+  min-width: 3rem;
+  text-align: right;
+}
+
+/* --- title screen ------------------------------------------------------- */
+
+.bc-logo {
+  margin: 0;
+  font-family: var(--bc-font-display);
+  font-size: clamp(2.2rem, 9vmin, 5rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bc-text);
+  text-shadow: 0 0 24px rgb(255 215 107 / 22%);
+}
+
+.bc-logo em {
+  display: block;
+  font-style: normal;
+  color: var(--bc-gold);
+}
+
+.bc-press {
+  margin: 1.5rem 0 0;
+  font-size: 0.9rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bc-text-dim);
+  animation: bc-pulse 1.6s ease-in-out infinite;
+}
+
+.bc-hi {
+  margin: 0.75rem 0 0;
+  font-family: var(--bc-font-display);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  color: var(--bc-gold);
+}
+
+@keyframes bc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bc-press {
+    animation: none;
+  }
+}
+
+/* --- stage intro (fidelity §11.1) --------------------------------------- */
+
+.bc-screen[data-screen='intro'] .bc-panel {
+  background: none;
+  border: none;
+  box-shadow: none;
+  align-items: center;
+}
+
+.bc-stage-number {
+  margin: 0;
+  font-family: var(--bc-font-display);
+  font-size: clamp(1.8rem, 7vmin, 3.4rem);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--bc-text);
+  text-shadow: 0 2px 18px rgb(0 0 0 / 90%);
+}
+
+/* --- tally (fidelity §12) ----------------------------------------------- */
+
+.bc-tally {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+}
+
+.bc-tally-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.bc-tally-head {
+  font-family: var(--bc-font-display);
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bc-text-dim);
+  margin-bottom: 0.5rem;
+}
+
+.bc-tally-head.p1 {
+  color: var(--bc-p1);
+}
+
+.bc-tally-head.p2 {
+  color: var(--bc-p2);
+}
+
+.bc-tally-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--bc-font-body);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bc-tally-table td {
+  padding: 0.22rem 0.3rem;
+  color: var(--bc-text-dim);
+}
+
+.bc-tally-table td.pts,
+.bc-tally-table td.count,
+.bc-tally-table td.sub {
+  text-align: right;
+}
+
+.bc-tally-table td.sub {
+  color: var(--bc-text);
+}
+
+.bc-tally-table tr.total td {
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--bc-border);
+  color: var(--bc-gold);
+}
+
+/* A row that has not been counted up yet is hidden, not blank — the tally
+   reveals one line at a time with a `tallyTick` per reveal (audio §5). */
+.bc-tally-table tr[data-revealed='0'] {
+  visibility: hidden;
+}
+
+/* --- high-score table --------------------------------------------------- */
+
+.bc-scores {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--bc-font-body);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bc-scores td {
+  padding: 0.28rem 0.4rem;
+  color: var(--bc-text-dim);
+}
+
+.bc-scores td.rank {
+  width: 2.5rem;
+  color: var(--bc-text-off);
+}
+
+.bc-scores td.score {
+  text-align: right;
+  color: var(--bc-text);
+}
+
+.bc-scores tr.is-new td {
+  color: var(--bc-gold);
+}
+
+/* --- initials entry (fidelity §13) -------------------------------------- */
+
+.bc-initials {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.bc-initial {
+  width: 3rem;
+  height: 3.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--bc-font-display);
+  font-size: 2rem;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  background: rgb(38 43 61 / 35%);
+  color: var(--bc-text);
+}
+
+.bc-initial.is-focused {
+  border-color: rgb(255 215 107 / 55%);
+  outline: 2px solid var(--bc-cyan);
+  outline-offset: -1px;
+  color: var(--bc-gold);
+}
+
+/* --- game over ---------------------------------------------------------- */
+
+.bc-gameover {
+  margin: 0;
+  font-family: var(--bc-font-display);
+  font-size: clamp(1.6rem, 6vmin, 3rem);
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--bc-danger);
+  text-shadow: 0 2px 18px rgb(0 0 0 / 90%);
+}
+
+.bc-final {
+  margin: 0.5rem 0 0;
+  font-family: var(--bc-font-display);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  color: var(--bc-text);
+}
+
+/* --- stage select grid -------------------------------------------------- */
+
+.bc-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.bc-stage-cell {
+  padding: 0.5rem 0;
+  text-align: center;
+  font-family: var(--bc-font-display);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  border: 1px solid var(--bc-border);
+  border-radius: 5px;
+  color: var(--bc-text-dim);
+  cursor: pointer;
+}
+
+.bc-stage-cell.is-locked {
+  color: var(--bc-text-off);
+  border-color: rgb(38 43 61 / 45%);
+  cursor: not-allowed;
+}
+
+.bc-stage-cell.is-focused {
+  background: rgb(255 215 107 / 12%);
+  border-color: rgb(255 215 107 / 45%);
+  color: var(--bc-gold);
+  outline: 2px solid var(--bc-cyan);
+  outline-offset: -1px;
+}

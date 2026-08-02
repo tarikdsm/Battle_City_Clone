@@ -1,0 +1,230 @@
+{
+  "capturedAt": "2026-08-02T16:30:13.822Z",
+  "url": "http://localhost:5173/",
+  "viewport": {
+    "w": 1600,
+    "h": 900
+  },
+  "gpu": {
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics (0x00009A60) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "headless": false
+  },
+  "budget": {
+    "sceneDrawCalls": 60,
+    "renderCpuMs": 6
+  },
+  "rig": {
+    "high": {
+      "idle": {
+        "calls": 59,
+        "ms": 4.3,
+        "particles": 0,
+        "lights": 3,
+        "activeKinds": 0
+      },
+      "busy": {
+        "calls": 66,
+        "ms": 2.6,
+        "particles": 133,
+        "lights": 6,
+        "activeKinds": 5
+      },
+      "delta": 7
+    },
+    "low": {
+      "idle": {
+        "calls": 25,
+        "ms": 2.6,
+        "particles": 0,
+        "lights": 1,
+        "activeKinds": 0
+      },
+      "busy": {
+        "calls": 30,
+        "ms": 0.9,
+        "particles": 90,
+        "lights": 3,
+        "activeKinds": 5
+      },
+      "delta": 5
+    }
+  },
+  "loop": {
+    "high": {
+      "frames": 317,
+      "meanMs": 4.075,
+      "medianMs": 3.9,
+      "p95Ms": 6,
+      "maxMs": 10.2,
+      "fps": 39.6,
+      "drawCalls": {
+        "min": 41,
+        "median": 47,
+        "max": 53
+      }
+    },
+    "medium": {
+      "frames": 445,
+      "meanMs": 3.336,
+      "medianMs": 3.3,
+      "p95Ms": 4.6,
+      "maxMs": 8.9,
+      "fps": 55.6,
+      "drawCalls": {
+        "min": 39,
+        "median": 44,
+        "max": 50
+      }
+    },
+    "low": {
+      "frames": 735,
+      "meanMs": 1.607,
+      "medianMs": 1.5,
+      "p95Ms": 2.7,
+      "maxMs": 5.3,
+      "fps": 91.8,
+      "drawCalls": {
+        "min": 14,
+        "median": 17,
+        "max": 21
+      }
+    }
+  },
+  "baseline": {
+    "high": {
+      "frames": 228,
+      "meanMs": 2.027,
+      "medianMs": 1.9,
+      "p95Ms": 3.5,
+      "maxMs": 4.4,
+      "fps": 28.5,
+      "drawCalls": {
+        "min": 41,
+        "median": 43,
+        "max": 45
+      }
+    },
+    "medium": {
+      "frames": 290,
+      "meanMs": 1.748,
+      "medianMs": 1.7,
+      "p95Ms": 2.7,
+      "maxMs": 3.8,
+      "fps": 36.2,
+      "drawCalls": {
+        "min": 39,
+        "median": 41,
+        "max": 43
+      }
+    },
+    "low": {
+      "frames": 365,
+      "meanMs": 0.773,
+      "medianMs": 0.7,
+      "p95Ms": 1.4,
+      "maxMs": 1.9,
+      "fps": 45.6,
+      "drawCalls": {
+        "min": 14,
+        "median": 16,
+        "max": 17
+      }
+    }
+  },
+  "baselineCapturedAt": "2026-08-02T11:11:19.293Z",
+  "console": {
+    "high": {
+      "errors": [],
+      "warnings": []
+    },
+    "medium": {
+      "errors": [],
+      "warnings": [
+        "THREE.WebGLProgram: Program Info Log: (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (190,12-86): warning X3595: gradient instruction used in a loop with varying iteration; partial derivatives may have undefined value (375,1): warning X4000: use of potentially uninitialized variable (f_ApplyFXAA) \u0000"
+      ]
+    },
+    "low": {
+      "errors": [],
+      "warnings": []
+    }
+  },
+  "camera": {
+    "fly-in-start": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 55,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 1,
+      "popups": 0
+    },
+    "fly-in-mid": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 34.875,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 0,
+      "popups": 0
+    },
+    "fly-in-end": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 32,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 0,
+      "popups": 0
+    },
+    "shake-peak": {
+      "trauma": 0.7732,
+      "offsetX": 1.017405210457768,
+      "offsetY": 1.595793672451287,
+      "rollDeg": -0.160567156624803,
+      "pitchDeg": 32,
+      "timeScale": 0.25,
+      "zoom": 1.0169164800000001,
+      "curtain": 0,
+      "popups": 0
+    },
+    "base-moment": {
+      "trauma": 0.23999999999999969,
+      "offsetX": 0.15184232481444893,
+      "offsetY": -0.14510134070982153,
+      "rollDeg": -0.003121308536822586,
+      "pitchDeg": 32,
+      "timeScale": 0.25,
+      "zoom": 1.07,
+      "curtain": 0,
+      "popups": 1
+    },
+    "curtain-half": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 32,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 0.5,
+      "popups": 0
+    }
+  },
+  "verdict": {
+    "highLoopDrawCallsMax": 53,
+    "highLoopMeanMs": 4.075,
+    "highLoopP95Ms": 6,
+    "rigBusyCalls": 66,
+    "rigFxDelta": 7,
+    "drawCallsPass": true,
+    "frameTimePass": true,
+    "consolePass": true
+  }
+}

@@ -339,18 +339,18 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 4 — VFX & juice (Lane A after G2)
 
-### - [ ] T4.1 FxSystem: pools & budgets
+### - [x] T4.1 FxSystem: pools & budgets
 **Files:** create `src/render/fx/fxSystem.ts`; test `tests/render/fxSystem.test.ts` (pool: acquire beyond cap drops lowest priority, zero allocations after warmup — assert stable pool array identities; light pool caps at 8 with priority eviction).
 **Spec:** art §8 budgets; arch §5.
 **Commit:** `feat(render): pooled particle/light fx system with priority budgets`
 
-### - [ ] T4.2 Effect recipes
+### - [x] T4.2 Effect recipes
 **Files:** create `src/render/fx/recipes.ts`; test `tests/render/recipes.test.ts` (each GameEvent type maps to a recipe within art §8 particle budget; table-driven).
 **Spec:** art §8 (all rows), §6 dynamic lights.
 **Build notes:** implement every row incl. brick chunks with gravity/bounce, base slow-mo hooks (emits cameraFx request), muzzle/explosion lights, powerup/spawn/stun/skid/rustle.
 **Commit:** `feat(render): full event→vfx recipe set per art direction`
 
-### - [ ] T4.3 Camera FX, curtain transition, popups, reduced motion
+### - [x] T4.3 Camera FX, curtain transition, popups, reduced motion
 **Files:** create `src/render/cameraFx.ts`; modify renderer + play screen; test `tests/render/cameraFx.test.ts` (trauma decays 1.2/s; offset = trauma²·3u max; reduced-motion flag zeroes shake/slow-mo/flash but recipes still emit particles; curtain timeline 300ms in / 300ms out synced with fly-in per art §10).
 **Spec:** art §2, §10 (popups + curtain), §11; GDD §10 toggles.
 **Build notes:** curtain = twin steel shutters wipe on stage intro/outro, driven by the same timeline as the 55°→32° camera fly-in (art §2).
@@ -358,35 +358,35 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 5 — Audio (Lane B after G2)
 
-### - [ ] T5.1 Engine, instruments, sequencer
+### - [x] T5.1 Engine, instruments, sequencer
 **Files:** create `src/audio/{audio,synth,sequencer}.ts`; tests `tests/audio/sequencer.test.ts` (injected fake clock/context: lookahead schedules note-ons at correct AudioContext times ±1ms over tempo changes; loop wraps at `loopAtTick`; layer gain automation ramps 250ms), `tests/audio/synth.test.ts` (patch registry exposes all audio §3 patches; envelope param maps).
 **Spec:** audio §2–3; arch §6. **Produces:** Contract Zero AudioSystem; song format exactly audio §2.
 **Build notes:** OfflineAudioContext-based unit checks acceptable; gesture resume; buses + comp/limiter + ducking hooks.
 **Commit:** `feat(audio): webaudio engine, instrument patches, lookahead sequencer`
 
-### - [ ] T5.2 SFX set + ducking
+### - [x] T5.2 SFX set + ducking
 **Files:** create `src/audio/sfx.ts`; test `tests/audio/sfx.test.ts` (every audio §5 ID registered with priority/poly caps; ducking matrix values; retrigger guard 30ms; engine hum pitch follows `moving`/speed).
 **Spec:** audio §5–6.
 **Commit:** `feat(audio): full parametric sfx set with ducking matrix`
 
-### - [ ] T5.3 Music: arrangements + adaptive suite
+### - [x] T5.3 Music: arrangements + adaptive suite
 **Files:** create `src/audio/songs/{title,fanfare,suite,tally,gameover,hiscore,pause}.ts`; extend audio.ts intensity logic; test `tests/audio/suite.test.ts` (layer targets from state: 3 enemies on field ⇒ L2 on; ≤5 left ⇒ L3; base breached or last life ⇒ L4; clock ⇒ lowpass flag).
 **Spec:** audio §4, §7 (faithfulness ledger — fanfare/gameover/pause must be motif-recognizable; orchestrator gates by ear).
 **Commit:** `feat(audio): faithful jingles + adaptive 5-layer gameplay suite`
 
 ## Phase 6 — UI, screens, persistence (Lane main; merges A/B when ready)
 
-### - [ ] T6.1 Menus, settings, pause
+### - [x] T6.1 Menus, settings, pause
 **Files:** create `src/ui/{menus,styles.css}`, `src/ui/screens/{title,menu,settings,pause}.ts`; modify screens.ts. Test `tests/ui/settings.test.ts` (settings persist via storage: volumes, quality, toggles, bindings; navigation model up/down/select works from abstract nav events).
 **Spec:** GDD §5, §10; art §10 styling (panels, focus ring, fonts placeholder until T6.3).
 **Commit:** `feat(ui): title/menu/settings/pause with persisted settings`
 
-### - [ ] T6.2 Campaign flow, tally, game over, hi-scores
+### - [x] T6.2 Campaign flow, tally, game over, hi-scores
 **Files:** create `src/ui/screens/{stageSelect,intro,tally,gameOver,hiScore}.ts`; extend session.ts (progress, loop-after-35, per-run carryover). Tests `tests/app/session.test.ts` (progress unlock persists; loop 35→1 keeps rising internal stage; score carry; hi-score qualifies top-10, initials entry model 3 chars, seed entry 20000).
 **Spec:** GDD §5, §8; fidelity §11–13.
 **Commit:** `feat(ui): full campaign loop with tally and arcade hi-scores`
 
-### - [ ] T6.3 Final HUD + fonts
+### - [x] T6.3 Final HUD + fonts
 **Files:** create `src/ui/fonts/` (download Orbitron + Inter woff2 subsets + OFL licenses — network allowed this task only, from fonts.gstatic.com; commit files), finalize `src/ui/hud.ts` per art §10 (enemy grid, player cards, tier pips, stage flag; portrait variant), `index.html` preloads.
 **Tests:** `tests/ui/hud.test.ts` (HUD model derives from events/state: 20 icons decrement on `enemySpawnStarted`; lives/tier react).
 **Spec:** art §10; GDD §9.

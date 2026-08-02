@@ -555,3 +555,130 @@ describe('createInput — lifecycle', () => {
     expect(p2.dir).toBeNull();
   });
 });
+
+describe('createInput — the press latch (a tap shorter than one tick)', () => {
+  // The defect this covers: every value the driver reports is a LEVEL sampled
+  // once per 60 Hz tick, so a key that went down AND up between two polls was
+  // never down as far as the simulation is concerned. A tick is 16.7 ms and a
+  // fast tap is not much longer. Found at T6.1/T6.2, where Playwright's
+  // synthetic presses landed inside one tick about half the time.
+
+  it('reports a fire tap that came and went inside one tick', () => {
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    r.key('keydown', 'KeyJ');
+    r.key('keyup', 'KeyJ'); // …all before the next poll
+    expect(input.poll()[P1].fire).toBe(true);
+    // …and exactly once: the latch is consumed by the poll that reports it, so
+    // the core sees one clean press edge rather than a stuck level.
+    expect(input.poll()[P1].fire).toBe(false);
+
+    input.dispose();
+  });
+
+  it('reports a pause tap that came and went inside one tick', () => {
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    r.key('keydown', 'Escape');
+    r.key('keyup', 'Escape');
+    expect(input.poll()[P1].pause).toBe(true);
+    expect(input.poll()[P1].pause).toBe(false);
+
+    input.dispose();
+  });
+
+  it('reports a direction tap that came and went inside one tick', () => {
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    r.key('keydown', 'KeyD');
+    r.key('keyup', 'KeyD');
+    expect(input.poll()[P1].dir).toBe(RIGHT);
+    expect(input.poll()[P1].dir).toBe(null);
+
+    input.dispose();
+  });
+
+  it('does not let a tap override a direction that is still held', () => {
+    // The latch promises "a press survives to the next poll", not "a tap beats
+    // the key under your thumb". Releasing the tapped key already fell back
+    // through the stack, so the held key is the one still down.
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    r.key('keydown', 'KeyW');
+    expect(input.poll()[P1].dir).toBe(UP);
+    r.key('keydown', 'KeyA');
+    r.key('keyup', 'KeyA');
+    expect(input.poll()[P1].dir).toBe(UP);
+
+    input.dispose();
+  });
+
+  it('collapses several taps in one tick into a single press', () => {
+    // A tick can only produce one press edge in the core, so three taps inside
+    // one are one shot — not three queued ones that fire over three ticks.
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    for (let i = 0; i < 3; i++) {
+      r.key('keydown', 'KeyJ');
+      r.key('keyup', 'KeyJ');
+    }
+    expect(input.poll()[P1].fire).toBe(true);
+    expect(input.poll()[P1].fire).toBe(false);
+    expect(input.poll()[P1].fire).toBe(false);
+
+    input.dispose();
+  });
+
+  it('still drops the level the moment a HELD key is released', () => {
+    // The latch must not resurrect a release: the tap path only fires when the
+    // press itself arrived after the previous poll.
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    r.key('keydown', 'KeyJ');
+    expect(input.poll()[P1].fire).toBe(true);
+    r.key('keyup', 'KeyJ');
+    for (let i = 0; i < 20; i++) {
+      expect(input.poll()[P1].fire).toBe(false);
+    }
+
+    input.dispose();
+  });
+
+  it('drops latched presses on blur', () => {
+    // A tap made on the way out of the window must not fire a shot when the
+    // player comes back.
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    r.key('keydown', 'KeyJ');
+    r.key('keydown', 'KeyD');
+    r.key('keydown', 'Escape');
+    r.blur();
+    const intent = input.poll()[P1];
+    expect(intent.fire).toBe(false);
+    expect(intent.dir).toBe(null);
+    expect(intent.pause).toBe(false);
+
+    input.dispose();
+  });
+
+  it('keeps auto-repeat from re-latching a key that is already down', () => {
+    const r = rig();
+    const input = createInput(DEFAULT_BINDINGS, r.target);
+
+    r.key('keydown', 'KeyJ');
+    input.poll(); // consumes the press
+    r.key('keydown', 'KeyJ'); // the OS repeating a held key
+    r.key('keydown', 'KeyJ');
+    // Still throttled by the turbo: a repeat is not a new press.
+    expect(input.poll()[P1].fire).toBe(false);
+
+    input.dispose();
+  });
+});

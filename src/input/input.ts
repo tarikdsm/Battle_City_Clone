@@ -77,15 +77,30 @@ export function windowTarget(w: Window): InputTarget {
  * @param target   where to listen. Defaults to the game window; the default is
  *                 evaluated only when it is used, so a node test never touches
  *                 `window`.
+ * @param onUserGesture called on **every** key press, bound or not.
+ *
+ * The browser's autoplay policy only lets an `AudioContext` start from a user
+ * gesture, and this layer is where the game's gestures already arrive — so the
+ * audio system hooks in here rather than adding a second `keydown` listener
+ * that would race this one for `preventDefault`.
+ *
+ * It fires on every press, not just the first, and that is deliberate: a
+ * `resume()` the browser refuses (it can happen on the very first key of a
+ * freshly restored tab) has to be retried, and `AudioSystem.resume` is
+ * idempotent and cheap once the context is running. Unbound keys count too —
+ * a gesture is a gesture, and Escape reaching the pause menu should also be
+ * enough to wake the sound up.
  */
 export function createInput(
   bindings: Bindings = DEFAULT_BINDINGS,
   target: InputTarget = windowTarget(window),
+  onUserGesture?: () => void,
 ): InputSystem {
   const keyboard: Keyboard = createKeyboard(bindings);
 
   const removers: (() => void)[] = [
     target.onKey('keydown', (e) => {
+      onUserGesture?.();
       // Bound keys only. The arrows scroll the page and Ctrl+Right jumps a
       // word in whatever is focused; F5, Tab and the devtools chords are not
       // ours to swallow.

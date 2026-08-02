@@ -1,0 +1,287 @@
+{
+  "capturedAt": "2026-08-02T14:24:15.181Z",
+  "url": "http://localhost:5173/",
+  "sampleRate": 48000,
+  "thresholds": {
+    "silenceDbfs": -60,
+    "clipDbfs": -0.1,
+    "duckToleranceDb": 2
+  },
+  "sounds": {
+    "engine-idle": {
+      "durationS": 2,
+      "peakDbfs": -21.67,
+      "rmsDbfs": -32.38,
+      "centroidHz": 1057,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 engineIdle: pulse12 alternating a semitone at 8 Hz, stationary player"
+    },
+    "engine-move": {
+      "durationS": 2,
+      "peakDbfs": -16.33,
+      "rmsDbfs": -26.92,
+      "centroidHz": 1150,
+      "dcOffset": 0.00003,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 engineMove: the same hum at full speed, +3 semitones"
+    },
+    "helmet-loop": {
+      "durationS": 2,
+      "peakDbfs": -19.23,
+      "rmsDbfs": -30.33,
+      "centroidHz": 1007,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 helmetLoop: the shield hum over the engine hum, as it is heard in game"
+    },
+    "player-shot": {
+      "durationS": 0.6,
+      "peakDbfs": -14.74,
+      "rmsDbfs": -31.41,
+      "centroidHz": 6047,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 playerShot: pulse blip 880→440 Hz over 40 ms + noise tick"
+    },
+    "enemy-shot": {
+      "durationS": 0.6,
+      "peakDbfs": -19.94,
+      "rmsDbfs": -36.94,
+      "centroidHz": 5930,
+      "dcOffset": 0,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 enemyShot: the same −6 dB, 660→330"
+    },
+    "brick-hit": {
+      "durationS": 0.8,
+      "peakDbfs": -13.58,
+      "rmsDbfs": -32.94,
+      "centroidHz": 3252,
+      "dcOffset": 0,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 brickHit: noise burst bandpassed at 800 Hz + low crunch"
+    },
+    "steel-break": {
+      "durationS": 1.2,
+      "peakDbfs": -11.95,
+      "rmsDbfs": -29.84,
+      "centroidHz": 6387,
+      "dcOffset": 0.00002,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 steelBreak: clink + metal shard shimmer"
+    },
+    "tank-explode": {
+      "durationS": 1.4,
+      "peakDbfs": -5.8,
+      "rmsDbfs": -20.98,
+      "centroidHz": 1155,
+      "dcOffset": -0.00053,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 tankExplode: noise boom + 90→40 Hz sub drop + debris"
+    },
+    "base-explode": {
+      "durationS": 3,
+      "peakDbfs": -2.73,
+      "rmsDbfs": -15.5,
+      "centroidHz": 996,
+      "dcOffset": -0.0004,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 baseExplode over a music tone, so the −12 dB duck is audible"
+    },
+    "powerup-pickup": {
+      "durationS": 1.4,
+      "peakDbfs": -4.75,
+      "rmsDbfs": -24.39,
+      "centroidHz": 4159,
+      "dcOffset": 0.00003,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 powerupPickup: major-triad bell arp + shimmer tail"
+    },
+    "extra-life": {
+      "durationS": 1.6,
+      "peakDbfs": -6.6,
+      "rmsDbfs": -22.73,
+      "centroidHz": 4428,
+      "dcOffset": -0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "audio §5 extraLife: the rising jingle"
+    },
+    "duck-probe": {
+      "durationS": 3,
+      "peakDbfs": -22.4,
+      "rmsDbfs": -31.16,
+      "centroidHz": 253,
+      "dcOffset": 0.00001,
+      "silent": false,
+      "clipped": false,
+      "note": "a steady music tone with the baseExplode duck fired at 0.8 s and NO boom — the duck depth, measurable"
+    },
+    "stun-buzz": {
+      "durationS": 1.2,
+      "peakDbfs": -12.97,
+      "rmsDbfs": -27.62,
+      "centroidHz": 1282,
+      "dcOffset": 0,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 5 stunBuzz: the wobble buzz and its comedic spring - the row the T5.1 report was least sure of"
+    },
+    "skirmish": {
+      "durationS": 6,
+      "peakDbfs": -4.49,
+      "rmsDbfs": -21.3,
+      "centroidHz": 3066,
+      "dcOffset": -0.00018,
+      "silent": false,
+      "clipped": false,
+      "note": "a scripted 6 s of play over the engine hum: the only clip where the mix is audible"
+    },
+    "music-fanfare": {
+      "durationS": 3,
+      "peakDbfs": -4.59,
+      "rmsDbfs": -19.39,
+      "centroidHz": 2919,
+      "dcOffset": 0.00002,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 7 FAITHFUL: the stage-intro fanfare. One bar at 120 BPM = 2.000 s, ending on the downbeat of the suite; the tail rings past it"
+    },
+    "music-gameover": {
+      "durationS": 4.5,
+      "peakDbfs": -6.71,
+      "rmsDbfs": -19.15,
+      "centroidHz": 2036,
+      "dcOffset": -0.00038,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 7 FAITHFUL: the game-over motif. A doubled descent over i-VII-VI-V that stops on the dominant, unresolved"
+    },
+    "pause-chirp": {
+      "durationS": 1,
+      "peakDbfs": -11.83,
+      "rmsDbfs": -25.49,
+      "centroidHz": 5038,
+      "dcOffset": 0,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 7 FAITHFUL: the two-note pause chirp, E6 to A6 - on the SFX bus, so a muted music slider still answers the button"
+    },
+    "music-title": {
+      "durationS": 12,
+      "peakDbfs": -7.75,
+      "rmsDbfs": -19.16,
+      "centroidHz": 2127,
+      "dcOffset": -0.00041,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 NEW: the title theme, first eight bars. Opens on the fanfare motif with the third flattened"
+    },
+    "music-tally": {
+      "durationS": 7,
+      "peakDbfs": -4.08,
+      "rmsDbfs": -17.84,
+      "centroidHz": 2598,
+      "dcOffset": -0.00014,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 NEW: the stage-clear jingle. F-G-C climbing, the game-over descent answered"
+    },
+    "music-hiscore": {
+      "durationS": 8,
+      "peakDbfs": -9.83,
+      "rmsDbfs": -20.31,
+      "centroidHz": 932,
+      "dcOffset": -0.00006,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 NEW: the high-score bell loop, first four bars"
+    },
+    "suite-L0": {
+      "durationS": 8,
+      "peakDbfs": -12.12,
+      "rmsDbfs": -20.23,
+      "centroidHz": 264,
+      "dcOffset": -0.00083,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0 alone: the hum-ostinato on A2, the engine hum musicalised"
+    },
+    "suite-L01": {
+      "durationS": 8,
+      "peakDbfs": -6.03,
+      "rmsDbfs": -19.56,
+      "centroidHz": 1750,
+      "dcOffset": -0.00091,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0+L1: the groove enters after 2 bars"
+    },
+    "suite-L012": {
+      "durationS": 8,
+      "peakDbfs": -5.8,
+      "rmsDbfs": -19.38,
+      "centroidHz": 2564,
+      "dcOffset": -0.00091,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0-L2: 4 enemies on the field brings the arps in"
+    },
+    "suite-L0123": {
+      "durationS": 8,
+      "peakDbfs": -4.47,
+      "rmsDbfs": -18.13,
+      "centroidHz": 3112,
+      "dcOffset": -0.00091,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L0-L3: 3 enemies left brings the lead in"
+    },
+    "suite-L4": {
+      "durationS": 8,
+      "peakDbfs": -4.56,
+      "rmsDbfs": -17.77,
+      "centroidHz": 2863,
+      "dcOffset": -0.00101,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4 L4: the base is breached - the minor-2nd pad and the tenser lead replace L3"
+    },
+    "suite-clock": {
+      "durationS": 6,
+      "peakDbfs": -4.84,
+      "rmsDbfs": -18.55,
+      "centroidHz": 1513,
+      "dcOffset": -0.00081,
+      "silent": false,
+      "clipped": false,
+      "note": "audio 4: a Clock freeze at 1.5 s sweeps the whole music bus to 400 Hz. No gain duck"
+    }
+  },
+  "duck": {
+    "beforeRmsDbfs": -28.14,
+    "duringRmsDbfs": -40.13,
+    "afterRmsDbfs": -28.27,
+    "measuredDb": -11.99,
+    "specDb": -12,
+    "recoveredDb": -0.13,
+    "passes": true
+  },
+  "verdict": {
+    "clips": 26,
+    "allAudible": true,
+    "noneClipped": true,
+    "duckWithinTolerance": true
+  }
+}

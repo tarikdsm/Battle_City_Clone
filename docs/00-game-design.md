@@ -55,7 +55,14 @@ Campaign/Neo ─▶ Stage select ─▶ Stage intro ("STAGE N") ─▶ Gameplay 
 - **Stage intro:** classic curtain moment reimagined as a camera fly-in; shows stage number and (campaign) enemy roster preview.
 - **Tally:** per-player destroyed-tank counts by type × points, totals, then advance.
 - **Game over:** "GAME OVER" treatment; if score qualifies, arcade-style initials entry (3 chars) into the local top-10.
-- **Pause:** freezes simulation, dims scene, shows resume/restart/quit + quick volume.
+- **Pause:** freezes simulation, dims scene, shows resume/**restart the current stage from its start, keeping lives and score**/quit + quick volume.
+
+**Five corrections to the flow above, from actually building it (T6.1/T6.2, 2026-08-02):**
+1. **Pause, Intro and Tally are overlays, not peers.** The diagram draws them beside Gameplay, but none of them *replaces* it — the board stays visible behind all three. The screen machine now has an overlay layer for exactly this.
+2. **High scores has two exits and the diagram gives both.** The caller now decides where "back" returns to, rather than the screen assuming.
+3. **After stage 35 the displayed and simulated stage numbers must differ**, and core has one field. The HUD, intro and score rows use a looped `levelStageOf`; core keeps the raw rising counter (fidelity §7 caps it at 35 for the spawn formula). The stored score row **must** carry the looped number or the storage validator rejects it.
+4. **"High-score entry?" needs a skip destination** — a non-qualifying score goes straight to the hi-score table, not nowhere.
+5. **"Restart" had no semantics.** Defined above.
 
 ## 6. Core loop (unchanged from NES)
 

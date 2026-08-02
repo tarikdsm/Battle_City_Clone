@@ -17,14 +17,22 @@ import {
 
 import {
   CALIBRATION,
+  HIGH_CONTRAST,
   ICE_ALPHA,
   PALETTE,
   QUALITY_PRESETS,
+  SMOKE_ALPHA,
+  TANK_SKIN_KEYS,
   TERRAIN_GLOSS,
+  applyHighContrast,
   createMaterials,
   faceTint,
   graphicSurface,
   litSurface,
+  luma601,
+  scaleToken,
+  tankToken,
+  worstPlayerEnemySeparation,
   type PaletteKey,
   // Imported from materials, not renderer: `Quality` is *declared* here and
   // only re-exported there (Contract Zero names renderer.ts as its home), and
@@ -79,6 +87,10 @@ const ART_PALETTE: readonly (readonly [PaletteKey, number])[] = [
   // pedestal" and §3.1 authored a colour for its emblem and none for the stone.
   ['eagleStone', 0x8d94a3],
 
+  // …and this one with T4.1/T4.2, by the same rule: art §8 asks for smoke in
+  // five of its twelve rows and §3.1 authored no colour for it.
+  ['smoke', 0x7a808f],
+
   ['powerupGold', 0xffd76b],
   ['spawnAccent', 0x7fc4ff],
   ['danger', 0xe24b4a],
@@ -125,6 +137,17 @@ describe('PALETTE (art §3)', () => {
 
   it('exports the ice alpha separately (art §3: ice @ 25%)', () => {
     expect(ICE_ALPHA).toBe(0.25);
+  });
+
+  it('caps smoke at art §11’s 0.35, in the material itself', () => {
+    // Art §11's readability rule, delivered by construction: `InstancedMesh`
+    // has no per-instance alpha, so every puff on the board shares this one
+    // number and no combination of events can push one past the cap.
+    expect(SMOKE_ALPHA).toBe(0.35);
+    const mats = createMaterials();
+    expect(mats.fxSmoke.opacity).toBe(SMOKE_ALPHA);
+    expect(mats.fxSmoke.transparent).toBe(true);
+    mats.dispose();
   });
 });
 
@@ -210,6 +233,8 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     | 'tierTip'
     | 'propStone'
     | 'propGold'
+    | 'fxDebris'
+    | 'fxSmoke'
   )[] = [
     // Art §6's definitive list puts ALL terrain on the lit path. Terrain is
     // something the light falls on, not part of the board's diagram.
@@ -231,7 +256,37 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     // Art §6's definitive list: "props and power-ups" are lit objects.
     'propStone',
     'propGold',
+    // T4.1/T4.2: debris and smoke are things the light falls on — a brick chunk
+    // is a piece of the wall it came out of, and a smoke puff lit by an
+    // explosion is the whole point of art §1's second pillar.
+    'fxDebris',
+    'fxSmoke',
   ];
+
+  /**
+   * The FX surfaces that ARE light rather than objects lit by it. Art §8's
+   * spawn-star ruling is the precedent: unlit + `toneMapped = false`, so ACES
+   * at the calibrated 0.70 exposure cannot desaturate a spark before art §7's
+   * bloom sees it.
+   */
+  const ADDITIVE: readonly (
+    'fxSpark' | 'fxRing' | 'fxFlash' | 'fxScreenFlash'
+  )[] = ['fxSpark', 'fxRing', 'fxFlash', 'fxScreenFlash'];
+
+  it.each(ADDITIVE)('%s is an unlit additive light graphic', (key) => {
+    const mats = createMaterials();
+    const m = mats[key];
+    expect(m).toBeInstanceOf(MeshBasicMaterial);
+    expect(m.toneMapped).toBe(false);
+    expect(m.blending).toBe(AdditiveBlending);
+    expect(m.transparent).toBe(true);
+    // Additive has no ordering requirement, but writing depth would let one
+    // spark occlude the next; testing depth is what keeps a spark behind a
+    // steel wall behind it.
+    expect(m.depthWrite).toBe(false);
+    expect(m.depthTest).toBe(key !== 'fxScreenFlash');
+    mats.dispose();
+  });
 
   it.each(FLAT)('%s opts out of tone mapping', (key) => {
     const mats = createMaterials();
@@ -485,5 +540,113 @@ describe('CALIBRATION (art §6)', () => {
     // measured +20.9% on a tank. Guarded because "restoring the documented
     // value" is exactly the kind of well-meaning edit that would break it.
     expect(CALIBRATION.toneMappingExposure).not.toBe(1.1);
+  });
+});
+
+describe('high-contrast mode (art §11 — required, not optional)', () => {
+  // The scale every number in this block is quoted on: ITU-R BT.601 luma over
+  // the gamma-encoded sRGB bytes, 0–255. It is the scale art §11's own finding
+  // ("~18 luminance points") is on — see `luma601`'s comment for the three
+  // other scales that give three other answers for the same pair.
+  const PLAYERS = ['player1', 'player2'] as const;
+  const ENEMIES = [
+    'enemyBasic',
+    'enemyFast',
+    'enemyPower',
+    'enemyArmor',
+  ] as const;
+
+  it('reproduces art §11’s measurement, so the scale is the doc’s', () => {
+    const gap = Math.abs(
+      luma601(PALETTE.player1) - luma601(PALETTE.enemyBasic),
+    );
+    expect(gap).toBeCloseTo(18.4, 1);
+  });
+
+  it('finds a worse pair than the one §11 quotes', () => {
+    // §11 cites gold-vs-gunmetal at ~18. Gold against enemy SAND is 2.6 — the
+    // two are nearly the same value, and a grayscale frame cannot tell a
+    // player's tank from a Fast enemy at all.
+    const gap = Math.abs(luma601(PALETTE.player1) - luma601(PALETTE.enemyFast));
+    expect(gap).toBeLessThan(3);
+    expect(worstPlayerEnemySeparation(false)).toBeCloseTo(gap, 6);
+  });
+
+  it('measurably fixes the separation', () => {
+    const before = worstPlayerEnemySeparation(false);
+    const after = worstPlayerEnemySeparation(true);
+    expect(before).toBeLessThan(3);
+    expect(after).toBeGreaterThan(55);
+    // The bar this mode exists to clear: every player reads brighter than every
+    // enemy, by a margin no hue confusion can close.
+    expect(after / before).toBeGreaterThan(20);
+  });
+
+  it('puts every player above every enemy, in value alone', () => {
+    for (const p of PLAYERS) {
+      for (const e of ENEMIES) {
+        expect(
+          luma601(tankToken(p, true)),
+          `${p} must out-value ${e}`,
+        ).toBeGreaterThan(luma601(tankToken(e, true)) + 55);
+      }
+    }
+  });
+
+  it('keeps players inside the authored palette', () => {
+    // Not invented colours: each player wears its own §3.1 accent token, i.e.
+    // the brightest value the palette already authors for that tank's family.
+    expect(tankToken('player1', true)).toBe(PALETTE.player1Accent);
+    expect(tankToken('player2', true)).toBe(PALETTE.player2Accent);
+  });
+
+  it('scales all four enemies by one factor, preserving hue and order', () => {
+    for (const e of ENEMIES) {
+      expect(tankToken(e, true)).toBe(
+        scaleToken(PALETTE[e], HIGH_CONTRAST.ENEMY_SCALE),
+      );
+    }
+    // A uniform multiply cannot reorder them, which is what keeps the Armor HP
+    // ramp (a ratio table against `enemyArmor`) reading in the right direction.
+    const order = (hc: boolean): number[] =>
+      ENEMIES.map((e) => luma601(tankToken(e, hc)));
+    const rank = (xs: number[]): number[] =>
+      xs.map((x) => xs.filter((y) => y < x).length);
+    expect(rank(order(true))).toEqual(rank(order(false)));
+  });
+
+  it('keeps the darkest enemy well clear of the board it sits on', () => {
+    const board = luma601(PALETTE.board);
+    for (const e of ENEMIES) {
+      expect(luma601(tankToken(e, true))).toBeGreaterThan(board * 3);
+    }
+  });
+
+  it('brightens the tracer (art §11’s second half)', () => {
+    const m = createMaterials();
+    const opacity = m.bulletTrail.opacity;
+    const emissive = m.bulletTrail.emissiveIntensity;
+    applyHighContrast(m, true);
+    expect(m.bulletTrail.opacity).toBeGreaterThan(opacity);
+    expect(m.bulletTrail.emissiveIntensity).toBeGreaterThan(emissive);
+    m.dispose();
+  });
+
+  it('is a pure function of the flag — toggling off restores every token', () => {
+    const m = createMaterials();
+    const before = TANK_SKIN_KEYS.map((k) => m[k].color.getHex());
+    applyHighContrast(m, true);
+    expect(TANK_SKIN_KEYS.map((k) => m[k].color.getHex())).not.toEqual(before);
+    applyHighContrast(m, true); // idempotent
+    applyHighContrast(m, false);
+    expect(TANK_SKIN_KEYS.map((k) => m[k].color.getHex())).toEqual(before);
+    expect(m.bulletTrail.opacity).toBe(0.55);
+    m.dispose();
+  });
+
+  it('leaves the authored tokens alone when it is off — art §3.0’s promise', () => {
+    for (const key of TANK_SKIN_KEYS) {
+      expect(tankToken(key, false)).toBe(PALETTE[key]);
+    }
   });
 });

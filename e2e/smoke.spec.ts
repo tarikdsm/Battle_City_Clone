@@ -15,6 +15,15 @@ function watchErrors(page: Page): string[] {
 }
 
 const hud = (page: Page, name: string) => page.locator(`[data-hud="${name}"]`);
+const screen = (page: Page, name: string) =>
+  page.locator(`[data-screen="${name}"]`);
+
+/**
+ * Since T6.1 the game opens on GDD §5's title screen. `?stage=` is the dev-only
+ * flag that boots straight onto the board (`main.ts`), which is what the tests
+ * about the *board* want; the flow tests walk the real path instead.
+ */
+const AUTOSTART = '&stage=1';
 
 test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
   const consoleErrors = watchErrors(page);
@@ -32,6 +41,8 @@ test('boots: title, canvas, "boot ok", no console errors', async ({ page }) => {
   // Screens really mount on #ui: if main.ts silently fell back to <body>
   // (missing or renamed #ui), this element would still be empty after boot.
   await expect(page.locator('#ui')).not.toBeEmpty();
+  // GDD §5: boot lands on the title, over a live attract board.
+  await expect(screen(page, 'title')).toBeVisible();
   expect(sawBootOk, 'expected "boot ok" in the console').toBe(true);
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });
@@ -79,7 +90,7 @@ test('reframes: a resize re-fits the board area and keeps the HUD docked', async
     });
 
   await page.setViewportSize({ width: 640, height: 460 });
-  await page.goto('/?quality=low&seed=20260802');
+  await page.goto(`/?quality=low&seed=20260802${AUTOSTART}`);
   await expect(hud(page, 'root')).toBeVisible();
   await page.waitForTimeout(1200);
 
@@ -118,15 +129,16 @@ test('reframes: a resize re-fits the board area and keeps the HUD docked', async
 test('plays: scripted keys drive a live stage with a live HUD', async ({
   page,
 }) => {
-  // ~13 s of real playing, plus boot. The default 30 s is not enough headroom.
-  test.setTimeout(90_000);
+  // ~13 s of real playing, plus boot, plus five canvas screenshots that each
+  // cost seconds on a shared GPU. The default 30 s is nowhere near enough.
+  test.setTimeout(150_000);
 
   const consoleErrors = watchErrors(page);
 
   // `?quality=high` pins the preset so the run does not change chains a second
   // in (the auto probe now samples a DRAWING frame — see main.ts), and `?seed=`
   // makes the enemy AI and the power-up rolls the same run every time.
-  await page.goto('/?quality=high&seed=20260802');
+  await page.goto(`/?quality=high&seed=20260802${AUTOSTART}`);
 
   // The play screen is up when its HUD is: the boot screen has no [data-hud].
   await expect(hud(page, 'root')).toBeVisible();
@@ -198,6 +210,7 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
   // the board can animate), but everything on the board zeroes it, so two
   // screenshots a second apart are byte-identical. Until T3.3 the tracks kept
   // scrolling and this was simply not true.
+  // An instantaneous press: the sub-tick latch is what makes this reliable.
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
   const frozenA = await canvas.screenshot();
@@ -221,5 +234,79 @@ test('plays: scripted keys drive a live stage with a live HUD', async ({
     'the game did not resume after a pause round-trip',
   ).not.toBe(0);
 
+  expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+});
+
+test('loops: title → play → death → game over → high scores → title', async ({
+  page,
+}) => {
+  // GDD §5's whole flow, walked with the keyboard alone. This is the test that
+  // makes the project a *game* rather than a stage: every transition below is a
+  // real key press against the real screens, and the run really ends.
+  test.setTimeout(150_000);
+  const consoleErrors = watchErrors(page);
+
+  await page.goto('/?quality=low&seed=20260802');
+
+  // --- title ---------------------------------------------------------------
+  await expect(screen(page, 'title')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press('Enter');
+
+  // --- menu → stage select -------------------------------------------------
+  await expect(screen(page, 'menu')).toBeVisible();
+  // The Phase 8 placeholders are focusable and refuse to activate — they must
+  // read as deliberate, and a broken one would strand the cursor here.
+  await expect(page.locator('[data-item="neo"]')).toHaveClass(/is-disabled/);
+  await page.keyboard.press('Enter'); // Campaign
+  await expect(screen(page, 'stageSelect')).toBeVisible();
+  await page.keyboard.press('Enter'); // the furthest unlocked stage (1)
+
+  // --- intro → play --------------------------------------------------------
+  // Generous: entering the play screen builds a WebGL context and the whole
+  // post chain, which is seconds on a contended GPU — and the intro overlay is
+  // only mounted once that has returned.
+  await expect(screen(page, 'intro')).toBeVisible({ timeout: 30_000 });
+  await expect(hud(page, 'root')).toBeVisible();
+  await expect(hud(page, 'stage')).toHaveText('1');
+  // Fidelity §11.1: a 2 s curtain runs before control is handed over.
+  await expect(screen(page, 'intro')).toHaveCount(0, { timeout: 10_000 });
+
+  // --- pause round-trip, over a live run -----------------------------------
+  // Both instantaneous. These two presses are the end-to-end guard for T6.3's
+  // press latch: without it they land inside a tick and vanish.
+  await page.keyboard.press('Escape');
+  await expect(screen(page, 'pause')).toBeVisible();
+  await page.keyboard.press('Escape'); // resumes from the pause menu
+  await expect(screen(page, 'pause')).toHaveCount(0);
+
+  // --- death ---------------------------------------------------------------
+  // Deterministic, and it uses a rule rather than luck: fidelity §5.2 says a
+  // PLAYER's bullet destroys the eagle. P1 spawns at tile (4,12) and the eagle
+  // sits at (6,12) on the same row, behind two brick subcell-pairs — so facing
+  // right and holding fire ends the run in a few seconds, every time.
+  await page.keyboard.press('KeyD');
+  await page.keyboard.down('KeyJ');
+  await expect(screen(page, 'gameOver')).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.up('KeyJ');
+
+  // --- game over → high scores → title -------------------------------------
+  await page.keyboard.press('Enter');
+  // Either mode is correct here: a run that scored gets the initials entry
+  // (fidelity §13's "if score qualifies"), one that scored nothing goes
+  // straight to the table. The loop closes the same way from both.
+  const entry = screen(page, 'hiScoreEntry');
+  const table = screen(page, 'hiScore');
+  await expect(entry.or(table).first()).toBeVisible({ timeout: 10_000 });
+  if ((await entry.count()) > 0) {
+    // Three columns, then the table.
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await expect(table).toBeVisible();
+  }
+  await expect(page.locator('[data-role="scores"] tr')).not.toHaveCount(0);
+  await page.keyboard.press('Enter');
+
+  await expect(screen(page, 'title')).toBeVisible();
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });

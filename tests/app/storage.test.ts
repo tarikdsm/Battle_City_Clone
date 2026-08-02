@@ -81,6 +81,9 @@ const DEFAULT_SETTINGS = {
   quality: 'auto',
   screenShake: true,
   reducedFlash: false,
+  // Art §11's high-contrast mode. Off by default: it is an accessibility
+  // fallback that departs from the authored palette, so it is opt-in.
+  highContrast: false,
   bindings: {},
 };
 
@@ -106,6 +109,7 @@ describe('storage (arch §4.2)', () => {
       quality: 'high',
       screenShake: false,
       reducedFlash: true,
+      highContrast: true,
       bindings: { p1Fire: 'KeyJ' },
     });
     saveCustomLevels([fixtureLevel]);
@@ -122,6 +126,7 @@ describe('storage (arch §4.2)', () => {
       quality: 'high',
       screenShake: false,
       reducedFlash: true,
+      highContrast: true,
       bindings: { p1Fire: 'KeyJ' },
     });
     expect(loadCustomLevels()).toEqual([fixtureLevel]);
@@ -157,6 +162,7 @@ describe('storage (arch §4.2)', () => {
       quality: 'medium',
       screenShake: false,
       reducedFlash: false, // invalid type ⇒ default
+      highContrast: false, // absent from an older payload ⇒ default
       bindings: { p1Fire: 'KeyJ' }, // non-string binding dropped
     });
   });

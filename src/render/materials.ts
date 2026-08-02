@@ -11,6 +11,7 @@
 import {
   AdditiveBlending,
   Color,
+  DoubleSide,
   Material,
   MeshBasicMaterial,
   MeshLambertMaterial,
@@ -93,6 +94,20 @@ export const PALETTE = Object.freeze({
   // own pre-ruled outcome, measured in `docs/calibration/lighting.json`.
   eagleStone: 0x8d94a3,
 
+  // FX (art §8's smoke: dust puffs, explosion smoke, the base's column, the
+  // eagle's wisps). Added 2026-08-02 with T4.1/T4.2, by the same rule T3.3
+  // established for `eagleStone`: art §8 asks for smoke in five of its twelve
+  // rows and §3.1 authors no colour for it, so the doc gains a row rather than
+  // the code an unauthored grey.
+  //
+  // Chosen against its neighbours: 4.4× `board` in luminance so a puff is
+  // visible over the darkest thing it can sit on, and 0.83× `eagleStone` so it
+  // never reads as a piece of the pedestal it drifts off. Its saturation is
+  // 14.7%, i.e. below art §6's "≥ 55% to hold hue on a shaded face" threshold,
+  // so it reads **warm-sided by design** — the outcome §6 pre-ruled for
+  // near-neutral tokens, and the right one for smoke lit by an explosion.
+  smoke: 0x7a808f,
+
   // Emissive / signal
   powerupGold: 0xffd76b,
   spawnAccent: 0x7fc4ff,
@@ -107,6 +122,168 @@ export type PaletteKey = keyof typeof PALETTE;
  * consumer iterating it can never hand an alpha to `Color.setHex`.
  */
 export const ICE_ALPHA = 0.25;
+
+// ---------------------------------------------------------------------------
+// --- Art §11's high-contrast mode (T6.1) -----------------------------------
+// ---------------------------------------------------------------------------
+
+/**
+ * ITU-R BT.601 luma of a token, on the **0–255 sRGB byte scale**.
+ *
+ * This is the scale art §11's finding is quoted on, and naming it matters
+ * because three other scales give three other numbers for the same pair:
+ * `#d99c2b` against `#8a8f9c` is **18.4** here, 8.1 as WCAG relative luminance
+ * (×100), 6.4 as CIE L*, and 6.6 as HSL lightness. Art §11 says "~18", so the
+ * doc's basis is this one, and everything measured against §11 must use it or
+ * the numbers cannot be compared.
+ *
+ * Deliberately computed on the **gamma-encoded** bytes rather than on linear
+ * light: BT.601 luma is defined that way, and it is also the quantity that
+ * predicts what a grayscale print of the frame looks like — which is exactly
+ * the colourblind-readability question §11 is asking.
+ */
+export function luma601(hex: number): number {
+  const r = (hex >> 16) & 0xff;
+  const g = (hex >> 8) & 0xff;
+  const b = hex & 0xff;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+/** Scale a token's sRGB bytes by `k`, preserving hue, clamped to 0…255. */
+export function scaleToken(hex: number, k: number): number {
+  const ch = (shift: number): number =>
+    Math.min(255, Math.max(0, Math.round(((hex >> shift) & 0xff) * k)));
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
+/**
+ * Art §11's high-contrast mode — **required, not optional**.
+ *
+ * ## What §11 asks for, and why this is not literally it
+ *
+ * §11 prescribes "1 px dark outlines on all tanks + brighter bullet tracers".
+ * The tracers are here. The outlines are **not**, and the reason is structural
+ * rather than a shortcut: a tank in this renderer is one `InstancedMesh` whose
+ * *instances are parts* (`tankView.ts`), so the usual inverted-hull outline
+ * would trace every one of the ~20 boxes a tank is assembled from, not the
+ * tank's silhouette — it would draw a dark grid over each tank instead of a rim
+ * around it. A correct silhouette outline is a screen-space depth/normal edge
+ * pass in the post chain, i.e. a task of its own.
+ *
+ * ## What this does instead, and why it is the stronger fix
+ *
+ * §11's *stated problem* is a value problem: "player-vs-enemy separation
+ * currently leans on hue, which is exactly what a colourblind player does not
+ * get". An outline does not move either body's value at all — it adds a dark
+ * edge between a tank and the board. So this mode attacks the value directly,
+ * with two rules and one number each:
+ *
+ * - **Players wear their own authored accent token** (`player1Accent`,
+ *   `player2Accent`, art §3.1). Not an invented colour: it is the brightest
+ *   value the palette already authors for that tank's family, so the tank keeps
+ *   its hue and moves to the top of its own range.
+ * - **Every enemy token is scaled by {@link ENEMY_SCALE}**, one uniform factor
+ *   for all four. Uniform is the whole point: it preserves hue exactly, it
+ *   preserves the *order* of the four enemy values, and it preserves the Armor
+ *   HP ramp — `ARMOR_HP_TINT` is a ratio table against the `enemyArmor` token,
+ *   so scaling the material colour scales all four HP tints with it.
+ *
+ * Measured (BT.601, 0–255), the worst player-vs-enemy pair goes from **2.6**
+ * (P1 gold 161.4 vs Fast sand 164.0 — worse than the 18.4 §11 quotes) to
+ * **59.8** (P2 accent 180.6 vs Armor 120.8). `docs/calibration/high-contrast.json`
+ * carries the full matrix and `tests/render/materials.test.ts` pins it.
+ */
+export const HIGH_CONTRAST = Object.freeze({
+  /**
+   * 0.6. Chosen as the single factor that lands all four enemy tokens inside
+   * 77…121 luma while the two player tokens sit at 181…195 — i.e. the widest
+   * uniform separation available before the darkest enemy (Power, 77.6) stops
+   * being comfortably above the `board` token's own 18.5.
+   */
+  ENEMY_SCALE: 0.6,
+  /** Art §11's "brighter bullet tracers": the trail's alpha, 0.55 → 0.9. */
+  TRACER_OPACITY: 0.9,
+  /** …and its emissive term, 0.35 → 0.75, so it also blooms harder at High. */
+  TRACER_EMISSIVE: 0.75,
+});
+
+/** The hex a tank skin wears in the given mode. Pure — this is what is measured. */
+export function tankToken(key: TankMaterialKey, highContrast: boolean): number {
+  if (!highContrast) {
+    return PALETTE[key];
+  }
+  switch (key) {
+    case 'player1':
+      return PALETTE.player1Accent;
+    case 'player2':
+      return PALETTE.player2Accent;
+    default:
+      return scaleToken(PALETTE[key], HIGH_CONTRAST.ENEMY_SCALE);
+  }
+}
+
+/** Every tank skin, in the order the separation matrix is reported in. */
+export const TANK_SKIN_KEYS: readonly TankMaterialKey[] = Object.freeze([
+  'player1',
+  'player2',
+  'enemyBasic',
+  'enemyFast',
+  'enemyPower',
+  'enemyArmor',
+]);
+
+/**
+ * The worst player-vs-enemy luma gap in a mode — the number art §11 is about.
+ * A minimum over all four enemies × both players, so a single bad pair cannot
+ * hide behind a good average.
+ */
+export function worstPlayerEnemySeparation(highContrast: boolean): number {
+  let worst = Infinity;
+  for (const p of ['player1', 'player2'] as const) {
+    for (const e of [
+      'enemyBasic',
+      'enemyFast',
+      'enemyPower',
+      'enemyArmor',
+    ] as const) {
+      const gap = Math.abs(
+        luma601(tankToken(p, highContrast)) -
+          luma601(tankToken(e, highContrast)),
+      );
+      if (gap < worst) {
+        worst = gap;
+      }
+    }
+  }
+  return worst;
+}
+
+/**
+ * Switches the mode on the live materials. Idempotent, and a pure function of
+ * the flag — toggling off restores the authored tokens exactly, because every
+ * value is recomputed from `PALETTE` rather than remembered.
+ *
+ * Colour and opacity are **uniforms**, so nothing here needs a shader recompile
+ * (unlike the shadow toggle in `renderer.ts`, which does).
+ */
+export function applyHighContrast(m: Materials, on: boolean): void {
+  for (const key of TANK_SKIN_KEYS) {
+    m[key].color.setHex(tankToken(key, on));
+  }
+  m.bulletTrail.opacity = on ? HIGH_CONTRAST.TRACER_OPACITY : 0.55;
+  m.bulletTrail.emissiveIntensity = on ? HIGH_CONTRAST.TRACER_EMISSIVE : 0.35;
+}
+
+/**
+ * Art §11: "smoke max alpha **0.35** over playfield". A readability constraint,
+ * not a look — and it is delivered by *construction* here rather than by
+ * per-particle tuning, because `InstancedMesh` has no per-instance alpha in
+ * three 0.185.1: every smoke puff on the board shares this one number, so no
+ * combination of events can push a single puff past §11's cap. (Puffs still
+ * overlap, which is why they also disappear by shrinking rather than by
+ * lingering — see `sizeFactorAt` in `fx/fxSystem.ts`.)
+ */
+export const SMOKE_ALPHA = 0.35;
 
 /** The three concrete quality levels. `'auto'` is a *settings* value that the
  *  app resolves to one of these before it reaches the renderer (T2.1 report). */
@@ -226,6 +403,16 @@ export interface MaterialsByRole {
   readonly tierTip: MeshStandardMaterial;
   readonly propStone: MeshStandardMaterial;
   readonly propGold: MeshStandardMaterial;
+  // --- FX (art §8), one material per particle kind ------------------------
+  readonly fxDebris: MeshStandardMaterial;
+  readonly fxSpark: MeshBasicMaterial;
+  readonly fxSmoke: MeshStandardMaterial;
+  readonly fxRing: MeshBasicMaterial;
+  readonly fxFlash: MeshBasicMaterial;
+  readonly fxScreenFlash: MeshBasicMaterial;
+  // --- Camera FX (art §2, §10) — T4.3 -------------------------------------
+  readonly curtain: MeshBasicMaterial;
+  readonly popup: MeshBasicMaterial;
 }
 
 /**
@@ -446,6 +633,30 @@ export function tankSkin(hex: number): MeshStandardMaterial {
   return litSurface(hex);
 }
 
+/**
+ * An **additive light graphic** — the FX layer's sparks, rings and flashes.
+ *
+ * Art §8's spawn-star ruling is the precedent, and the reasoning transfers
+ * exactly: a surface that *is* light must not be lit, and must not be tone
+ * mapped, or the ACES curve desaturates it before art §7's bloom can see it.
+ * `AdditiveBlending` is what makes fading to black mean fading to nothing,
+ * which is how every one of these disappears — `InstancedMesh` has no
+ * per-instance alpha in three 0.185.1, so colour is the only per-particle
+ * channel there is.
+ *
+ * `depthWrite` is off (an additive surface has no ordering requirement, but
+ * writing depth would let one spark occlude the next) while `depthTest` stays
+ * **on**, so a spark behind a steel wall is still behind it.
+ */
+export function additiveSurface(): MeshBasicMaterial {
+  const m = new MeshBasicMaterial({ color: 0xffffff });
+  m.toneMapped = false;
+  m.transparent = true;
+  m.blending = AdditiveBlending;
+  m.depthWrite = false;
+  return m;
+}
+
 export function createMaterials(): Materials {
   const board = graphicSurface(PALETTE.board);
   const boardFrame = graphicSurface(PALETTE.boardFrame);
@@ -611,6 +822,105 @@ export function createMaterials(): Materials {
     metalness: 0,
   });
 
+  // --- FX (art §8) — T4.1/T4.2 ---------------------------------------------
+  //
+  // Six materials for the whole VFX layer, and the count is the point: art §8
+  // retired the entity-material quota in favour of **total scene draw calls
+  // ≤ 60 at High**, and one material per particle *kind* is what turns §8's
+  // ~180 live-particle cap into five draws instead of 180. See the header of
+  // `fx/fxSystem.ts` for which effect lands on which kind.
+  //
+  // **Their base colour is white, deliberately, and it is the one place in this
+  // file where `material.color` is not an authored token.** Every other surface
+  // in the game wears one §3.1 colour for its whole life; a debris chunk wears
+  // `brickTop` on one frame and `enemyArmor` on the next, so there is no token
+  // for "debris" to be faithful to. The tokens ride on `instanceColor` instead
+  // — `diffuseColor = color × instanceColor`, so a white base makes the
+  // instance colour *be* the linear token rather than a ratio against one, and
+  // the palette still predicts what appears. Nothing here is probed by
+  // `scripts/calibrate-lighting.ts`; art §3.0's promise is about the surfaces
+  // that are.
+  const fxDebris = litSurface(0xffffff);
+  const fxSmoke = litSurface(0xffffff);
+  fxSmoke.transparent = true;
+  fxSmoke.opacity = SMOKE_ALPHA;
+  // A puff is a soft volume, not a solid: writing depth would let the near half
+  // of a cluster occlude the far half and turn the smoke into cut-out shapes.
+  fxSmoke.depthWrite = false;
+
+  // Sparks, rings and flashes take art §8's **spawn-star ruling** (2026-08-02),
+  // which is the closest precedent this doc has: an emissive overlay that must
+  // read as its authored token goes *unlit*, `toneMapped = false`, and stays on
+  // the bloom layer. These are light, not objects the light falls on — ACES at
+  // the calibrated 0.70 exposure would desaturate a spark before bloom ever ran
+  // — so they are `MeshBasicMaterial` on the flat-graphic path.
+  //
+  // Only two of the three go on `BLOOM_LAYER` (`fx/fxSystem.ts` decides):
+  // art §1 pillar 2 rations the glow and names "flashes" among the rationed
+  // set, so sparks and flashes bloom and the rings — which can span two tiles —
+  // do not. A blooming shockwave washes the board out at exactly the moment
+  // art §11 needs it readable.
+  const fxSpark = additiveSurface();
+  // The ring and the flash carry a **radial falloff in their vertex colours**
+  // (`fx/fxSystem.ts`), which is what makes them read as light rather than as
+  // solid shapes: an additive surface with no texture and no lighting has a
+  // hard edge, and the first capture of this task photographed a "flash sphere"
+  // as a flat gold hexagon two tiles wide. `instanceColor` multiplies on top,
+  // so a recipe's own colour and the kind's fade both still apply.
+  //
+  // The spark deliberately does NOT carry the flag: its geometry is the shared
+  // box and has no `color` attribute, and an unbound attribute reads (0, 0, 0)
+  // in WebGL2 — every spark would render black (the same trap `tankSkin`
+  // documents for tanks).
+  const fxRing = additiveSurface();
+  fxRing.vertexColors = true;
+  const fxFlash = additiveSurface();
+  fxFlash.vertexColors = true;
+
+  // Art §8's player-explosion row: "200 ms white screen-edge flash". One quad
+  // parented to the camera, so its opacity is a *material* value and needs no
+  // per-instance channel; the edge falloff is baked into vertex colours
+  // (`fx/fxSystem.ts`). `depthTest` off because it is drawn over the finished
+  // board rather than into it.
+  const fxScreenFlash = additiveSurface();
+  fxScreenFlash.vertexColors = true;
+  fxScreenFlash.depthTest = false;
+  fxScreenFlash.opacity = 0;
+
+  // --- Camera FX (art §2, §10) — T4.3 --------------------------------------
+  //
+  // Art §10's "NES gray curtain reimagined — twin steel shutters". A flat
+  // graphic in the strictest sense of §3.0 (it is not in the world at all; it
+  // is parented to the camera), so `toneMapped = false` puts the steel token on
+  // screen unchanged. Opaque and `depthTest = false`: a shutter that let the
+  // board through would not be a shutter.
+  const curtain = new MeshBasicMaterial({ color: srgb(PALETTE.steelTop) });
+  curtain.toneMapped = false;
+  curtain.depthTest = false;
+  curtain.depthWrite = false;
+  // **`transparent`, despite being fully opaque** — and this is the bug it was
+  // written for. three renders the opaque list before the transparent one, so
+  // an opaque shutter at `renderOrder 9000` still draws *under* every
+  // transparent object in the scene: the tree canopies (α 0.95) and the FX
+  // hung in front of a shut curtain. Joining the transparent list is what makes
+  // `renderOrder` mean "last".
+  curtain.transparent = true;
+  curtain.opacity = 1;
+  // The two panels are the same quad with a flipped y scale, so one of them is
+  // wound backwards. A screen-space plate has no inside.
+  curtain.side = DoubleSide;
+  // The body is a shaded plate and the leading edge a bright lip, both baked
+  // into the quad's vertex colours — that lip is the only thing that makes two
+  // steel shutters read as *two shutters* rather than as a blank grey screen.
+  curtain.vertexColors = true;
+
+  // Art §10's score popups. Additive for the same reason the FX flashes are —
+  // fading a colour to black on an additive surface IS fading to nothing, and
+  // `InstancedMesh` has no per-instance alpha — and because a glowing `+100`
+  // over a near-black board is legible at 10 u without a font, which is what
+  // §10's Orbitron becomes once T6.3 bundles it.
+  const popup = additiveSurface();
+
   // The single source of truth. `all` below is derived from it, so a new
   // material cannot be half-registered: adding it here without adding it to
   // `MaterialsByRole` is a compile error, and there is no third list to forget.
@@ -635,6 +945,14 @@ export function createMaterials(): Materials {
     tierTip,
     propStone,
     propGold,
+    fxDebris,
+    fxSpark,
+    fxSmoke,
+    fxRing,
+    fxFlash,
+    fxScreenFlash,
+    curtain,
+    popup,
   };
 
   // Keyed rather than `Object.values`, which types a plain interface as `any[]`.
