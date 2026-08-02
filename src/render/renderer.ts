@@ -16,6 +16,12 @@ import type { GameEvent } from '../core/events';
 import type { GameState } from '../core/types';
 import { createBulletView, type BulletView } from './bulletView';
 import {
+  DEFAULT_CAMERA_FX_FLAGS,
+  createCameraFx,
+  type CameraFx,
+  type CameraFxStats,
+} from './cameraFx';
+import {
   DEFAULT_FX_FLAGS,
   createFxSystem,
   type FxFlags,
@@ -54,6 +60,8 @@ export interface Renderer {
   resize(w: number, h: number): void;
   /** Live particle/light counts — read by `scripts/capture-fx.ts`. */
   fxStats(): FxStats;
+  /** Trauma, pose and time scale — likewise (art §2). */
+  cameraStats(): CameraFxStats;
   dispose(): void;
 }
 
@@ -73,6 +81,13 @@ export function createRenderer(
   // app hands the player's real settings down through `setFxFlags`.
   const fx: FxSystem = createFxSystem(materials, sceneRoot, {
     ...DEFAULT_FX_FLAGS,
+  });
+  // Art §2's camera rig and art §10's two screen-space beats. It poses the
+  // camera, so it runs before `gl.render`; and it publishes the presentation
+  // time scale the base-destruction moment dilates, so it runs before the
+  // views that consume `dtMs`.
+  const cameraFx: CameraFx = createCameraFx(materials, sceneRoot, {
+    ...DEFAULT_CAMERA_FX_FLAGS,
   });
 
   const gl = new WebGLRenderer({
@@ -174,29 +189,39 @@ export function createRenderer(
       // `state.terrain` per frame is forbidden (arch §5) and would be ~40 k
       // matrix writes a frame for a board that changes a few times a second.
       terrain.build(state);
+      // The camera FIRST, and on the **unscaled** clock. It poses the camera
+      // every other view is about to be drawn through, and it publishes the
+      // presentation time scale art §2's base-destruction moment dilates — so
+      // it has to have run before `pdt` below is computed.
+      cameraFx.update(state, dtMs);
+      // Arch §5: "presentation-side time dilation of *interpolation only*".
+      // `alpha` is untouched and `step()` is never skipped — the simulation's
+      // own lock during `baseLost` is core's. This is the whole mechanism: one
+      // multiplication, applied to the frame time the animating views read.
+      const pdt = dtMs * cameraFx.timeScale();
       // Only advances the shovel's blink, and only while one is running — and
       // not at all while the simulation is frozen. `terrain.update` takes no
       // state, so the gate is applied here rather than inside it; the two views
       // below own the same rule themselves, which is what makes it testable
       // without a GL context.
-      terrain.update(animDtOf(state, dtMs));
+      terrain.update(animDtOf(state, pdt));
       // Entities are pooled and instanced (`tankView.ts`, `bulletView.ts`):
       // positions interpolate from prevX/prevY with `alpha`, and every art §9
       // animation is driven from `state` plus the events pumped through
       // `onEvent`. Nothing here writes to the simulation.
-      tanks.update(state, alpha, dtMs);
+      tanks.update(state, alpha, pdt);
       bullets.update(state, alpha);
       // The eagle and the power-up (art §4, fidelity §2/§8). After the tanks so
       // the props' two meshes are the last entity draws submitted; ordering is
       // irrelevant to correctness (both are opaque and depth-tested) and this is
       // simply the order a reader expects from the scene's description.
-      props.update(state, alpha, dtMs);
+      props.update(state, alpha, pdt);
       // FX last: particles are additive/blended and have to be submitted after
       // the opaque board. `alpha` is not passed — a particle lives in real
       // time, not in tick time, so there is nothing between two ticks for it to
-      // interpolate. `dtMs` is the loop's real frame time and the FX layer
-      // zeroes it itself on a paused frame (art §9).
-      fx.update(state, dtMs);
+      // interpolate. `pdt` is the loop's real frame time under art §2's slow-mo,
+      // and the FX layer zeroes it itself on a paused frame (art §9).
+      fx.update(state, pdt);
       gl.render(sceneRoot.scene, sceneRoot.camera);
       // Art §7's chain, applied to the frame that is now in the drawing buffer.
       post.render();
@@ -211,6 +236,7 @@ export function createRenderer(
       tanks.onEvent(e);
       props.onEvent(e);
       fx.onEvent(e);
+      cameraFx.onEvent(e);
     },
 
     setQuality(q: Quality): void {
@@ -223,6 +249,9 @@ export function createRenderer(
 
     setFxFlags(flags: FxFlags): void {
       fx.setFlags(flags);
+      // One object, both layers: the two flags are a *player's* choice, and
+      // splitting them into two calls is how one of them ends up unwired.
+      cameraFx.setFlags(flags);
     },
 
     resize(w: number, h: number): void {
@@ -233,8 +262,13 @@ export function createRenderer(
       return fx.stats();
     },
 
+    cameraStats(): CameraFxStats {
+      return cameraFx.stats();
+    },
+
     dispose(): void {
       post.dispose();
+      cameraFx.dispose();
       fx.dispose();
       props.dispose();
       tanks.dispose();

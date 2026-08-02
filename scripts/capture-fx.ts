@@ -108,6 +108,13 @@ interface Results {
   /** Every console error and warning seen, per preset. Errors must stay empty. */
   console: Record<string, { errors: string[]; warnings: string[] }>;
   /**
+   * Art §2's camera rig, sampled at the moments the doc authors: the two ends
+   * of the fly-in, the peak of a base-strength shake, and the slow-mo beat.
+   * Every row is a number the doc states, measured through the real renderer
+   * rather than through the pure curve the unit test already pins.
+   */
+  camera: Record<string, CameraSample>;
+  /**
    * Pass/fail against `budget`, so the artifact carries its own verdict.
    *
    * `drawCallsPass` is keyed on the **play loop**, which is what art §8's
@@ -169,7 +176,24 @@ interface Rig {
   render(dt?: number): void;
   advance(ms: number, steps?: number): void;
   cost(): FrameCost;
+  /** Art §2's camera pose, trauma and time scale after the last render. */
+  camera(): CameraSample;
+  /** Drive the core's stage phase, which the fly-in and the curtain read. */
+  phase(name: string, seconds: number): void;
   overlay(text: string | null): void;
+}
+
+/** What `renderer.cameraStats()` reports, as the artifact records it. */
+interface CameraSample {
+  trauma: number;
+  offsetX: number;
+  offsetY: number;
+  rollDeg: number;
+  pitchDeg: number;
+  timeScale: number;
+  zoom: number;
+  curtain: number;
+  popups: number;
 }
 
 async function installRig(): Promise<void> {
@@ -250,6 +274,12 @@ async function installRig(): Promise<void> {
       for (const t of (H.state as { tanks: { alive: boolean }[] }).tanks) {
         t.alive = false;
       }
+      // …including the stage phase. `createGame` starts in `'intro'` at
+      // `phaseT === 0`, which since T4.3 means the camera sits at the fly-in's
+      // 55° behind a **shut** curtain — every rig shot was photographed behind
+      // a steel shutter until this line existed. A rig board is a board being
+      // played; `cameraPass` sets `'intro'` back where it wants it.
+      H.phase('playing', 0);
       H.nextId = 10;
     },
 
@@ -350,6 +380,22 @@ async function installRig(): Promise<void> {
         lights: fx.lights,
         activeKinds: fx.activeKinds,
       };
+    },
+
+    camera(): Record<string, number> {
+      return (
+        H.renderer as { cameraStats(): Record<string, number> }
+      ).cameraStats();
+    },
+
+    /**
+     * Art §2's fly-in and art §10's curtain read the core's own `phase` and
+     * `phaseT`, so a rig that never steps the simulation has to write them.
+     */
+    phase(name: string, seconds: number): void {
+      const s = H.state as { phase: string; phaseT: number };
+      s.phase = name;
+      s.phaseT = seconds;
     },
 
     /**
@@ -668,6 +714,108 @@ async function rigPass(
   await context.close();
 }
 
+/**
+ * Art §2's camera beats, photographed at the moments the doc authors them.
+ *
+ * These are the shots a pure curve cannot stand in for: `cameraFx.test.ts`
+ * already pins every number, but "does a 3 u shake read as an impact" and "does
+ * the fly-in land on the framing every calibration measured" are questions only
+ * the rendered frame answers.
+ */
+async function cameraPass(browser: Browser, results: Results): Promise<void> {
+  const context = await browser.newContext({
+    viewport: { width: W, height: H },
+    deviceScaleFactor: 1,
+  });
+  const page = await context.newPage();
+  await page.addInitScript({ content: KEEP_NAMES_SHIM });
+  await page.goto(URL, { waitUntil: 'load', timeout: 30_000 });
+  await page.evaluate(installRig);
+
+  const sample = async (name: string): Promise<void> => {
+    results.camera[name] = (await page.evaluate(() =>
+      (globalThis as unknown as { H: Rig }).H.camera(),
+    )) as unknown as CameraSample;
+  };
+
+  // --- 7. the stage fly-in, at both ends ----------------------------------
+  // Art §2: "600 ms ease from elevated pitch 55° down to 32° while the curtain
+  // wipe opens." Two frames, 0 ms and 600 ms into the intro.
+  for (const [label, ms] of [
+    ['fly-in-start', 0],
+    ['fly-in-mid', 300],
+    ['fly-in-end', 600],
+  ] as const) {
+    await page.evaluate(
+      (a: { terrain: [number, number, string][]; ms: number }) => {
+        const H = (globalThis as unknown as { H: Rig }).H;
+        H.init('high', a.terrain);
+        H.tank({ kind: 'player', playerIndex: 0, id: 0, tx: 6, ty: 9, dir: 0 });
+        H.tank({ enemyType: 'armor', tx: 9, ty: 4, hp: 4, ordinal: 2 });
+        H.phase('intro', a.ms / 1000);
+        H.render(16);
+      },
+      { terrain: BUSY_TERRAIN, ms },
+    );
+    await sample(label);
+    await shot(page, `7-${label}`);
+  }
+
+  // --- 8. a shake at peak --------------------------------------------------
+  // Base-strength trauma (art §2's +0.6) held at its first frame, so the
+  // offset is at the top of the trauma² curve rather than partway down it.
+  await page.evaluate((terrain: [number, number, string][]) => {
+    const H = (globalThis as unknown as { H: Rig }).H;
+    H.init('high', terrain);
+    H.tank({ kind: 'player', playerIndex: 0, id: 0, tx: 6, ty: 9, dir: 0 });
+    H.tank({ enemyType: 'power', tx: 6, ty: 2, ordinal: 3 });
+    H.tank({ enemyType: 'fast', tx: 10, ty: 5, ordinal: 4 });
+    H.render(16);
+    // Two nearby explosions and the base, i.e. a saturated meter — the
+    // strongest shake art §2 can produce.
+    H.event({ t: 'tankDestroyed', tankId: 12, kind: 'enemy', enemyType: 'power', points: 300, x: 6 * 16 + 6, y: 2 * 16 + 6 }); // prettier-ignore
+    H.event({ t: 'tankDestroyed', tankId: 13, kind: 'enemy', enemyType: 'fast', points: 200, x: 7 * 16 + 6, y: 8 * 16 + 6 }); // prettier-ignore
+    H.eagle(false);
+    H.event({ t: 'baseDestroyed' });
+    // A handful of frames: enough for the offset to be well off zero, not
+    // enough for the 1.2/s decay to have spent it.
+    H.advance(64, 4);
+  }, BUSY_TERRAIN);
+  await sample('shake-peak');
+  await shot(page, '8-shake-peak');
+
+  // --- 9. the base-destruction moment --------------------------------------
+  // Art §2: "0.6 s at 0.25× presentation speed + slight dolly-in". Sampled
+  // mid-beat, where the dolly is fully in and time is still dilated.
+  await page.evaluate((terrain: [number, number, string][]) => {
+    const H = (globalThis as unknown as { H: Rig }).H;
+    H.init('high', terrain);
+    H.tank({ kind: 'player', playerIndex: 0, id: 0, tx: 4, ty: 9, dir: 1 });
+    H.render(16);
+    H.eagle(false);
+    H.event({ t: 'baseDestroyed' });
+    H.event({ t: 'scoreAwarded', playerIndex: 0, points: 400, x: 5 * 16, y: 7 * 16 }); // prettier-ignore
+    H.advance(300, 18);
+  }, BUSY_TERRAIN);
+  await sample('base-moment');
+  await shot(page, '9-base-moment');
+
+  // --- the curtain, closing over the game-over wipe ------------------------
+  await page.evaluate((terrain: [number, number, string][]) => {
+    const H = (globalThis as unknown as { H: Rig }).H;
+    H.init('high', terrain);
+    H.tank({ kind: 'player', playerIndex: 0, id: 0, tx: 6, ty: 9, dir: 0 });
+    H.eagle(false);
+    H.phase('gameOver', 0.15); // half way through art §10's 300 ms wipe
+    H.render(16);
+  }, BUSY_TERRAIN);
+  await sample('curtain-half');
+  await shot(page, '10-curtain-half');
+
+  await page.close();
+  await context.close();
+}
+
 /** The measured numbers, printed on the frame they were measured in. */
 function overlayText(
   quality: Quality,
@@ -834,6 +982,7 @@ async function main(): Promise<void> {
     baseline: null,
     baselineCapturedAt: null,
     console: {},
+    camera: {},
     verdict: {
       highLoopDrawCallsMax: 0,
       highLoopMeanMs: 0,
@@ -862,6 +1011,7 @@ async function main(): Promise<void> {
   try {
     await rigPass(browser, results, 'high', true);
     await rigPass(browser, results, 'low', false);
+    await cameraPass(browser, results);
     for (const quality of QUALITIES) {
       await loopPass(browser, results, quality, quality === 'high');
     }

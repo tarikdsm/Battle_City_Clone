@@ -682,15 +682,19 @@ export const RECIPES: RecipeTable = {
         p.z = z + pz * side * SKID_TRACK_OFFSET;
         p.yaw = yaw;
         p.flat = true;
-        // A **track mark**, not a block: 2.4 u wide, a slab thin, and 5.5×
+        // A **track mark**, not a block: 3.4 u wide, a slab thin, and 4×
         // that long down the lane the tank is sliding along.
-        p.lengthK = 5.5;
+        p.lengthK = 4;
         // Art §5: "skid marks fade in 2 s". The debris envelope spends the
         // last 30% of a life shrinking, so a 2 s mark thins for 600 ms.
         p.lifeMs = 2000;
-        p.size0 = 2.4;
-        p.size1 = 2.4;
-        tint(p, C.ice, 0.9);
+        p.size0 = 3.4;
+        p.size1 = 3.4;
+        // `iceSheen`, not `ice`, and over 1: ice is a **gameplay** surface and
+        // the player has to know they are sliding without inferring it from
+        // drift. At `ice × 0.9` on a 25%-alpha decal this row was a whisper
+        // (T4.2 report §6.2); the coordinator's ruling was to make it loud.
+        tint(p, C.frost, 1.4);
         sink.emit();
       }
       for (let i = 0; i < 2; i++) {
@@ -698,14 +702,15 @@ export const RECIPES: RecipeTable = {
         p.x = x + (sink.rand(i * 3 + 1) - 0.5) * 12;
         p.y = between(sink, i * 3 + 2, 1, 5);
         p.z = z + (sink.rand(i * 3 + 3) - 0.5) * 12;
-        p.vx = -dx * between(sink, i * 3 + 4, 10, 30);
-        p.vz = -dz * between(sink, i * 3 + 4, 10, 30);
-        p.vy = between(sink, i * 3 + 5, 8, 22);
+        p.vx = -dx * between(sink, i * 3 + 4, 14, 42);
+        p.vz = -dz * between(sink, i * 3 + 4, 14, 42);
+        p.vy = between(sink, i * 3 + 5, 10, 28);
         p.gravity = 90;
-        p.lifeMs = 620;
-        p.size0 = 1.1;
-        p.size1 = 0.4;
-        tint(p, C.frost, 1.5);
+        p.lifeMs = 780;
+        p.size0 = 1.9;
+        p.size1 = 0.6;
+        p.stretch = 0.012;
+        tint(p, C.frost, 2.3);
         sink.emit();
       }
     },
@@ -734,16 +739,24 @@ export const RECIPES: RecipeTable = {
         // Art §5 floats canopies at h = 14 u; a leaf falls out of one.
         p.y = between(sink, i * 4 + 2, 10, 14);
         p.z = z + (sink.rand(i * 4 + 3) - 0.5) * 16;
-        p.vx = (sink.rand(i * 4 + 4) - 0.5) * 18;
-        p.vz = (sink.rand(i * 4 + 5) - 0.5) * 18;
+        p.vx = (sink.rand(i * 4 + 4) - 0.5) * 26;
+        p.vz = (sink.rand(i * 4 + 5) - 0.5) * 26;
         p.vy = -4;
         p.gravity = 60; // a leaf, not a brick
-        p.lifeMs = 950;
-        p.size0 = 1.9;
-        p.size1 = 1.9;
-        p.spin = between(sink, i * 4 + 6, -7, 7);
+        p.lifeMs = 1250;
+        // The whole row rides on three motes now: the coordinator amended §8
+        // to drop the canopy jiggle rather than open a per-frame write path
+        // into `terrainView`'s instanced statics, so these have to carry the
+        // tell on their own. Concealment is a mechanic and the counter-play is
+        // *noticing* it, which a 1.9 u speck at 1.2× did not deliver — bigger,
+        // brighter, wider-thrown, and one of the three is the light highlight
+        // so the flutter separates against the canopy it fell out of.
+        p.size0 = 2.7;
+        p.size1 = 2.7;
+        p.lengthK = 0.45; // a leaf is a flake, not a cube
+        p.spin = between(sink, i * 4 + 6, -9, 9);
         p.roll = sink.rand(i * 4 + 7) * Math.PI;
-        tint(p, i === 1 ? C.leafDeep : C.leaf, 1.2);
+        tint(p, i === 1 ? C.leafDeep : C.leaf, i === 2 ? 2.1 : 1.7);
         sink.emit();
       }
     },

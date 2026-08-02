@@ -652,10 +652,21 @@ export const FX_LIGHTS: Readonly<Record<FxLightKind, FxLightSpec>> =
       priority: 70,
     }),
     // "base explosion (range 160 u, 1.2 s)"
+    //
+    // **2400, pulled back from 5200** (coordinator ruling after the T4.2
+    // captures). Inverse-square is unforgiving at this scale: the eagle's own
+    // brick nest sits ~16 u from the light, where 5200 lands at 20× the
+    // calibrated key intensity of 3.8 and the nest blew to near-white for the
+    // whole 400 ms it takes to decay. That white is drawn over the destroyed
+    // pedestal and the fallen emblem — i.e. over the game-over signal T3.3
+    // built the ruined eagle to carry, which the player has to *see*. 2400 is
+    // ~9× the key on the nest: still the loudest light in the game and still
+    // half again the tank explosion's local brightness, with the nest legible
+    // underneath it.
     baseExplosion: Object.freeze({
       range: 160,
       ms: 1200,
-      intensity: 5200,
+      intensity: 2400,
       curve: 'quadratic' as const,
       priority: 100,
     }),

@@ -121,7 +121,7 @@ const NO_PITS: PitTest = () => false;
  * 90° a ground-level one, so 32° is a shallow tilt that keeps the board close to
  * a square on screen while giving every piece a visible side face.
  */
-const CAMERA_PITCH_RAD = (32 * Math.PI) / 180;
+export const CAMERA_PITCH_RAD = (32 * Math.PI) / 180;
 const PITCH_COS = Math.cos(CAMERA_PITCH_RAD);
 const PITCH_SIN = Math.sin(CAMERA_PITCH_RAD);
 
@@ -215,6 +215,33 @@ export interface SceneRoot {
    * Called once per level by `terrainView.build`, not per frame.
    */
   setPits(isPit: PitTest): void;
+  /**
+   * Re-pose the camera rig — art §2's shake, stage fly-in and dolly, all of
+   * which `cameraFx.ts` drives and none of which may re-derive the rig itself.
+   *
+   * The rig math stays here because it is *this* file's: `CAMERA_DIST`, the
+   * target point and the fact that the camera's up vector is
+   * `(0, sin θ, −cos θ)` are all local facts, and a second copy in the camera
+   * layer is how two files drift apart. `cameraFx.ts` supplies the numbers.
+   *
+   * @param pitchRad from **vertical**, like {@link CAMERA_PITCH_RAD}: 0 is
+   * straight down and art §2's rest value is 32°. The stage fly-in eases from
+   * 55° to that.
+   * @param offsetX,offsetY the shake, in world units measured **on screen** —
+   * along the camera's own right and up, so a given offset moves the image by
+   * the same amount at any pitch.
+   * @param roll about the view axis, in radians. Art §2 caps it at 0.3°.
+   * @param zoom orthographic dolly. An ortho camera cannot dolly by moving —
+   * distance does not change its framing — so art §2's "slight dolly-in" is a
+   * frustum scale, which is the same image.
+   */
+  setCameraPose(
+    pitchRad: number,
+    offsetX: number,
+    offsetY: number,
+    roll: number,
+    zoom: number,
+  ): void;
   /** Apply a preset's shadow configuration to the key light. */
   setShadowQuality(preset: QualityPreset): void;
   dispose(): void;
@@ -376,6 +403,42 @@ export function createSceneRoot(materials: Materials): SceneRoot {
           gridW = wanted;
           rebuildGrid();
         }
+      }
+    },
+
+    setCameraPose(
+      pitchRad: number,
+      offsetX: number,
+      offsetY: number,
+      roll: number,
+      zoom: number,
+    ): void {
+      const cos = Math.cos(pitchRad);
+      const sin = Math.sin(pitchRad);
+      // Orbit the fixed target at the fixed distance, then aim back at it.
+      // Position first, orientation second: `lookAt` reads `position`.
+      camera.position.set(
+        camTarget.x,
+        camTarget.y + CAMERA_DIST * cos,
+        camTarget.z + CAMERA_DIST * sin,
+      );
+      camera.up.set(0, 1, 0);
+      camera.lookAt(camTarget);
+      // The shake, applied AFTER `lookAt` so it slides the image rather than
+      // re-aiming it — an orthographic camera translated perpendicular to its
+      // own view axis shifts the whole frame by exactly that much. Right is
+      // world +x at yaw 0; up is `(0, sin θ, −cos θ)`, the same vector
+      // `PITCH_TAN` is derived from.
+      camera.position.x += offsetX;
+      camera.position.y += offsetY * sin;
+      camera.position.z += offsetY * -cos;
+      // Local z is the view axis (pointing back at the viewer), so this is roll.
+      if (roll !== 0) {
+        camera.rotateZ(roll);
+      }
+      if (camera.zoom !== zoom) {
+        camera.zoom = zoom;
+        camera.updateProjectionMatrix();
       }
     },
 

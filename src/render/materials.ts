@@ -11,6 +11,7 @@
 import {
   AdditiveBlending,
   Color,
+  DoubleSide,
   Material,
   MeshBasicMaterial,
   MeshLambertMaterial,
@@ -258,6 +259,9 @@ export interface MaterialsByRole {
   readonly fxRing: MeshBasicMaterial;
   readonly fxFlash: MeshBasicMaterial;
   readonly fxScreenFlash: MeshBasicMaterial;
+  // --- Camera FX (art §2, §10) — T4.3 -------------------------------------
+  readonly curtain: MeshBasicMaterial;
+  readonly popup: MeshBasicMaterial;
 }
 
 /**
@@ -732,6 +736,40 @@ export function createMaterials(): Materials {
   fxScreenFlash.depthTest = false;
   fxScreenFlash.opacity = 0;
 
+  // --- Camera FX (art §2, §10) — T4.3 --------------------------------------
+  //
+  // Art §10's "NES gray curtain reimagined — twin steel shutters". A flat
+  // graphic in the strictest sense of §3.0 (it is not in the world at all; it
+  // is parented to the camera), so `toneMapped = false` puts the steel token on
+  // screen unchanged. Opaque and `depthTest = false`: a shutter that let the
+  // board through would not be a shutter.
+  const curtain = new MeshBasicMaterial({ color: srgb(PALETTE.steelTop) });
+  curtain.toneMapped = false;
+  curtain.depthTest = false;
+  curtain.depthWrite = false;
+  // **`transparent`, despite being fully opaque** — and this is the bug it was
+  // written for. three renders the opaque list before the transparent one, so
+  // an opaque shutter at `renderOrder 9000` still draws *under* every
+  // transparent object in the scene: the tree canopies (α 0.95) and the FX
+  // hung in front of a shut curtain. Joining the transparent list is what makes
+  // `renderOrder` mean "last".
+  curtain.transparent = true;
+  curtain.opacity = 1;
+  // The two panels are the same quad with a flipped y scale, so one of them is
+  // wound backwards. A screen-space plate has no inside.
+  curtain.side = DoubleSide;
+  // The body is a shaded plate and the leading edge a bright lip, both baked
+  // into the quad's vertex colours — that lip is the only thing that makes two
+  // steel shutters read as *two shutters* rather than as a blank grey screen.
+  curtain.vertexColors = true;
+
+  // Art §10's score popups. Additive for the same reason the FX flashes are —
+  // fading a colour to black on an additive surface IS fading to nothing, and
+  // `InstancedMesh` has no per-instance alpha — and because a glowing `+100`
+  // over a near-black board is legible at 10 u without a font, which is what
+  // §10's Orbitron becomes once T6.3 bundles it.
+  const popup = additiveSurface();
+
   // The single source of truth. `all` below is derived from it, so a new
   // material cannot be half-registered: adding it here without adding it to
   // `MaterialsByRole` is a compile error, and there is no third list to forget.
@@ -762,6 +800,8 @@ export function createMaterials(): Materials {
     fxRing,
     fxFlash,
     fxScreenFlash,
+    curtain,
+    popup,
   };
 
   // Keyed rather than `Object.values`, which types a plain interface as `any[]`.

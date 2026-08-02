@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T12:21:18.758Z",
+  "capturedAt": "2026-08-02T12:47:00.072Z",
   "url": "http://localhost:5173/",
   "viewport": {
     "w": 1600,
@@ -18,15 +18,15 @@
     "high": {
       "idle": {
         "calls": 59,
-        "ms": 1.3,
+        "ms": 1.7,
         "particles": 0,
         "lights": 3,
         "activeKinds": 0
       },
       "busy": {
         "calls": 66,
-        "ms": 1.4,
-        "particles": 125,
+        "ms": 1.2,
+        "particles": 133,
         "lights": 6,
         "activeKinds": 5
       },
@@ -35,15 +35,15 @@
     "low": {
       "idle": {
         "calls": 25,
-        "ms": 2,
+        "ms": 2.5,
         "particles": 0,
         "lights": 1,
         "activeKinds": 0
       },
       "busy": {
         "calls": 30,
-        "ms": 0.5,
-        "particles": 88,
+        "ms": 0.6,
+        "particles": 90,
         "lights": 3,
         "activeKinds": 5
       },
@@ -52,25 +52,25 @@
   },
   "loop": {
     "high": {
-      "frames": 361,
-      "meanMs": 2.378,
-      "medianMs": 2.2,
-      "p95Ms": 3.7,
-      "maxMs": 6.2,
-      "fps": 45,
+      "frames": 340,
+      "meanMs": 3.008,
+      "medianMs": 2.9,
+      "p95Ms": 4.6,
+      "maxMs": 11.4,
+      "fps": 42.5,
       "drawCalls": {
         "min": 41,
-        "median": 45,
-        "max": 52
+        "median": 47,
+        "max": 53
       }
     },
     "medium": {
-      "frames": 537,
-      "meanMs": 1.824,
-      "medianMs": 1.7,
-      "p95Ms": 3.1,
-      "maxMs": 5,
-      "fps": 67.1,
+      "frames": 452,
+      "meanMs": 2.361,
+      "medianMs": 2.2,
+      "p95Ms": 3.6,
+      "maxMs": 4.7,
+      "fps": 56.4,
       "drawCalls": {
         "min": 39,
         "median": 45,
@@ -78,12 +78,12 @@
       }
     },
     "low": {
-      "frames": 860,
-      "meanMs": 0.724,
-      "medianMs": 0.7,
-      "p95Ms": 1.2,
-      "maxMs": 2,
-      "fps": 107.3,
+      "frames": 726,
+      "meanMs": 1.411,
+      "medianMs": 1.3,
+      "p95Ms": 2.4,
+      "maxMs": 7.9,
+      "fps": 90.7,
       "drawCalls": {
         "min": 14,
         "median": 17,
@@ -149,10 +149,78 @@
       "warnings": []
     }
   },
+  "camera": {
+    "fly-in-start": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 55,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 1,
+      "popups": 0
+    },
+    "fly-in-mid": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 34.875,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 0,
+      "popups": 0
+    },
+    "fly-in-end": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 32,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 0,
+      "popups": 0
+    },
+    "shake-peak": {
+      "trauma": 0.7732,
+      "offsetX": 1.017405210457768,
+      "offsetY": 1.595793672451287,
+      "rollDeg": -0.160567156624803,
+      "pitchDeg": 32,
+      "timeScale": 0.25,
+      "zoom": 1.0169164800000001,
+      "curtain": 0,
+      "popups": 0
+    },
+    "base-moment": {
+      "trauma": 0.23999999999999969,
+      "offsetX": 0.15184232481444893,
+      "offsetY": -0.14510134070982153,
+      "rollDeg": -0.003121308536822586,
+      "pitchDeg": 32,
+      "timeScale": 0.25,
+      "zoom": 1.07,
+      "curtain": 0,
+      "popups": 1
+    },
+    "curtain-half": {
+      "trauma": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "rollDeg": 0,
+      "pitchDeg": 32,
+      "timeScale": 1,
+      "zoom": 1,
+      "curtain": 0.5,
+      "popups": 0
+    }
+  },
   "verdict": {
-    "highLoopDrawCallsMax": 52,
-    "highLoopMeanMs": 2.378,
-    "highLoopP95Ms": 3.7,
+    "highLoopDrawCallsMax": 53,
+    "highLoopMeanMs": 3.008,
+    "highLoopP95Ms": 4.6,
     "rigBusyCalls": 66,
     "rigFxDelta": 7,
     "drawCallsPass": true,
