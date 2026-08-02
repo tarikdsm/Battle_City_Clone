@@ -57,21 +57,57 @@ const SCENE_H = 16;
 const GRID_LIFT = 0.06;
 
 /**
- * Width of a lattice line, in **world** units.
+ * Nominal width of a lattice line, in **world** units.
  *
  * The lattice used to be a `LineSegments`, which WebGL renders at exactly one
- * *device* pixel however wide you ask: a hairline at DPR 2 and a third of a CSS
- * pixel at DPR 3, which is this task's acceptance bar. A quad has a width in the
- * world instead, so it thickens with resolution like everything else on screen.
+ * *device* pixel however wide you ask: 0.5 CSS px at the High preset's DPR cap
+ * of 2. A quad has a width in the world instead, so it scales with resolution.
  *
- * 0.4 u is ~1.6 CSS px at a 1600×900 viewport (the frustum fits 222 u into 900
- * px, so 1 CSS px ≈ 0.247 u) and ~4.9 device px at DPR 3 — comfortably legible
- * without turning art §3's "subtle lattice" into a drawn grid.
+ * 0.4 u is ~1.6 CSS px at a 1600×900 viewport (the frustum fits 222 u into
+ * 900 px, so 1 CSS px ≈ 0.247 u) — legible without turning art §3's "subtle
+ * lattice" into a drawn grid. But world units alone are **not** a legibility
+ * guarantee: see {@link GRID_MIN_CSS_PX}.
  */
 const GRID_QUAD_W = 0.4;
 
-/** Depth of a water pit (art §5, mirrored by `terrainView.WATER_DEPTH`). */
-const PIT_DEPTH = 3;
+/**
+ * Legibility floor for a lattice line, in **CSS** pixels.
+ *
+ * The parameter that threatens the lattice is viewport **height**, not DPR
+ * (T2.3 review, Important 3). `setViewport` fits a fixed world extent to the
+ * viewport, so a world-space width converts to a CSS width that shrinks as the
+ * viewport does. DPR was never at risk: a world-space width is DPR-invariant by
+ * construction, which is why DPR-3 legibility follows from DPR-1.
+ *
+ * Measured on a 1200×400 viewport with this floor removed, i.e. at the fixed
+ * 0.4 u the first cut shipped:
+ *
+ * | | 1600×900 @1 | 1200×400 @1 | 1200×400 @2 |
+ * |---|---|---|---|
+ * | fixed 0.4 u | 1.31× contrast | **1.00× — gone** | 1.47×, 1 CSS px |
+ * | with this floor | 1.47× | **1.31×** | 1.58×, 2 CSS px |
+ *
+ * `1.00×` is not a thin line, it is *no* line: the lattice measured exactly the
+ * board's own luminance. So the width is
+ * `max(GRID_QUAD_W, GRID_MIN_CSS_PX × world-per-CSS-pixel)`, recomputed in
+ * `setViewport`.
+ *
+ * Two notes for whoever tunes this. **2, not 1.5** — at 1.5 the short viewport
+ * recovered only to 1.16× (MSAA dilutes a line that straddles a pixel boundary),
+ * while 2 puts every measured configuration at or above the 1.31× the canonical
+ * 1600×900 view already had. And the floor **governs at ordinary sizes**: it
+ * only falls back to `GRID_QUAD_W` above ~1100 px of viewport height, so the
+ * world-space constant now acts as the ceiling on a big display and this one is
+ * what you see on a normal one.
+ */
+const GRID_MIN_CSS_PX = 2;
+
+/**
+ * Depth of a water pit (art §5's "recessed −3 u"). Owned here because the board
+ * is what gets cut open; `terrainView.ts` imports it to place the water surface
+ * on the pit floor, so the two cannot drift.
+ */
+export const PIT_DEPTH = 3;
 
 /** Answers "is tile (tx, ty) a hole in the board?" — see `setPits`. */
 export type PitTest = (tx: number, ty: number) => boolean;
@@ -203,7 +239,10 @@ export function createSceneRoot(materials: Materials): SceneRoot {
   // --- Grid lattice -------------------------------------------------------
   // One mesh for all 28 lines: 13×13 individual meshes would be 169 draw calls
   // for decoration (arch §11 budgets a total of ~120).
-  const grid = new Mesh(buildGridGeometry(NO_PITS), materials.gridLine);
+  const grid = new Mesh(
+    buildGridGeometry(NO_PITS, GRID_QUAD_W),
+    materials.gridLine,
+  );
   scene.add(grid);
 
   // --- Frame wall ---------------------------------------------------------
@@ -290,6 +329,17 @@ export function createSceneRoot(materials: Materials): SceneRoot {
 
   const ownedGeometries: BufferGeometry[] = [frameNS, frameEW];
 
+  // The lattice depends on two things that change independently — where the pits
+  // are (per level) and how wide a CSS pixel is (per resize) — so both are
+  // remembered and either can trigger the rebuild.
+  let pitTest: PitTest = NO_PITS;
+  let gridW = GRID_QUAD_W;
+
+  function rebuildGrid(): void {
+    grid.geometry.dispose();
+    grid.geometry = buildGridGeometry(pitTest, gridW);
+  }
+
   return {
     scene,
     camera,
@@ -314,13 +364,26 @@ export function createSceneRoot(materials: Materials): SceneRoot {
       camera.top = halfH;
       camera.bottom = -halfH;
       camera.updateProjectionMatrix();
+
+      // Hold the lattice above its CSS-pixel floor (see GRID_MIN_CSS_PX). Only
+      // rebuilt when the width actually moves, so a resize that does not cross a
+      // threshold costs nothing; `h === 0` keeps the last known width rather
+      // than dividing by zero.
+      if (h > 0) {
+        const worldPerCssPx = (2 * halfH) / h;
+        const wanted = Math.max(GRID_QUAD_W, GRID_MIN_CSS_PX * worldPerCssPx);
+        if (wanted !== gridW) {
+          gridW = wanted;
+          rebuildGrid();
+        }
+      }
     },
 
     setPits(isPit: PitTest): void {
+      pitTest = isPit;
       ground.geometry.dispose();
       ground.geometry = buildGroundGeometry(isPit);
-      grid.geometry.dispose();
-      grid.geometry = buildGridGeometry(isPit);
+      rebuildGrid();
     },
 
     setShadowQuality(preset: QualityPreset): void {
@@ -449,10 +512,10 @@ function buildGroundGeometry(isPit: PitTest): BufferGeometry {
  * in mid-air 3 u above the water. A segment on the *shore* is kept, where it
  * doubles as the pit's rim.
  */
-function buildGridGeometry(isPit: PitTest): BufferGeometry {
+function buildGridGeometry(isPit: PitTest, quadW: number): BufferGeometry {
   const pos: number[] = [];
   const nrm: number[] = [];
-  const half = GRID_QUAD_W / 2;
+  const half = quadW / 2;
   const pit = (tx: number, ty: number): boolean =>
     tx >= 0 && ty >= 0 && tx < FIELD_TILES && ty < FIELD_TILES && isPit(tx, ty);
 

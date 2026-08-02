@@ -41,13 +41,14 @@ import {
   BASE_RING_TILES,
   FIELD_SUBCELLS,
   FIELD_TILES,
+  SHOVEL_BLINK_S,
   SUBCELL,
   TILE,
 } from '../core/constants';
 import type { GameEvent } from '../core/events';
 import { Terrain, type GameState, type TerrainKind } from '../core/types';
 import { PALETTE, type Materials } from './materials';
-import { PITCH_TAN, type SceneRoot } from './sceneRoot';
+import { PIT_DEPTH, PITCH_TAN, type SceneRoot } from './sceneRoot';
 
 // ---------------------------------------------------------------------------
 // --- Pure placement / index mathematics ------------------------------------
@@ -91,14 +92,21 @@ export function maskSubcells(
   return n;
 }
 
-/** What `SlotMap.remove` reports so the caller can move one matrix. */
+/**
+ * Where `SlotMap.remove` writes what it did, so the caller can move one matrix.
+ *
+ * An **out-parameter** rather than a return value: the shovel's 4 Hz blink calls
+ * `remove` twenty times a stamp, eight times a second, and returning a fresh
+ * object would make it the only path under `render` that allocates (T2.3 review,
+ * Minor 6). The caller owns one of these for the life of the view.
+ */
 export interface SlotMove {
   /** The freed slot — where the moved instance must be written. */
-  readonly slot: number;
+  slot: number;
   /** Where it came from. Equal to `slot` when the removed one WAS the last. */
-  readonly fromSlot: number;
+  fromSlot: number;
   /** Identity of the instance that moved (equal to the removed key if none). */
-  readonly key: number;
+  key: number;
 }
 
 /**
@@ -117,8 +125,11 @@ export interface SlotMap {
   /** Appends `key` and returns its slot. Idempotent: re-adding returns the
    *  existing slot (the shovel stamps its ring unconditionally). */
   add(key: number): number;
-  /** Removes `key`, back-filling its slot from the last one. `null` if absent. */
-  remove(key: number): SlotMove | null;
+  /**
+   * Removes `key`, back-filling its slot from the last one and describing the
+   * move in `out`. Returns `false` (leaving `out` untouched) if `key` is absent.
+   */
+  remove(key: number, out: SlotMove): boolean;
   /** Slot of `key`, or −1. */
   slotOf(key: number): number;
   /** Identity currently living in `slot`. */
@@ -152,9 +163,9 @@ export function createSlotMap(keySpace: number): SlotMap {
       return slot;
     },
 
-    remove(key: number): SlotMove | null {
+    remove(key: number, out: SlotMove): boolean {
       const slot = slotByKey[key];
-      if (slot === -1) return null;
+      if (slot === -1) return false;
       const last = count - 1;
       const movedKey = keyBySlot[last];
       keyBySlot[slot] = movedKey;
@@ -164,7 +175,10 @@ export function createSlotMap(keySpace: number): SlotMap {
       count = last;
       // `fromSlot === slot` when the removed instance was itself the last one:
       // the caller must not copy a matrix onto itself.
-      return { slot, fromSlot: last, key: movedKey };
+      out.slot = slot;
+      out.fromSlot = last;
+      out.key = movedKey;
+      return true;
     },
 
     slotOf(key: number): number {
@@ -249,6 +263,58 @@ export function applyShovelPhase(
   }
 }
 
+/**
+ * The blink's **appearance** alternation — a different operation from
+ * {@link applyShovelPhase}, which is the *kind* machine the core drives.
+ *
+ * The difference is one word and it is a real bug otherwise: this skips subcells
+ * that are currently `Empty`. During the blink the wall is still steel and a
+ * tier-3 shot can destroy part of it; a plain stamp would silently rebuild the
+ * hole on the next 125 ms tick and the player would watch a wall they just blew
+ * open repair itself (T2.3 review, Minor 7). Only the survivors alternate.
+ */
+export function blinkBaseRingKinds(kinds: Uint8Array, kind: TerrainKind): void {
+  for (const [tx, ty] of BASE_RING_TILES) {
+    const sx = tx * 2;
+    const sy = ty * 2;
+    for (let i = 0; i < 4; i++) {
+      const key = subcellInstanceIndex(sx + (i & 1), sy + (i >> 1));
+      if (kinds[key] !== Terrain.Empty) kinds[key] = kind;
+    }
+  }
+}
+
+/**
+ * The per-subcell colour multiplier for brick, written into `out` as a
+ * linear-space r/g/b factor around 1 (`instanceColor` is a multiplier, not a
+ * colour to be converted).
+ *
+ * **The ±3% of art §5 is a bound on the output, and that is why this is a
+ * function rather than two lines at the call site.** It applies a value term and
+ * a smaller warm/cool term so the variation reads as brick texture rather than
+ * as a brightness ramp — but those two terms *compound* on the red and blue
+ * channels, and a naive ±3% × ±1.5% reaches ±4.5% (T2.3 review, Minor 4). The
+ * budget is split two-thirds / one-third and every channel is clamped, so the
+ * spec is enforced on the number that ships instead of on a constant that only
+ * describes one of its inputs.
+ */
+export function brickTint(
+  sx: number,
+  sy: number,
+  out: [number, number, number],
+): void {
+  const lo = 1 - BRICK_JITTER;
+  const hi = 1 + BRICK_JITTER;
+  const clamp = (n: number): number => (n < lo ? lo : n > hi ? hi : n);
+  const value = 1 + BRICK_JITTER * (2 / 3) * subcellJitter(sx, sy);
+  // Decorrelated from the value term by swapping the coordinates — the hash is
+  // deliberately asymmetric, so this is an independent draw, not the same one.
+  const warm = 1 + BRICK_JITTER * (1 / 3) * subcellJitter(sy, sx);
+  out[0] = clamp(value * warm);
+  out[1] = clamp(value);
+  out[2] = clamp(value / warm);
+}
+
 /** Instances per kind, indexed by `TerrainKind` — the initial-build census. */
 export function countSubcellKinds(kinds: Uint8Array): Uint32Array {
   const counts = new Uint32Array(6);
@@ -279,8 +345,6 @@ export function countTileKind(kinds: Uint8Array, kind: TerrainKind): number {
 
 /** Art §5: brick and steel stand 10 u tall. */
 const TERRAIN_H = 10;
-/** Art §5: water is "recessed −3 u" — the pit the board is cut away for. */
-export const WATER_DEPTH = 3;
 /** Art §5: canopies float at 14 u; tanks are 10 u, so they pass underneath. */
 const CANOPY_Y = 14;
 /** Flush with the board (art §5), lifted only enough not to z-fight it. */
@@ -667,6 +731,9 @@ export function createSteelGeometry(): BufferGeometry {
  * The water surface: one tile-sized plane at the bottom of the pit the board is
  * cut away for (`SceneRoot.setPits`). Centred on the origin in XZ.
  *
+ * The floor sits at `-PIT_DEPTH`, imported from `sceneRoot.ts` — the board is
+ * what gets cut open, so it owns the number and the two cannot drift.
+ *
  * **Static this task, by the brief's permission.** Art §5 asks for two scrolling
  * sine-warped normal layers, fresnel and edge foam; that is a custom shader and
  * belongs with the rest of the water polish in T4.x. What ships here is the
@@ -675,7 +742,7 @@ export function createSteelGeometry(): BufferGeometry {
 export function createWaterGeometry(): BufferGeometry {
   const b = new MeshBuilder();
   const h = TILE / 2;
-  b.top(-h, h, -h, h, -WATER_DEPTH, PLAIN);
+  b.top(-h, h, -h, h, -PIT_DEPTH, PLAIN);
   return b.build();
 }
 
@@ -790,8 +857,23 @@ const BLINK_HZ = 4;
 const CANOPY_RENDER_ORDER = 20;
 
 export interface TerrainView {
-  /** One-time build from `state.terrain`. Idempotent per state object. */
+  /**
+   * Full build from `state.terrain`, including the board's pits.
+   *
+   * **Keyed on the identity of `state.terrain`**, so calling it every frame with
+   * the same state is free and calling it with a *new level* rebuilds. The first
+   * version keyed on a view-lifetime flag, which meant stage 2 rendered stage 1's
+   * terrain and — worse — kept stage 1's pits, i.e. literal holes in the board
+   * where the new stage has no water (T2.3 review, Important 1). Nothing failed;
+   * it drew the wrong level.
+   *
+   * The identity key holds because `createGame` allocates a fresh `Uint8Array`
+   * per stage. A future loader that reuses the array in place must call
+   * {@link TerrainView.reset} instead.
+   */
   build(state: GameState): void;
+  /** Drops every instance and forgets the level, so the next `build` rebuilds. */
+  reset(): void;
   /** Dirty updates. Ignores every event that is not terrain damage. */
   onEvent(e: GameEvent): void;
   /** Advances the shovel blink. Allocation-free; a no-op when not blinking. */
@@ -847,16 +929,22 @@ export function createTerrainView(
 
   /** The render layer's own copy of the subcell kinds — never core's array. */
   let kinds: Uint8Array = new Uint8Array(SUBCELL_CAP);
-  let built = false;
+  /** Identity of the `state.terrain` the current build came from; see `build`. */
+  let builtFrom: Uint8Array | null = null;
 
   // Scratch, reused for the whole life of the view: the damage path must not
   // allocate (arch §11 asks for near-zero steady-state allocation in render).
   const scratchCells: number[] = [];
+  const ringWas = new Uint8Array(4 * BASE_RING_TILES.length);
+  const move: SlotMove = { slot: 0, fromSlot: 0, key: 0 };
+  const rgb: [number, number, number] = [1, 1, 1];
   const mat = new Matrix4();
   const swap = new Matrix4();
   const tint = new Color();
+  const meshes = [brick, steel, water, trees, ice];
 
   let blinkT = 0;
+  let blinkLeftMs = 0;
   let blinkSteel = true;
   let blinking = false;
 
@@ -872,15 +960,10 @@ export function createTerrainView(
     );
     mesh.setMatrixAt(slot, mat);
     if (mesh === brick) {
-      // ±3% around the token, split slightly warm/cool so the variation reads
-      // as brick texture rather than as a brightness ramp. Written straight into
-      // r/g/b: `instanceColor` is a multiplier in the working space, not a
-      // colour to be converted.
-      const v = 1 + BRICK_JITTER * subcellJitter(sx, sy);
-      const w = 1 + BRICK_JITTER * 0.5 * subcellJitter(sy, sx);
-      tint.r = v * w;
-      tint.g = v;
-      tint.b = v / w;
+      brickTint(sx, sy, rgb);
+      tint.r = rgb[0];
+      tint.g = rgb[1];
+      tint.b = rgb[2];
       mesh.setColorAt(slot, tint);
     }
   }
@@ -908,8 +991,7 @@ export function createTerrainView(
     slots: SlotMap,
     key: number,
   ): void {
-    const move = slots.remove(key);
-    if (move === null) return;
+    if (!slots.remove(key, move)) return;
     if (move.fromSlot !== move.slot) {
       // Back-fill: copy the last instance's matrix (and colour) into the hole
       // the removal left. The slot map has already repointed `move.key`.
@@ -930,32 +1012,111 @@ export function createTerrainView(
     mesh.instanceMatrix.needsUpdate = true;
   }
 
-  /** Moves one subcell between the brick and steel meshes (or to nothing). */
-  function setSubcellKind(key: number, kind: TerrainKind): void {
-    const was = kinds[key];
-    if (was === kind) return;
+  /**
+   * Moves one subcell's instance between the brick and steel meshes (or to
+   * nothing) to match a kind change that has **already been written** to
+   * `kinds`. Split from the mutation on purpose: the shovel path lets the tested
+   * helpers do the mutating, so it needs to reconcile against a remembered
+   * previous kind rather than read one back.
+   */
+  function reconcileSubcell(
+    key: number,
+    was: TerrainKind,
+    now: TerrainKind,
+  ): void {
+    if (was === now) return;
     if (was === Terrain.Brick) removeSubcell(brick, brickSlots, key);
     else if (was === Terrain.Steel) removeSubcell(steel, steelSlots, key);
-    kinds[key] = kind;
-    if (kind === Terrain.Brick) addSubcell(brick, brickSlots, key);
-    else if (kind === Terrain.Steel) addSubcell(steel, steelSlots, key);
+    if (now === Terrain.Brick) addSubcell(brick, brickSlots, key);
+    else if (now === Terrain.Steel) addSubcell(steel, steelSlots, key);
   }
 
-  function stampRing(kind: TerrainKind): void {
-    for (const [tx, ty] of BASE_RING_TILES) {
-      const sx = tx * 2;
-      const sy = ty * 2;
-      setSubcellKind(subcellInstanceIndex(sx, sy), kind);
-      setSubcellKind(subcellInstanceIndex(sx + 1, sy), kind);
-      setSubcellKind(subcellInstanceIndex(sx, sy + 1), kind);
-      setSubcellKind(subcellInstanceIndex(sx + 1, sy + 1), kind);
+  /** Writes one subcell's kind and reconciles its instance. */
+  function setSubcellKind(key: number, kind: TerrainKind): void {
+    const was = kinds[key] as TerrainKind;
+    if (was === kind) return;
+    kinds[key] = kind;
+    reconcileSubcell(key, was, kind);
+  }
+
+  /**
+   * Runs one of the exported, unit-tested ring helpers over `kinds` and then
+   * reconciles the instances from the result.
+   *
+   * **The indirection is the point** (T2.3 review, Important 2). The first
+   * version had its own ring loop, so `applyShovelPhase` and
+   * `stampBaseRingKinds` were tested but never called by anything that ships —
+   * five green shovel tests would have survived a regression in the code the
+   * player actually sees. Now the helper *is* the shovel, and the only thing
+   * left here is turning a kind diff into instance moves.
+   *
+   * `ringWas` snapshots the 20 previous kinds because the helper overwrites them
+   * in place and `reconcileSubcell` needs both sides of the diff.
+   */
+  function stampRing(phase: 'steel' | 'blink' | 'revert'): void {
+    let n = 0;
+    for (let t = 0; t < BASE_RING_TILES.length; t++) {
+      const sx = BASE_RING_TILES[t][0] * 2;
+      const sy = BASE_RING_TILES[t][1] * 2;
+      for (let i = 0; i < 4; i++) {
+        ringWas[n++] = kinds[subcellInstanceIndex(sx + (i & 1), sy + (i >> 1))];
+      }
     }
+
+    if (phase === 'blink') {
+      // Appearance only, and it must not resurrect subcells shot away during the
+      // warning — see `blinkBaseRingKinds`.
+      blinkBaseRingKinds(kinds, blinkSteel ? Terrain.Steel : Terrain.Brick);
+    } else {
+      applyShovelPhase(kinds, phase);
+    }
+
+    n = 0;
+    for (let t = 0; t < BASE_RING_TILES.length; t++) {
+      const sx = BASE_RING_TILES[t][0] * 2;
+      const sy = BASE_RING_TILES[t][1] * 2;
+      for (let i = 0; i < 4; i++) {
+        const key = subcellInstanceIndex(sx + (i & 1), sy + (i >> 1));
+        reconcileSubcell(
+          key,
+          ringWas[n++] as TerrainKind,
+          kinds[key] as TerrainKind,
+        );
+      }
+    }
+  }
+
+  function resetInstances(): void {
+    builtFrom = null;
+    brickSlots.clear();
+    steelSlots.clear();
+    blinking = false;
+    blinkT = 0;
+    blinkLeftMs = 0;
+    blinkSteel = true;
+    for (let i = 0; i < meshes.length; i++) {
+      meshes[i].count = 0;
+    }
+  }
+
+  /** Places every tile of `kind`, sizing the mesh from the tested census. */
+  function placeTilesOfKind(mesh: InstancedMesh, kind: TerrainKind): void {
+    let n = 0;
+    for (let ty = 0; ty < FIELD_TILES; ty++) {
+      for (let tx = 0; tx < FIELD_TILES; tx++) {
+        if (kinds[subcellInstanceIndex(tx * 2, ty * 2)] === kind) {
+          placeTile(mesh, n++, tx, ty);
+        }
+      }
+    }
+    mesh.count = countTileKind(kinds, kind);
   }
 
   return {
     build(state: GameState): void {
-      if (built) return;
-      built = true;
+      if (state.terrain === builtFrom) return;
+      resetInstances();
+      builtFrom = state.terrain;
       kinds = terrainFromState(state);
 
       // Cut the board open under the water tiles and skip the lattice over
@@ -978,36 +1139,28 @@ export function createTerrainView(
         }
       }
 
-      let nWater = 0;
-      let nTrees = 0;
-      let nIce = 0;
-      for (let ty = 0; ty < FIELD_TILES; ty++) {
-        for (let tx = 0; tx < FIELD_TILES; tx++) {
-          switch (kinds[subcellInstanceIndex(tx * 2, ty * 2)]) {
-            case Terrain.Water:
-              placeTile(water, nWater++, tx, ty);
-              break;
-            case Terrain.Trees:
-              placeTile(trees, nTrees++, tx, ty);
-              break;
-            case Terrain.Ice:
-              placeTile(ice, nIce++, tx, ty);
-              break;
-            default:
-              break;
-          }
-        }
-      }
+      placeTilesOfKind(water, Terrain.Water);
+      placeTilesOfKind(trees, Terrain.Trees);
+      placeTilesOfKind(ice, Terrain.Ice);
 
-      brick.count = brickSlots.count;
-      steel.count = steelSlots.count;
-      water.count = nWater;
-      trees.count = nTrees;
-      ice.count = nIce;
-      for (const m of [brick, steel, water, trees, ice]) {
-        m.instanceMatrix.needsUpdate = true;
-        if (m.instanceColor !== null) m.instanceColor.needsUpdate = true;
+      // Counts come from the tested census rather than from the loops above, so
+      // the helper the initial-build test asserts is the helper that sizes the
+      // meshes (T2.3 review, Important 2). It agrees with `brickSlots.count` by
+      // construction — the same predicate drove both — and a divergence would be
+      // immediately visible as instances drawn at the origin.
+      const census = countSubcellKinds(kinds);
+      brick.count = census[Terrain.Brick];
+      steel.count = census[Terrain.Steel];
+
+      for (let i = 0; i < meshes.length; i++) {
+        meshes[i].instanceMatrix.needsUpdate = true;
+        const c = meshes[i].instanceColor;
+        if (c !== null) c.needsUpdate = true;
       }
+    },
+
+    reset(): void {
+      resetInstances();
     },
 
     onEvent(e: GameEvent): void {
@@ -1023,7 +1176,7 @@ export function createTerrainView(
         case 'shovelPhase':
           if (e.phase === 'steel') {
             blinking = false;
-            stampRing(Terrain.Steel);
+            stampRing('steel');
           } else if (e.phase === 'blink') {
             // The wall is still steel (the core never changes the kind here);
             // only its appearance alternates, as the warning that it is about
@@ -1031,9 +1184,15 @@ export function createTerrainView(
             blinking = true;
             blinkT = 0;
             blinkSteel = true;
+            // A deadline, not an open loop. `revert` normally arrives
+            // SHOVEL_BLINK_S later, but the stage can end, the base can be
+            // destroyed or the game can be over first — and without this the
+            // view would keep stamping 20 subcells at 8 Hz forever, across
+            // stages (T2.3 review, Minor 8).
+            blinkLeftMs = SHOVEL_BLINK_S * 1000;
           } else {
             blinking = false;
-            stampRing(Terrain.Brick);
+            stampRing('revert');
           }
           break;
         default:
@@ -1043,12 +1202,22 @@ export function createTerrainView(
 
     update(dtMs: number): void {
       if (!blinking) return;
+      blinkLeftMs -= dtMs;
+      if (blinkLeftMs <= 0) {
+        // Timed out without a `revert`. Settle on what the core's terrain still
+        // says the wall is — steel — rather than freezing on whichever half of
+        // the alternation happened to be showing.
+        blinking = false;
+        blinkSteel = true;
+        stampRing('blink');
+        return;
+      }
       blinkT += dtMs;
       const period = 1000 / (2 * BLINK_HZ);
       while (blinkT >= period) {
         blinkT -= period;
         blinkSteel = !blinkSteel;
-        stampRing(blinkSteel ? Terrain.Steel : Terrain.Brick);
+        stampRing('blink');
       }
     },
 
@@ -1057,8 +1226,8 @@ export function createTerrainView(
       for (const g of Object.values(geometries)) {
         g.dispose();
       }
-      for (const m of [brick, steel, water, trees, ice]) {
-        m.dispose();
+      for (let i = 0; i < meshes.length; i++) {
+        meshes[i].dispose();
       }
     },
   };

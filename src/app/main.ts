@@ -68,10 +68,12 @@ function createPreviewCaption(): Screen {
 }
 
 /**
- * The fixture the preview runs. **Kept byte-identical to
- * `tests/fixtures/level-mixed.json`** — the layout the T2.3 brief names for
- * visual verification, chosen because it carries all six terrain kinds plus
- * partial brick and steel tiles.
+ * The fixture the preview runs. Its **terrain rows and partials are transcribed
+ * verbatim** from `tests/fixtures/level-mixed.json` — the layout the T2.3 brief
+ * names for visual verification, chosen because it carries all six terrain kinds
+ * plus partial brick and steel tiles. The rest of the level (`id`, `name` and
+ * the 20-strong enemy queue) is the preview's own, so the four tank colours all
+ * appear early; only the board is shared.
  *
  * It is transcribed rather than imported: `tsconfig.json` scopes the app program
  * to `src`, and reaching into `tests/` would pull the whole test tree into the
