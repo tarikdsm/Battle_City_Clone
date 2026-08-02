@@ -28,7 +28,8 @@
     "capture:ui": "tsx scripts/capture-ui.ts",
     "capture:campaign": "tsx scripts/capture-campaign.ts",
     "capture:editor": "tsx scripts/capture-editor.ts",
-    "capture:neo": "tsx scripts/capture-neo.ts"
+    "capture:neo": "tsx scripts/capture-neo.ts",
+    "capture:platform": "tsx scripts/capture-platform.ts"
   },
   "dependencies": {
     "three": "0.185.1"

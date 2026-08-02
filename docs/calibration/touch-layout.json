@@ -1,0 +1,274 @@
+{
+  "capturedAt": "2026-08-02T20:10:13.261Z",
+  "note": "Emulated touch (Playwright device descriptors) on a desktop GPU — NOT a phone. Boxes are live getBoundingClientRect values; the three overlap fields are rectangle intersections in px² and must all be 0.",
+  "layouts": {
+    "pixel5-portrait": {
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "w": 394,
+        "h": 727
+      },
+      "device": "Pixel 5",
+      "orientation": "portrait",
+      "canvas": {
+        "x": 0,
+        "y": 70,
+        "w": 394,
+        "h": 439
+      },
+      "hud": {
+        "x": 0,
+        "y": 0,
+        "w": 394,
+        "h": 70
+      },
+      "touch": {
+        "x": 0,
+        "y": 509,
+        "w": 394,
+        "h": 218
+      },
+      "overlapCanvasTouch": 0,
+      "overlapCanvasHud": 0,
+      "overlapHudTouch": 0,
+      "controls": {
+        "stick": {
+          "x": 14,
+          "y": 531,
+          "w": 165,
+          "h": 174
+        },
+        "fire": {
+          "x": 245,
+          "y": 551,
+          "w": 135,
+          "h": 135
+        },
+        "pause": {
+          "x": 189,
+          "y": 601,
+          "w": 46,
+          "h": 34
+        }
+      },
+      "boardAreaFraction": 0.604
+    },
+    "pixel5-landscape": {
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "w": 802,
+        "h": 294
+      },
+      "device": "Pixel 5 landscape",
+      "orientation": "landscape",
+      "canvas": {
+        "x": 0,
+        "y": 0,
+        "w": 663,
+        "h": 178
+      },
+      "hud": {
+        "x": 664,
+        "y": 0,
+        "w": 139,
+        "h": 294
+      },
+      "touch": {
+        "x": 0,
+        "y": 178,
+        "w": 663,
+        "h": 116
+      },
+      "overlapCanvasTouch": 0,
+      "overlapCanvasHud": 0,
+      "overlapHudTouch": 0,
+      "controls": {
+        "stick": {
+          "x": 28,
+          "y": 186,
+          "w": 100,
+          "h": 100
+        },
+        "fire": {
+          "x": 552,
+          "y": 194,
+          "w": 84,
+          "h": 84
+        },
+        "pause": {
+          "x": 317,
+          "y": 219,
+          "w": 46,
+          "h": 34
+        }
+      },
+      "boardAreaFraction": 0.501
+    },
+    "iphone13-portrait": {
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "w": 390,
+        "h": 664
+      },
+      "device": "iPhone 13",
+      "orientation": "portrait",
+      "canvas": {
+        "x": 0,
+        "y": 70,
+        "w": 390,
+        "h": 395
+      },
+      "hud": {
+        "x": 0,
+        "y": 0,
+        "w": 390,
+        "h": 70
+      },
+      "touch": {
+        "x": 0,
+        "y": 465,
+        "w": 390,
+        "h": 199
+      },
+      "overlapCanvasTouch": 0,
+      "overlapCanvasHud": 0,
+      "overlapHudTouch": 0,
+      "controls": {
+        "stick": {
+          "x": 14,
+          "y": 485,
+          "w": 159,
+          "h": 159
+        },
+        "fire": {
+          "x": 253,
+          "y": 503,
+          "w": 123,
+          "h": 123
+        },
+        "pause": {
+          "x": 190,
+          "y": 548,
+          "w": 46,
+          "h": 34
+        }
+      },
+      "boardAreaFraction": 0.595
+    },
+    "desktop-control": {
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 800
+      },
+      "device": "Desktop Chrome (no touch)",
+      "orientation": "landscape",
+      "canvas": {
+        "x": 0,
+        "y": 0,
+        "w": 1141,
+        "h": 800
+      },
+      "hud": {
+        "x": 1141,
+        "y": 0,
+        "w": 139,
+        "h": 800
+      },
+      "touch": null,
+      "overlapCanvasTouch": 0,
+      "overlapCanvasHud": 0,
+      "overlapHudTouch": 0,
+      "controls": {
+        "stick": null,
+        "fire": null,
+        "pause": null
+      },
+      "boardAreaFraction": 0.891
+    },
+    "flow-pixel5-portrait": {
+      "viewport": {
+        "x": 0,
+        "y": 0,
+        "w": 394,
+        "h": 727
+      },
+      "device": "Pixel 5 (walked by tap)",
+      "orientation": "portrait",
+      "canvas": {
+        "x": 0,
+        "y": 70,
+        "w": 394,
+        "h": 439
+      },
+      "hud": {
+        "x": 0,
+        "y": 0,
+        "w": 394,
+        "h": 70
+      },
+      "touch": {
+        "x": 0,
+        "y": 509,
+        "w": 394,
+        "h": 218
+      },
+      "overlapCanvasTouch": 0,
+      "overlapCanvasHud": 0,
+      "overlapHudTouch": 0,
+      "controls": {
+        "stick": {
+          "x": 14,
+          "y": 531,
+          "w": 165,
+          "h": 174
+        },
+        "fire": {
+          "x": 245,
+          "y": 551,
+          "w": 135,
+          "h": 135
+        },
+        "pause": {
+          "x": 189,
+          "y": 601,
+          "w": 46,
+          "h": 34
+        }
+      },
+      "boardAreaFraction": 0.604
+    }
+  },
+  "touchGate": {
+    "pixel5-portrait": true,
+    "pixel5-landscape": true,
+    "iphone13-portrait": true,
+    "desktop-control": false
+  },
+  "mobileQuality": {
+    "pixel5-cpu1x": {
+      "cpuThrottleRate": 1,
+      "bootProbe": "auto quality low {fps: 0, dpr: 1.0000000149011612, cores: 16}",
+      "steadyStateFps": 165.6
+    },
+    "pixel5-cpu4x": {
+      "cpuThrottleRate": 4,
+      "bootProbe": "auto quality low {fps: 4.965243296921549, dpr: 1.0000000149011612, cores: 16}",
+      "steadyStateFps": 121.3
+    },
+    "pixel5-cpu6x": {
+      "cpuThrottleRate": 6,
+      "bootProbe": "auto quality low {fps: 1.7054660185202328, dpr: 1.0000000149011612, cores: 16}",
+      "steadyStateFps": 64.3
+    },
+    "desktop-cpu1x": {
+      "cpuThrottleRate": 1,
+      "bootProbe": "auto quality low {fps: 43.26875798591166, dpr: 1.0000000149011612, cores: 16}",
+      "steadyStateFps": 91.3
+    }
+  }
+}

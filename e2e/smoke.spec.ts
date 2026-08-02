@@ -126,6 +126,137 @@ test('reframes: a resize re-fits the board area and keeps the HUD docked', async
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });
 
+/**
+ * The portrait half of the docking contract (T9.2).
+ *
+ * `reframes` above asserts the LANDSCAPE contract — HUD on the right, canvas
+ * keeps the full height — and that contract is false in portrait *by design*
+ * (art §10 docks the bar along the top and gives the bottom to the touch
+ * controls). So portrait needs its own row rather than a widened assertion, and
+ * without one the entire mobile layout was untested.
+ */
+test('reframes (portrait): the HUD docks top and the board starts below it', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const consoleErrors = watchErrors(page);
+
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.goto(`/?quality=low&seed=20260802${AUTOSTART}`);
+  await expect(hud(page, 'root')).toBeVisible();
+  await page.waitForTimeout(1200);
+
+  const boxes = await page.evaluate(() => {
+    const c = (
+      document.querySelector('canvas#game') as HTMLCanvasElement
+    ).getBoundingClientRect();
+    const h = (
+      document.querySelector('[data-hud="root"]') as HTMLElement
+    ).getBoundingClientRect();
+    return {
+      canvas: { top: c.top, left: c.left, w: c.width, h: c.height },
+      hud: { top: h.top, h: h.height, w: h.width },
+      overlap:
+        Math.max(0, Math.min(c.right, h.right) - Math.max(c.left, h.left)) *
+        Math.max(0, Math.min(c.bottom, h.bottom) - Math.max(c.top, h.top)),
+      viewport: { w: window.innerWidth, h: window.innerHeight },
+    };
+  });
+
+  expect(boxes.overlap, 'HUD overlaps the board in portrait').toBe(0);
+  // The bar is along the top, full width…
+  expect(boxes.hud.top).toBe(0);
+  expect(Math.round(boxes.hud.w)).toBe(boxes.viewport.w);
+  // …and the board really starts below it, rather than being hidden behind it.
+  // `index.html` pins the canvas at top:0; the play screen's `fit` is the only
+  // thing that ever moves it, so a regression there shows up right here.
+  expect(Math.round(boxes.canvas.top)).toBe(Math.ceil(boxes.hud.h));
+  expect(Math.round(boxes.canvas.top + boxes.canvas.h)).toBe(boxes.viewport.h);
+  expect(Math.round(boxes.canvas.w)).toBe(boxes.viewport.w);
+
+  expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+});
+
+/**
+ * The touch overlay (T9.2), on an emulated touch device.
+ *
+ * Emulated, and the T9 report says so: this proves the gate, the reserved box
+ * and the event path, not that a thumb on real glass feels right.
+ */
+test.describe('touch controls', () => {
+  test.use({ viewport: { width: 400, height: 820 }, hasTouch: true });
+
+  test('mount only on touch devices, and never over the board', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const consoleErrors = watchErrors(page);
+
+    await page.goto(`/?quality=low&seed=20260802${AUTOSTART}`);
+    await expect(hud(page, 'root')).toBeVisible();
+    await page.waitForTimeout(1500);
+
+    const touch = page.locator('[data-touch="root"]');
+    await expect(touch).toBeVisible();
+    await expect(page.locator('[data-touch="stick"]')).toBeVisible();
+    await expect(page.locator('[data-touch="fire"]')).toBeVisible();
+
+    // The whole claim of the layout, as a number: the control zone and the
+    // board are disjoint boxes, so no thumb can rest on the playfield.
+    const geometry = await page.evaluate(() => {
+      const r = (sel: string): DOMRect =>
+        (document.querySelector(sel) as HTMLElement).getBoundingClientRect();
+      const c = r('canvas#game');
+      const t = r('[data-touch="root"]');
+      const h = r('[data-hud="root"]');
+      const over = (a: DOMRect, b: DOMRect): number =>
+        Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+        Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      return {
+        canvasTouch: over(c, t),
+        canvasHud: over(c, h),
+        touchBottom: Math.round(t.bottom),
+        canvasBottom: Math.round(c.bottom),
+        touchTop: Math.round(t.top),
+        viewportH: window.innerHeight,
+        fire: r('[data-touch="fire"]').width,
+      };
+    });
+    expect(geometry.canvasTouch, 'controls overlap the board').toBe(0);
+    expect(geometry.canvasHud, 'HUD overlaps the board').toBe(0);
+    // The strip is at the bottom and the board stops where it starts.
+    expect(geometry.touchBottom).toBe(geometry.viewportH);
+    expect(geometry.canvasBottom).toBe(geometry.touchTop);
+    // A fire button smaller than a thumb is a fire button that does not work.
+    expect(geometry.fire).toBeGreaterThanOrEqual(44);
+
+    // GDD §7's touch row for pause is an on-screen icon, and it reaches the
+    // same core pause edge a key does.
+    await page.locator('[data-touch="pause"]').tap();
+    await expect(screen(page, 'pause')).toBeVisible({ timeout: 10_000 });
+    await page.locator('[data-item="resume"]').tap();
+    await expect(screen(page, 'pause')).toHaveCount(0);
+
+    expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+  });
+
+  test('a tap on the title does not fall through to the menu', async ({
+    page,
+  }) => {
+    // The regression this exists for: the title started on `pointerdown`, so
+    // one tap mounted the menu under a finger that had not lifted and the
+    // `click` that followed activated whatever row was at those coordinates —
+    // the centre of the screen, which is Construction. Tapping "press any key"
+    // opened the level editor.
+    test.setTimeout(60_000);
+    await page.goto('/?quality=low&seed=20260802');
+    await expect(screen(page, 'title')).toBeVisible({ timeout: 30_000 });
+    await page.locator('[data-screen="title"]').tap();
+    await expect(screen(page, 'menu')).toBeVisible({ timeout: 15_000 });
+    expect(page.url()).not.toContain('#editor');
+  });
+});
+
 test('plays: scripted keys drive a live stage with a live HUD', async ({
   page,
 }) => {

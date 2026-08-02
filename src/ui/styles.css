@@ -602,6 +602,170 @@
   outline-offset: -1px;
 }
 
+/* --- touch controls (GDD §7, art §10) ----------------------------------- */
+
+/*
+  The bottom control zone.
+
+  It is a **reserved box**, not an overlay: `src/input/touch.ts` reports its
+  height and the play screen subtracts it from the viewport before sizing the
+  board, so the stick and the button sit BESIDE the playfield in both
+  orientations rather than on top of it. `right` is set inline to whatever the
+  HUD already took (landscape docks it right), which is what keeps the strip
+  exactly as wide as the board above it.
+
+  `z-index: 5` puts it over the canvas (0) and under the screen panels (10), so
+  a pause menu covers the controls rather than fighting them for the same taps.
+*/
+.bc-touch {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 clamp(0.6rem, 3.5vw, 1.75rem);
+  /* The container is inert; only the three controls take a touch. */
+  pointer-events: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* No scroll, no pinch, no double-tap zoom anywhere in the strip. */
+  touch-action: none;
+  background: linear-gradient(to top, rgb(6 7 11 / 82%), rgb(6 7 11 / 0%));
+}
+
+.bc-touch-stick,
+.bc-touch-fire,
+.bc-touch-pause {
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.bc-touch-stick {
+  position: relative;
+  flex: 0 0 auto;
+  height: 80%;
+  aspect-ratio: 1;
+  min-width: 84px;
+  min-height: 84px;
+  max-width: 42vw;
+}
+
+.bc-touch-stick-base {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(127 196 255 / 34%);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(16 18 27 / 62%) 0%,
+    rgb(16 18 27 / 26%) 70%,
+    rgb(16 18 27 / 8%) 100%
+  );
+}
+
+/* Four chevrons rather than a joystick ball: the control IS four-way, and a
+   round knob would promise the diagonals the game does not have. */
+.bc-touch-rose {
+  width: 58%;
+  height: 58%;
+  color: rgb(127 196 255 / 40%);
+}
+
+/*
+  The knob follows the thumb from wherever it landed (touch.ts sets `left`/`top`
+  on the press and `transform` on every move), so the negative margins — not a
+  centring transform — are what put it under the finger. A transform here would
+  be overwritten by the one that carries the offset.
+*/
+.bc-touch-stick-knob {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  border: 1px solid rgb(127 196 255 / 65%);
+  background: rgb(127 196 255 / 22%);
+  opacity: 0;
+  transition: opacity var(--bc-transition) ease-out;
+}
+
+.bc-touch-stick-knob.is-active {
+  opacity: 1;
+}
+
+.bc-touch-fire {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 62%;
+  aspect-ratio: 1;
+  min-width: 76px;
+  min-height: 76px;
+  padding: 0;
+  border: 1px solid rgb(255 215 107 / 55%);
+  border-radius: 50%;
+  background: rgb(255 215 107 / 12%);
+  transition:
+    background-color var(--bc-transition) ease-out,
+    transform var(--bc-transition) ease-out;
+}
+
+.bc-touch-fire-dot {
+  width: 34%;
+  height: 34%;
+  border-radius: 50%;
+  background: var(--bc-gold);
+}
+
+.bc-touch-fire.is-down {
+  background: rgb(255 215 107 / 32%);
+  transform: scale(0.95);
+}
+
+.bc-touch-pause {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 46px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  background: rgb(16 18 27 / 72%);
+}
+
+.bc-touch-pause-bar {
+  width: 4px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--bc-text-dim);
+}
+
+.bc-touch-pause.is-down {
+  border-color: rgb(255 215 107 / 55%);
+}
+
+/* Landscape: the same three controls, smaller, because every pixel of height
+   the strip takes is taken from both sides of a square board. */
+.bc-touch.landscape .bc-touch-stick {
+  height: 86%;
+}
+
+.bc-touch.landscape .bc-touch-fire {
+  height: 72%;
+}
+
 /* --- construction mode (arch §9) ---------------------------------------- */
 
 /*

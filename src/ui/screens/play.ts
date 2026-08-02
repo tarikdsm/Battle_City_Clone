@@ -45,6 +45,11 @@ import { applyCarry, levelStageOf, type Session } from '../../app/session';
 import type { SettingsV1 } from '../../app/storage';
 import { createInput, type InputSystem } from '../../input/input';
 import { sharedGamepads } from '../../input/gamepad';
+import {
+  createTouchControls,
+  isTouchDevice,
+  type TouchControls,
+} from '../../input/touch';
 import { concreteQuality } from '../../render/post';
 import {
   createRenderer,
@@ -122,6 +127,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
   // instead of a crash on a disposed GL context.
   let renderer: Renderer | null = null;
   let input: InputSystem | null = null;
+  let touch: TouchControls | null = null;
   let hud: Hud | null = null;
   let loop: Loop | null = null;
   let observer: ResizeObserver | null = null;
@@ -141,6 +147,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     loop?.stop();
     observer?.disconnect();
     input?.dispose();
+    touch?.dispose();
     hud?.dispose();
     // The renderer goes last: it owns the GL context and every GPU resource
     // hanging off it, so nothing that touches the scene may run after it.
@@ -158,6 +165,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     loop = null;
     observer = null;
     input = null;
+    touch = null;
     hud = null;
     renderer = null;
     game = null;
@@ -235,6 +243,19 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     // on a second one of its own (see `createInput`).
     opts.audio.setVolumes(volumesFor(settings));
 
+    // GDD §7's touch column, on touch devices only. Built before the input
+    // system because it is one of its sources, and mounted into the same
+    // overlay root the HUD uses so `leave()` cannot leave it behind.
+    const glass =
+      next.attract === true || !isTouchDevice(window)
+        ? null
+        : createTouchControls(mount, {
+            onUserGesture: () => {
+              opts.audio.resume();
+            },
+          });
+    touch = glass;
+
     // GDD §7's four devices, merged behind one `PlayerIntent` pair. The gamepad
     // hub is the app's, not this screen's (`sharedGamepads`) — hot-plug
     // assignment has to survive a stage change, and a campaign rebuilds this
@@ -248,7 +269,9 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
             () => {
               opts.audio.resume();
             },
-            [sharedGamepads()],
+            glass === null
+              ? [sharedGamepads()]
+              : [sharedGamepads(), glass.source],
           );
     const panel = next.attract === true ? null : createHud(mount);
     panel?.sync(state, levelStageOf(next.session.stageNumber));
@@ -262,10 +285,18 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     let lastTop = -1;
     const fit = (): void => {
       const reserved = panel?.dock() ?? { right: 0, bottom: 0, top: 0 };
+      // The touch strip is inset by whatever the HUD already took, so the two
+      // docks are disjoint boxes and the strip is exactly as wide as the board.
+      const glassDock = glass?.dock(reserved.right) ?? { bottom: 0 };
       const w = Math.max(1, Math.floor(window.innerWidth - reserved.right));
       const h = Math.max(
         1,
-        Math.floor(window.innerHeight - reserved.bottom - reserved.top),
+        Math.floor(
+          window.innerHeight -
+            reserved.bottom -
+            reserved.top -
+            glassDock.bottom,
+        ),
       );
       // Idempotent: `setSize` writes the canvas's inline style, which the
       // observer below sees as a resize. Without this the two would ping-pong
@@ -435,13 +466,16 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
       // construction (`createKeyboard`), so a new map means a new driver.
       if (input !== null && run !== null && run.attract !== true) {
         input.dispose();
+        const glass = touch;
         input = createInput(
           bindingsFor(s),
           undefined,
           () => {
             opts.audio.resume();
           },
-          [sharedGamepads()],
+          glass === null
+            ? [sharedGamepads()]
+            : [sharedGamepads(), glass.source],
         );
       }
     },

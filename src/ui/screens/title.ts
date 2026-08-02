@@ -72,7 +72,17 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
         opts.onStart();
       };
       window.addEventListener('keydown', listener);
-      view.node.addEventListener('pointerdown', click);
+      // **`click`, not `pointerdown`** (fixed at T9.2, found by the first tap a
+      // touch device ever made at this screen).
+      //
+      // A tap is `pointerdown → pointerup → click`, and this handler replaces
+      // the whole screen. Starting on `pointerdown` therefore mounted the main
+      // menu *under the finger that had not lifted yet*, and the `click` that
+      // followed landed on whatever menu row was at those coordinates — the
+      // centre of the viewport, which is Construction. One tap on "press any
+      // key" opened the level editor, every time. `click` is the last event of
+      // the gesture, so nothing follows it to be delivered to the new screen.
+      view.node.addEventListener('click', click);
       // Pointer events are off on `.bc-screen` so the board stays clickable;
       // the title is the one screen that wants the whole viewport as a button.
       view.node.style.pointerEvents = 'auto';
@@ -97,7 +107,7 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
 
       detach = (): void => {
         window.removeEventListener('keydown', listener);
-        view.node.removeEventListener('pointerdown', click);
+        view.node.removeEventListener('click', click);
         if (frame !== null) {
           window.cancelAnimationFrame(frame);
           frame = null;
