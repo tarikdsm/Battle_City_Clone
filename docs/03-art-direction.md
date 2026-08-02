@@ -192,7 +192,7 @@ Global cap ~180 live particles (High); FxSystem drops lowest-priority when excee
 - **HUD (right dock, landscape):** enemy-remaining icon grid (4×5 mini tank glyphs, dimming as consumed), per-player card (lives as tank pips, live score, tier stars), stage flag+number. Portrait/touch: slim top bar + bottom control zone.
 - **Menus:** dark translucent panels (`#10121b` @ 92%) with 1 px `#262b3d` borders, gold accent for selection, cyan focus ring (gamepad/keyboard), 150 ms slide/fade transitions.
 - **Curtain transition:** the NES gray curtain reimagined — twin steel shutters wipe in/out (300 ms each) synced with the camera fly-in.
-- **Score popups:** world-space billboards (`+100`), Orbitron 10 u, float up 12 u, fade 700 ms.
+- **Score popups:** world-space billboards (`+100`), **seven-segment glyphs** (ruled 2026-08-02, T6.3 — *not* Orbitron), float up 12 u, fade 700 ms. Orbitron here would require the project's **first texture**: a runtime atlas rebuilt on `document.fonts.load`, an `onBeforeCompile` per-instance-UV patch on the additive material §7's bloom source reads, and a no-document fallback for the node tests. That is disproportionate for a floating `+100`, and seven-segment reads as *more* arcade-authentic, not less. Orbitron remains the HUD and display face.
 - **Title screen:** logo built from beveled 3D letters on the board, attract-mode camera drift, tank silhouettes rolling by under rim light.
 
 ## 11. Readability & accessibility rules

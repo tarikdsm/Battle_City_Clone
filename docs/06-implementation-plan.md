@@ -376,17 +376,17 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 6 — UI, screens, persistence (Lane main; merges A/B when ready)
 
-### - [ ] T6.1 Menus, settings, pause
+### - [x] T6.1 Menus, settings, pause
 **Files:** create `src/ui/{menus,styles.css}`, `src/ui/screens/{title,menu,settings,pause}.ts`; modify screens.ts. Test `tests/ui/settings.test.ts` (settings persist via storage: volumes, quality, toggles, bindings; navigation model up/down/select works from abstract nav events).
 **Spec:** GDD §5, §10; art §10 styling (panels, focus ring, fonts placeholder until T6.3).
 **Commit:** `feat(ui): title/menu/settings/pause with persisted settings`
 
-### - [ ] T6.2 Campaign flow, tally, game over, hi-scores
+### - [x] T6.2 Campaign flow, tally, game over, hi-scores
 **Files:** create `src/ui/screens/{stageSelect,intro,tally,gameOver,hiScore}.ts`; extend session.ts (progress, loop-after-35, per-run carryover). Tests `tests/app/session.test.ts` (progress unlock persists; loop 35→1 keeps rising internal stage; score carry; hi-score qualifies top-10, initials entry model 3 chars, seed entry 20000).
 **Spec:** GDD §5, §8; fidelity §11–13.
 **Commit:** `feat(ui): full campaign loop with tally and arcade hi-scores`
 
-### - [ ] T6.3 Final HUD + fonts
+### - [x] T6.3 Final HUD + fonts
 **Files:** create `src/ui/fonts/` (download Orbitron + Inter woff2 subsets + OFL licenses — network allowed this task only, from fonts.gstatic.com; commit files), finalize `src/ui/hud.ts` per art §10 (enemy grid, player cards, tier pips, stage flag; portrait variant), `index.html` preloads.
 **Tests:** `tests/ui/hud.test.ts` (HUD model derives from events/state: 20 icons decrement on `enemySpawnStarted`; lives/tier react).
 **Spec:** art §10; GDD §9.
