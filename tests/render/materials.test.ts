@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  LineBasicMaterial,
+  MeshBasicMaterial,
   MeshLambertMaterial,
   MeshStandardMaterial,
 } from 'three';
@@ -18,6 +18,7 @@ import {
   ICE_ALPHA,
   PALETTE,
   QUALITY_PRESETS,
+  TERRAIN_GLOSS,
   createMaterials,
   graphicSurface,
   litSurface,
@@ -181,6 +182,11 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     'gridLine',
   ];
   const LIT: readonly (
+    | 'terrainBrick'
+    | 'terrainSteel'
+    | 'terrainWater'
+    | 'terrainTrees'
+    | 'terrainIce'
     | 'player1'
     | 'player2'
     | 'enemyBasic'
@@ -189,6 +195,13 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     | 'enemyArmor'
     | 'bullet'
   )[] = [
+    // Art §6's definitive list puts ALL terrain on the lit path. Terrain is
+    // something the light falls on, not part of the board's diagram.
+    'terrainBrick',
+    'terrainSteel',
+    'terrainWater',
+    'terrainTrees',
+    'terrainIce',
     'player1',
     'player2',
     'enemyBasic',
@@ -221,9 +234,88 @@ describe('art §3.0 — the flat-graphic tone-mapping policy', () => {
     // to MeshStandardMaterial silently decalibrates the whole flat path.
     expect(mats.board).toBeInstanceOf(MeshLambertMaterial);
     expect(mats.boardFrame).toBeInstanceOf(MeshLambertMaterial);
-    expect(mats.gridLine).toBeInstanceOf(LineBasicMaterial);
+    // The lattice became thin quads in T2.3, so it needs a *mesh* material —
+    // but it stays UNLIT (`MeshBasicMaterial`, the mesh analogue of
+    // `LineBasicMaterial`), which is what keeps the rendered pixel identical to
+    // the exact `#191d2b` T2.2 measured. Promoting it to `graphicSurface()`
+    // would put it on the lighting model and re-open that calibration.
+    expect(mats.gridLine).toBeInstanceOf(MeshBasicMaterial);
+    expect(mats.gridLine).not.toBeInstanceOf(MeshLambertMaterial);
     for (const key of LIT) {
       expect(mats[key], key).toBeInstanceOf(MeshStandardMaterial);
+    }
+    mats.dispose();
+  });
+
+  it('terrain carries its authored TOP token as albedo, never a side token', () => {
+    // Art §5's reversed ruling: a side token says what a side *reads as*, and
+    // feeding it as base colour renders sides at ~20% of the top face. The rig
+    // produces the sides, and `calibrate-lighting.ts` scores exactly that — so
+    // a future "fix" that assigns `brickSide`/`steelSide` here has to fail.
+    const mats = createMaterials();
+    expect(mats.terrainBrick.color.getHexString()).toBe('bf5a33'); // brickTop
+    expect(mats.terrainSteel.color.getHexString()).toBe('b7c0cd'); // steelTop
+    expect(mats.terrainWater.color.getHexString()).toBe('173f75'); // waterDeep
+    expect(mats.terrainTrees.color.getHexString()).toBe('2e7d3a'); // treesCanopy
+    expect(mats.terrainIce.color.getHexString()).toBe('cadeed'); // ice
+    mats.dispose();
+  });
+
+  it('brick and steel carry their detail tokens as VERTEX colours', () => {
+    // Mortar, top lip, bevel and rivet are per-face colours baked into one
+    // geometry so each kind stays a single draw call. The flag has to be on or
+    // the attribute is silently ignored and every face renders flat.
+    const mats = createMaterials();
+    expect(mats.terrainBrick.vertexColors).toBe(true);
+    expect(mats.terrainSteel.vertexColors).toBe(true);
+    mats.dispose();
+  });
+
+  it('only water and ice override the calibrated gloss, and only roughness', () => {
+    const mats = createMaterials();
+    for (const key of [
+      'terrainBrick',
+      'terrainSteel',
+      'terrainTrees',
+    ] as const) {
+      expect(mats[key].roughness, key).toBe(CALIBRATION.litRoughness);
+      expect(mats[key].metalness, key).toBe(CALIBRATION.litMetalness);
+    }
+    expect(mats.terrainWater.roughness).toBe(TERRAIN_GLOSS.water.roughness);
+    expect(mats.terrainIce.roughness).toBe(TERRAIN_GLOSS.ice.roughness);
+    // Glossier than the calibrated default, which is the whole point of the
+    // override — but only as far as target 1 allows. Measured: water hits +0.1%
+    // at 0.34 and +16.0% at 0.40; ice falls to −14.1% at 0.08. See TERRAIN_GLOSS
+    // for the sweep, and re-run `npm run calibrate:lighting` before moving them.
+    expect(mats.terrainWater.roughness).toBeLessThan(CALIBRATION.litRoughness);
+    expect(mats.terrainIce.roughness).toBeLessThan(CALIBRATION.litRoughness);
+    // Metalness deliberately NOT raised: it lerps the diffuse lobe toward zero,
+    // so "high specular" via metalness costs luminance in direct proportion and
+    // put ice 21% below its token — outside art §6 target 1. See TERRAIN_GLOSS.
+    expect(mats.terrainWater.metalness).toBe(CALIBRATION.litMetalness);
+    expect(mats.terrainIce.metalness).toBe(CALIBRATION.litMetalness);
+    expect(Object.isFrozen(TERRAIN_GLOSS)).toBe(true);
+    mats.dispose();
+  });
+
+  it('trees and ice are the only transparent terrain (art §5 / §3)', () => {
+    const mats = createMaterials();
+    expect(mats.terrainTrees.transparent).toBe(true);
+    expect(mats.terrainTrees.opacity).toBe(0.95); // art §5 "alpha ~0.95"
+    // Canopies conceal a tank; blending 4 overlapping spheres correctly needs
+    // the depth write, so it stays on.
+    expect(mats.terrainTrees.depthWrite).toBe(true);
+    expect(mats.terrainIce.transparent).toBe(true);
+    expect(mats.terrainIce.opacity).toBe(ICE_ALPHA); // art §3 "ice @ 25%"
+    // Flush with the board: writing depth would let a 0.03 u decal occlude the
+    // tanks standing on it.
+    expect(mats.terrainIce.depthWrite).toBe(false);
+    for (const key of [
+      'terrainBrick',
+      'terrainSteel',
+      'terrainWater',
+    ] as const) {
+      expect(mats[key].transparent, key).toBe(false);
     }
     mats.dispose();
   });

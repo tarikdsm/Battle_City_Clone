@@ -10,8 +10,8 @@
 
 import {
   Color,
-  LineBasicMaterial,
   Material,
+  MeshBasicMaterial,
   MeshLambertMaterial,
   MeshStandardMaterial,
 } from 'three';
@@ -186,7 +186,12 @@ export const CALIBRATION: Calibration = Object.freeze({
 export interface MaterialsByRole {
   readonly board: MeshLambertMaterial;
   readonly boardFrame: MeshLambertMaterial;
-  readonly gridLine: LineBasicMaterial;
+  readonly gridLine: MeshBasicMaterial;
+  readonly terrainBrick: MeshStandardMaterial;
+  readonly terrainSteel: MeshStandardMaterial;
+  readonly terrainWater: MeshStandardMaterial;
+  readonly terrainTrees: MeshStandardMaterial;
+  readonly terrainIce: MeshStandardMaterial;
   readonly player1: MeshStandardMaterial;
   readonly player2: MeshStandardMaterial;
   readonly enemyBasic: MeshStandardMaterial;
@@ -285,6 +290,47 @@ export function litSurface(
 }
 
 /**
+ * The two terrain surfaces art §5 asks to be **glossy** — and therefore the two
+ * that override {@link litSurface}'s calibrated response. Exported rather than
+ * inlined at the call site because overriding is a *calibration* change: this
+ * table is what `scripts/calibrate-lighting.ts` probes, so the harness can never
+ * measure a different surface from the one that ships.
+ *
+ * **Roughness is a luminance lever here, not just a highlight width** — the
+ * measurement that decided both numbers, and the opposite of what I assumed
+ * going in. Sweeping `waterDeep`'s top face against art §6 target 1:
+ *
+ * | roughness | 0.22 | 0.28 | 0.32 | **0.34** | 0.36 | 0.40 | 0.55 (default) |
+ * |---|---|---|---|---|---|---|---|
+ * | vs token | −39.8% | −21.2% | −6.7% | **+0.1%** | +5.9% | +16.0% | +18.0% |
+ *
+ * Two consequences worth keeping:
+ *
+ * 1. `waterDeep` **fails target 1 at the calibrated default** (+18.0%). The
+ *    gloss override is what brings it back to +0.1%, so for this token the
+ *    override is a fix rather than a cost. Art §6's fit is two-point against a
+ *    near-black board and a mid-tone gold tank, and this is the doc's own
+ *    warning about re-measuring a materially different token coming true.
+ * 2. Glossier is **darker** under this rig, steeply. The key's mirror direction
+ *    off a horizontal surface misses this camera by ~35°, so narrowing the GGX
+ *    lobe removes energy the camera was collecting and returns none. Ice at
+ *    0.08 measured −14.1% (outside target 1) while the *broader* 0.34 measures
+ *    −8.2% and looks glossier from the camera we actually have. "High specular"
+ *    in the art doc is a look, and on this rig a mid roughness delivers it.
+ *
+ * Metalness stays at the calibrated {@link CALIBRATION.litMetalness} for both:
+ * it lerps the diffuse lobe toward zero, so it costs luminance in direct
+ * proportion, and at 0.30 ice measured 21% below its token with nothing gained.
+ */
+export const TERRAIN_GLOSS = Object.freeze({
+  water: Object.freeze({
+    roughness: 0.34,
+    metalness: CALIBRATION.litMetalness,
+  }),
+  ice: Object.freeze({ roughness: 0.34, metalness: CALIBRATION.litMetalness }),
+});
+
+/**
  * Painted-metal preset over {@link litSurface}: enough gloss for the key light
  * to pick out a highlight on the top face, not enough to look chrome. A thin
  * wrapper on purpose — it is the calibrated default, so tanks and terrain share
@@ -300,15 +346,62 @@ export function createMaterials(): Materials {
   const boardFrame = graphicSurface(PALETTE.boardFrame);
 
   // The lattice is the purest case of art §3.0: a diagram drawn on the board,
-  // with no lighting model at all (`LineBasicMaterial` is unlit), so
-  // `toneMapped = false` puts exactly `#191d2b` on screen. This is the
-  // measurement the policy was written from — tone-mapped it landed 1.07× the
-  // board's luminance (invisible); unmapped it is 1.6×.
+  // with no lighting model at all, so `toneMapped = false` puts exactly
+  // `#191d2b` on screen. This is the measurement the policy was written from —
+  // tone-mapped it landed 1.07× the board's luminance (invisible); unmapped it
+  // is 1.6×.
   //
-  // `linewidth` is deliberately not set: WebGL renders every line at 1 px
-  // regardless, so setting it would only mislead.
-  const gridLine = new LineBasicMaterial({ color: srgb(PALETTE.gridLine) });
+  // **`MeshBasicMaterial`, not `LineBasicMaterial`** (T2.3): the lattice is now
+  // thin *quads* rather than lines, because a `LineSegments` renders at exactly
+  // 1 **device** pixel whatever `linewidth` says — a hairline at DPR 2 and a
+  // third of a CSS pixel at DPR 3, which is the acceptance bar. Basic is the
+  // mesh analogue of Line*Basic*: both are unlit, so the rendered pixel is
+  // bit-identical to what T2.2 measured and the calibration carries over
+  // untouched. It is deliberately NOT `graphicSurface()` (Lambert) — that would
+  // put the lattice on the lighting model for the first time and re-open a
+  // calibration that currently measures exact.
+  const gridLine = new MeshBasicMaterial({ color: srgb(PALETTE.gridLine) });
   gridLine.toneMapped = false;
+
+  // --- Terrain (art §5) ----------------------------------------------------
+  // All five are LIT surfaces (art §3.0's definitive list; terrain is something
+  // the light falls on, not part of the board's diagram). Sides are deliberately
+  // NOT authored from the §3.1 side tokens — see art §5's note: a side token
+  // says what a side *reads as*, and feeding it as albedo renders sides at ~20%
+  // of the top face. The rig produces the sides, and `calibrate-lighting.ts`
+  // scores exactly that.
+  //
+  // Brick and steel carry `vertexColors`: mortar lines, the brick top lip, the
+  // steel bevel and its rivet are per-FACE colours baked into one geometry, so
+  // each stays a single draw call instead of one material per detail. The
+  // attribute holds a *ratio* against the material colour (see `faceTint` in
+  // terrainView.ts), which keeps `material.color` equal to the authored token —
+  // the property art §3.0's promise and the calibration probe both rest on.
+  const terrainBrick = litSurface(PALETTE.brickTop);
+  terrainBrick.vertexColors = true;
+
+  const terrainSteel = litSurface(PALETTE.steelTop);
+  terrainSteel.vertexColors = true;
+
+  const terrainWater = litSurface(PALETTE.waterDeep, TERRAIN_GLOSS.water);
+
+  // Art §5: canopies render above tanks at alpha ~0.95 — concealment is a
+  // gameplay-readable property, so the 5% is what keeps a hidden tank *hinted*
+  // rather than erased. `depthWrite` stays on: the cluster is 4 overlapping
+  // spheres and turning it off would let the far ones blend through the near.
+  const terrainTrees = litSurface(PALETTE.treesCanopy);
+  terrainTrees.vertexColors = true;
+  terrainTrees.transparent = true;
+  terrainTrees.opacity = 0.95;
+
+  // Art §3: "ice `#cadeed` @ 25%" — a decal over the board, not a solid.
+  // `depthWrite: false` because it is flush with the board (art §5) and writing
+  // depth would make a 0.03 u decal occlude things standing *on* it.
+  const terrainIce = litSurface(PALETTE.ice, TERRAIN_GLOSS.ice);
+  terrainIce.vertexColors = true;
+  terrainIce.transparent = true;
+  terrainIce.opacity = ICE_ALPHA;
+  terrainIce.depthWrite = false;
 
   const player1 = tankSkin(PALETTE.player1);
   const player2 = tankSkin(PALETTE.player2);
@@ -335,6 +428,11 @@ export function createMaterials(): Materials {
     board,
     boardFrame,
     gridLine,
+    terrainBrick,
+    terrainSteel,
+    terrainWater,
+    terrainTrees,
+    terrainIce,
     player1,
     player2,
     enemyBasic,

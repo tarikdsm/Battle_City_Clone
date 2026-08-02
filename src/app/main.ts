@@ -56,7 +56,7 @@ function createPreviewCaption(): Screen {
       tag.style.cssText =
         'position:fixed;left:12px;bottom:10px;margin:0;pointer-events:none;' +
         'font:12px/1 system-ui,sans-serif;color:#7fc4ff;opacity:0.65;';
-      tag.textContent = 'scene preview — T2.2';
+      tag.textContent = 'scene preview — T2.3';
       root.append(tag);
       node = tag;
     },
@@ -68,25 +68,56 @@ function createPreviewCaption(): Screen {
 }
 
 /**
- * The fixture the preview runs: an empty board (terrain rendering is T2.3, so
- * anything painted here would be an invisible wall the tanks bump into) with the
- * four enemy types up front, so the first wave shows all four palette colours.
- * `noAutoBase` for the same reason — the brick ring around the eagle would be
- * invisible collision.
+ * The fixture the preview runs. **Kept byte-identical to
+ * `tests/fixtures/level-mixed.json`** — the layout the T2.3 brief names for
+ * visual verification, chosen because it carries all six terrain kinds plus
+ * partial brick and steel tiles.
+ *
+ * It is transcribed rather than imported: `tsconfig.json` scopes the app program
+ * to `src`, and reaching into `tests/` would pull the whole test tree into the
+ * production typecheck. The duplication is dev-only and dies with this preview
+ * when T3.2 lands the real play screen.
  */
+const PREVIEW_TERRAIN: readonly string[] = [
+  '...B.....B...',
+  '..SS.....SS..',
+  '.BBB.....BBB.',
+  '.B.........B.',
+  '.B..WWWWW..B.',
+  '....W...W....',
+  'TTT.WW.WW.TTT',
+  '....W...W....',
+  'IIII.....IIII',
+  '.S.........S.',
+  '.S...BBB...S.',
+  '.....B.B.....',
+  '.............',
+];
+
+const PREVIEW_PARTIALS: readonly { tx: number; ty: number; mask: number }[] = [
+  { tx: 2, ty: 2, mask: 9 },
+  { tx: 10, ty: 2, mask: 6 },
+  { tx: 3, ty: 1, mask: 12 },
+  { tx: 9, ty: 1, mask: 3 },
+  { tx: 6, ty: 10, mask: 3 },
+];
+
 function previewLevel(): LevelData {
   const types: readonly EnemyType[] = ['basic', 'fast', 'power', 'armor'];
   const enemies: EnemyType[] = [];
   for (let i = 0; i < ENEMY_TOTAL; i++) {
     enemies.push(types[i % types.length]);
   }
+  if (PREVIEW_TERRAIN.length !== FIELD_TILES) {
+    throw new Error('preview terrain must be 13 rows');
+  }
   return {
     version: 1,
     id: 'dev-scene-preview',
     name: 'Scene preview',
-    terrain: Array.from({ length: FIELD_TILES }, () => '.'.repeat(FIELD_TILES)),
+    terrain: [...PREVIEW_TERRAIN],
+    partials: PREVIEW_PARTIALS.map((p) => ({ ...p })),
     enemies,
-    noAutoBase: true,
   };
 }
 
@@ -170,6 +201,13 @@ if (import.meta.env.DEV) {
   const loop = createLoop({
     step(): void {
       stepGame(state, intents);
+      // The event pump (arch §3.1). `stepGame` clears `state.events` at the top
+      // of the NEXT tick, so a consumer that defers to render time would miss a
+      // brick hit whenever the loop catches up two steps in one frame — which is
+      // exactly when things are being shot.
+      for (let i = 0; i < state.events.length; i++) {
+        renderer.onEvent(state.events[i]);
+      }
     },
     render(alpha, dtMs): void {
       renderer.render(state, alpha, dtMs);

@@ -45,6 +45,27 @@ interface Row {
   brickSideHex: string;
   steelSideHex: string;
   shadowHex: string;
+  // --- T2.3 terrain: the two overridden materials and the uncovered band ---
+  /** Glossy water surface, top face — target 1 against `waterDeep`. */
+  waterPct: number;
+  waterHex: string;
+  /** Glossy ice, measured OPAQUE — see the note in `measureInPage`. */
+  icePct: number;
+  iceHex: string;
+  /** The shipping 25%-alpha ice decal over the board. Informational. */
+  iceDecalHex: string;
+  iceDecalRatio: number;
+  /** Canopy apex: normal straight up, so target 1 applies. */
+  canopyApexPct: number;
+  canopyApexHex: string;
+  /** Canopy flanks at 45° normals — art §6's uncovered band. No target. */
+  canopyFlankPct: number;
+  canopyFlankHex: string;
+  canopyShadePct: number;
+  canopyShadeHex: string;
+  /** Same tokens at litSurface's DEFAULT gloss — attribution controls. */
+  waterCtlPct: number;
+  iceCtlPct: number;
 }
 
 function parseCandidates(): Candidate[] {
@@ -136,6 +157,58 @@ async function main(): Promise<void> {
         delta: `${r.shadowPct.toFixed(1)}% of lit`,
         result: verdict(r.shadowPct >= 15 && r.shadowPct <= 35),
       },
+      // T2.3. Water and ice override `litSurface`'s calibrated roughness, which
+      // is a calibration change (materials.ts) — hence a probe each. The canopy
+      // rows cover art §6's "uncovered band": its apex is a normal target 1
+      // reaches, its flank is not, and the flank is reported rather than tuned.
+      {
+        target: '1 water  ±10%',
+        rendered: r.waterHex,
+        delta: pct(r.waterPct),
+        result: verdict(Math.abs(r.waterPct) <= 10),
+      },
+      {
+        target: '1 ice    ±10%',
+        rendered: r.iceHex,
+        delta: pct(r.icePct),
+        result: verdict(Math.abs(r.icePct) <= 10),
+      },
+      {
+        target: '1 canopy ±10%',
+        rendered: r.canopyApexHex,
+        delta: pct(r.canopyApexPct),
+        result: verdict(Math.abs(r.canopyApexPct) <= 10),
+      },
+      {
+        target: '- canopy 45° lit',
+        rendered: r.canopyFlankHex,
+        delta: pct(r.canopyFlankPct),
+        result: 'no target',
+      },
+      {
+        target: '- canopy 45° shade',
+        rendered: r.canopyShadeHex,
+        delta: pct(r.canopyShadePct),
+        result: 'no target',
+      },
+      {
+        target: '- water @default',
+        rendered: '(control)',
+        delta: pct(r.waterCtlPct),
+        result: 'no target',
+      },
+      {
+        target: '- ice @default',
+        rendered: '(control)',
+        delta: pct(r.iceCtlPct),
+        result: 'no target',
+      },
+      {
+        target: '- ice decal @25%',
+        rendered: r.iceDecalHex,
+        delta: `${r.iceDecalRatio.toFixed(2)}× board`,
+        result: 'no target',
+      },
     ]);
   }
   console.log('\nconsole:', noise.length > 0 ? noise : '(clean)');
@@ -158,9 +231,11 @@ async function measureInPage(args: {
   const urls = {
     materials: '/src/render/materials.ts',
     sceneRoot: '/src/render/sceneRoot.ts',
+    terrain: '/src/render/terrainView.ts',
   };
   const matsMod = await import(urls.materials);
   const rootMod = await import(urls.sceneRoot);
+  const terrainMod = await import(urls.terrain);
   const threeUrl = performance
     .getEntriesByType('resource')
     .map((e) => e.name)
@@ -170,6 +245,7 @@ async function measureInPage(args: {
 
   const { PALETTE, QUALITY_PRESETS, CALIBRATION, createMaterials, litSurface } =
     matsMod;
+  const { CANOPY_PROBE } = terrainMod;
 
   const canvas = document.createElement('canvas');
   canvas.style.width = `${W}px`;
@@ -211,6 +287,54 @@ async function measureInPage(args: {
   addProbe(PALETTE.player1, 48, 48, mats.player1); // tank, shares the real skin
   addProbe(PALETTE.brickTop, 112, 48);
   addProbe(PALETTE.steelTop, 112, 112);
+
+  // --- T2.3 terrain probes -------------------------------------------------
+  // Water and ice are the two materials that OVERRIDE litSurface's calibrated
+  // roughness (art §5 wants gloss), so each gets its own target-1 probe rather
+  // than inheriting the tank's deviation — the ACES curve is non-linear and the
+  // specular response is exactly what the exposure was fit through.
+  addProbe(PALETTE.waterDeep, 48, 112, mats.terrainWater);
+
+  // Ice is measured OPAQUE, on a clone with `transparent` off. The shipping
+  // decal is `#cadeed` at 25% over a near-black board, so "within ±10% of its
+  // token" is arithmetically impossible for it — 75% of what you see is board.
+  // The clone isolates the thing the target is actually about (how the rig
+  // renders this albedo at this gloss); the real decal is measured separately
+  // below and reported without a target.
+  const iceOpaque = mats.terrainIce.clone();
+  iceOpaque.transparent = false;
+  iceOpaque.opacity = 1;
+  iceOpaque.depthWrite = true;
+  iceOpaque.vertexColors = false;
+  addProbe(PALETTE.ice, 176, 48, iceOpaque);
+
+  // The real decal, over the real board, with the real material.
+  const iceDecal = new THREE.Mesh(
+    terrainMod.createIceGeometry(),
+    mats.terrainIce,
+  );
+  iceDecal.position.set(176 + 8, 0, 112 + 8);
+  root.entities.add(iceDecal);
+
+  // The canopy — art §6's "uncovered band". Built from the SHIPPING geometry so
+  // the measurement is of the spheres that are on screen, not of a stand-in.
+  const canopy = new THREE.Mesh(
+    terrainMod.createTreesGeometry(),
+    mats.terrainTrees,
+  );
+  // The shipping view places a tile instance at the tile CENTRE, and the
+  // geometry is built around its own origin — so the probe mesh goes to the
+  // centre while `CANOPY_PROBE` is stated from the tile's north-west corner.
+  canopy.position.set(112 + 8, 0, 176 + 8);
+  canopy.castShadow = true;
+  root.entities.add(canopy);
+
+  // Controls: the SAME two tokens at `litSurface`'s calibrated defaults. Without
+  // these a deviation on water or ice is unattributable — art §6's fit is
+  // two-point and non-linear, so a dark token can miss target 1 for reasons that
+  // have nothing to do with the gloss override this task introduced.
+  addProbe(PALETTE.waterDeep, 176, 176, litSurface(PALETTE.waterDeep));
+  addProbe(PALETTE.ice, 16, 176, litSurface(PALETTE.ice));
 
   let key: { intensity: number } | null = null;
   let fill: {
@@ -273,6 +397,27 @@ async function measureInPage(args: {
     steelSide: px(120, 5, 128),
     // Board the player probe occludes: 10/tan(50°) = 8.4 u along (0.573, 0.819).
     shadow: px(58, 0, 68),
+    // T2.3 terrain.
+    water: px(56, 10, 120),
+    ice: px(184, 10, 56),
+    iceDecal: px(184, 0.04, 120),
+    canopyApex: px(
+      112 + CANOPY_PROBE.apex[0],
+      CANOPY_PROBE.apex[1],
+      176 + CANOPY_PROBE.apex[2],
+    ),
+    canopyFlank: px(
+      112 + CANOPY_PROBE.flankWest[0],
+      CANOPY_PROBE.flankWest[1],
+      176 + CANOPY_PROBE.flankWest[2],
+    ),
+    canopyShade: px(
+      112 + CANOPY_PROBE.flankSouth[0],
+      CANOPY_PROBE.flankSouth[1],
+      176 + CANOPY_PROBE.flankSouth[2],
+    ),
+    waterCtl: px(184, 10, 184),
+    iceCtl: px(24, 10, 184),
   };
 
   const rows: Row[] = [];
@@ -310,6 +455,20 @@ async function measureInPage(args: {
       steelSidePct: rel(at(P.steelSide), PALETTE.steelSide),
       shadowHex: hex(at(P.shadow)),
       shadowPct: (lum(at(P.shadow)) / boardLum) * 100,
+      waterHex: hex(at(P.water)),
+      waterPct: rel(at(P.water), PALETTE.waterDeep),
+      iceHex: hex(at(P.ice)),
+      icePct: rel(at(P.ice), PALETTE.ice),
+      iceDecalHex: hex(at(P.iceDecal)),
+      iceDecalRatio: lum(at(P.iceDecal)) / boardLum,
+      canopyApexHex: hex(at(P.canopyApex)),
+      canopyApexPct: rel(at(P.canopyApex), PALETTE.treesCanopy),
+      canopyFlankHex: hex(at(P.canopyFlank)),
+      canopyFlankPct: rel(at(P.canopyFlank), PALETTE.treesCanopy),
+      canopyShadeHex: hex(at(P.canopyShade)),
+      canopyShadePct: rel(at(P.canopyShade), PALETTE.treesCanopy),
+      waterCtlPct: rel(at(P.waterCtl), PALETTE.waterDeep),
+      iceCtlPct: rel(at(P.iceCtl), PALETTE.ice),
     });
   }
 

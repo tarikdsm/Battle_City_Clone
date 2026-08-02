@@ -25,10 +25,8 @@ import {
   Float32BufferAttribute,
   Group,
   HemisphereLight,
-  LineSegments,
   Mesh,
   OrthographicCamera,
-  PlaneGeometry,
   Scene,
   Vector3,
 } from 'three';
@@ -58,6 +56,28 @@ const SCENE_H = 16;
 /** The lattice sits a hair above the ground plane; coplanar would z-fight. */
 const GRID_LIFT = 0.06;
 
+/**
+ * Width of a lattice line, in **world** units.
+ *
+ * The lattice used to be a `LineSegments`, which WebGL renders at exactly one
+ * *device* pixel however wide you ask: a hairline at DPR 2 and a third of a CSS
+ * pixel at DPR 3, which is this task's acceptance bar. A quad has a width in the
+ * world instead, so it thickens with resolution like everything else on screen.
+ *
+ * 0.4 u is ~1.6 CSS px at a 1600×900 viewport (the frustum fits 222 u into 900
+ * px, so 1 CSS px ≈ 0.247 u) and ~4.9 device px at DPR 3 — comfortably legible
+ * without turning art §3's "subtle lattice" into a drawn grid.
+ */
+const GRID_QUAD_W = 0.4;
+
+/** Depth of a water pit (art §5, mirrored by `terrainView.WATER_DEPTH`). */
+const PIT_DEPTH = 3;
+
+/** Answers "is tile (tx, ty) a hole in the board?" — see `setPits`. */
+export type PitTest = (tx: number, ty: number) => boolean;
+
+const NO_PITS: PitTest = () => false;
+
 // --- Camera rig (art §2) ---
 
 /**
@@ -68,6 +88,19 @@ const GRID_LIFT = 0.06;
 const CAMERA_PITCH_RAD = (32 * Math.PI) / 180;
 const PITCH_COS = Math.cos(CAMERA_PITCH_RAD);
 const PITCH_SIN = Math.sin(CAMERA_PITCH_RAD);
+
+/**
+ * How far **south** a point has to move to stay at the same place on screen when
+ * it is lifted one unit.
+ *
+ * The camera's up vector is `(0, sin θ, −cos θ)`, so screen height is
+ * `y·sin θ − z·cos θ` and two points coincide on screen when
+ * `Δz = Δy·tan θ`. Exported because anything that *floats* over the board —
+ * tree canopies today (terrainView.ts), score popups and billboards later — has
+ * to be placed in screen registration rather than plan registration, or it lands
+ * visibly north of the thing it belongs to.
+ */
+export const PITCH_TAN = PITCH_SIN / PITCH_COS;
 
 /**
  * Distance from the target. Irrelevant to the framing — this is an orthographic
@@ -131,6 +164,21 @@ export interface SceneRoot {
   readonly entities: Group;
   /** Re-fit the orthographic frustum to a viewport of `w × h` CSS pixels. */
   setViewport(w: number, h: number): void;
+  /**
+   * Rebuilds the ground plane and the lattice with a **hole** at every tile
+   * `isPit` accepts, plus a skirt down to the pit floor.
+   *
+   * This exists because art §5's water is "recessed −3 u" and a plane below an
+   * unbroken ground plane is simply invisible — the board occludes it from
+   * every angle this camera can take. Cutting the board is the only way the
+   * recess reads, and the cut belongs here rather than in the terrain view: the
+   * ground and the lattice are the board's own geometry, and the skirt is board
+   * colour, so a pit reads as a hole dug in the board rather than as a separate
+   * object sitting in one.
+   *
+   * Called once per level by `terrainView.build`, not per frame.
+   */
+  setPits(isPit: PitTest): void;
   /** Apply a preset's shadow configuration to the key light. */
   setShadowQuality(preset: QualityPreset): void;
   dispose(): void;
@@ -145,21 +193,17 @@ export function createSceneRoot(materials: Materials): SceneRoot {
   const center = new Vector3(FIELD_U / 2, 0, FIELD_U / 2);
 
   // --- Ground plane -------------------------------------------------------
-  // PlaneGeometry is built in XY facing +z; rotating −90° about x lays it flat
-  // with its normal pointing +y.
-  const groundGeo = new PlaneGeometry(FIELD_U, FIELD_U);
-  groundGeo.rotateX(-Math.PI / 2);
-  const ground = new Mesh(groundGeo, materials.board);
-  ground.position.copy(center);
+  // Built tile by tile rather than as one quad, so `setPits` can leave holes in
+  // it without a different code path. Still one mesh and one draw call; 169
+  // quads is 676 vertices, which is noise.
+  const ground = new Mesh(buildGroundGeometry(NO_PITS), materials.board);
   ground.receiveShadow = true;
   scene.add(ground);
 
   // --- Grid lattice -------------------------------------------------------
-  // One `LineSegments` for all 28 lines: 13×13 individual meshes would be 169
-  // draw calls for decoration (arch §11 budgets a total of ~120).
-  const gridGeo = buildGridGeometry();
-  const grid = new LineSegments(gridGeo, materials.gridLine);
-  grid.position.set(0, GRID_LIFT, 0);
+  // One mesh for all 28 lines: 13×13 individual meshes would be 169 draw calls
+  // for decoration (arch §11 budgets a total of ~120).
+  const grid = new Mesh(buildGridGeometry(NO_PITS), materials.gridLine);
   scene.add(grid);
 
   // --- Frame wall ---------------------------------------------------------
@@ -244,12 +288,7 @@ export function createSceneRoot(materials: Materials): SceneRoot {
   const entities = new Group();
   scene.add(entities);
 
-  const ownedGeometries: BufferGeometry[] = [
-    groundGeo,
-    gridGeo,
-    frameNS,
-    frameEW,
-  ];
+  const ownedGeometries: BufferGeometry[] = [frameNS, frameEW];
 
   return {
     scene,
@@ -277,6 +316,13 @@ export function createSceneRoot(materials: Materials): SceneRoot {
       camera.updateProjectionMatrix();
     },
 
+    setPits(isPit: PitTest): void {
+      ground.geometry.dispose();
+      ground.geometry = buildGroundGeometry(isPit);
+      grid.geometry.dispose();
+      grid.geometry = buildGridGeometry(isPit);
+    },
+
     setShadowQuality(preset: QualityPreset): void {
       key.castShadow = preset.shadows;
       if (!preset.shadows) {
@@ -292,6 +338,8 @@ export function createSceneRoot(materials: Materials): SceneRoot {
     },
 
     dispose(): void {
+      ground.geometry.dispose();
+      grid.geometry.dispose();
       for (const g of ownedGeometries) {
         g.dispose();
       }
@@ -316,18 +364,116 @@ function frameMesh(
   return mesh;
 }
 
+/** Appends one upward-facing quad (two triangles) in world coordinates. */
+function pushTop(
+  pos: number[],
+  nrm: number[],
+  x0: number,
+  x1: number,
+  z0: number,
+  z1: number,
+  y: number,
+): void {
+  pos.push(x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z1, x1, y, z0, x0, y, z0);
+  for (let i = 0; i < 6; i++) {
+    nrm.push(0, 1, 0);
+  }
+}
+
 /**
- * The 14 × 2 tile lines of the 13×13 field as one non-indexed line list, in
- * world coordinates (the mesh itself sits at the origin, lifted off the ground).
+ * The board's ground: one quad per tile, minus the pits, plus an **inward**
+ * facing skirt on every pit edge that borders solid board.
+ *
+ * Inward is the whole trick. The skirt wall on the *near* (south) side of a pit
+ * faces north, away from this camera, so it is back-face culled and the player
+ * sees down into the hole; the far wall faces the camera and closes it off.
+ * Emitting outward normals instead would render a solid black lid over every
+ * pond, which is exactly what it looks like when the winding is wrong.
+ *
+ * Skirts are skipped between two adjacent pits, so a lake is one basin rather
+ * than a grid of wells.
  */
-function buildGridGeometry(): BufferGeometry {
-  const positions: number[] = [];
+function buildGroundGeometry(isPit: PitTest): BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const solid = (tx: number, ty: number): boolean =>
+    tx < 0 ||
+    ty < 0 ||
+    tx >= FIELD_TILES ||
+    ty >= FIELD_TILES ||
+    !isPit(tx, ty);
+
+  for (let ty = 0; ty < FIELD_TILES; ty++) {
+    for (let tx = 0; tx < FIELD_TILES; tx++) {
+      const x0 = tx * TILE;
+      const x1 = x0 + TILE;
+      const z0 = ty * TILE;
+      const z1 = z0 + TILE;
+      if (!isPit(tx, ty)) {
+        pushTop(pos, nrm, x0, x1, z0, z1, 0);
+        continue;
+      }
+      const y0 = -PIT_DEPTH;
+      if (solid(tx, ty - 1)) {
+        // North wall, facing south (+z) into the pit.
+        pos.push(x0, y0, z0, x1, y0, z0, x1, 0, z0, x0, y0, z0, x1, 0, z0, x0, 0, z0); // prettier-ignore
+        for (let i = 0; i < 6; i++) nrm.push(0, 0, 1);
+      }
+      if (solid(tx, ty + 1)) {
+        pos.push(x1, y0, z1, x0, y0, z1, x0, 0, z1, x1, y0, z1, x0, 0, z1, x1, 0, z1); // prettier-ignore
+        for (let i = 0; i < 6; i++) nrm.push(0, 0, -1);
+      }
+      if (solid(tx - 1, ty)) {
+        pos.push(x0, y0, z1, x0, y0, z0, x0, 0, z0, x0, y0, z1, x0, 0, z0, x0, 0, z1); // prettier-ignore
+        for (let i = 0; i < 6; i++) nrm.push(1, 0, 0);
+      }
+      if (solid(tx + 1, ty)) {
+        pos.push(x1, y0, z0, x1, y0, z1, x1, 0, z1, x1, y0, z0, x1, 0, z1, x1, 0, z0); // prettier-ignore
+        for (let i = 0; i < 6; i++) nrm.push(-1, 0, 0);
+      }
+    }
+  }
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
+  return geo;
+}
+
+/**
+ * The 14 × 2 tile lines of the 13×13 field as **thin quads** — see
+ * {@link GRID_QUAD_W} for why they are no longer lines.
+ *
+ * Built segment by segment (one per tile edge) so a segment with a pit on both
+ * sides can be dropped: a lattice line stretched across an open pond would hang
+ * in mid-air 3 u above the water. A segment on the *shore* is kept, where it
+ * doubles as the pit's rim.
+ */
+function buildGridGeometry(isPit: PitTest): BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const half = GRID_QUAD_W / 2;
+  const pit = (tx: number, ty: number): boolean =>
+    tx >= 0 && ty >= 0 && tx < FIELD_TILES && ty < FIELD_TILES && isPit(tx, ty);
+
   for (let i = 0; i <= FIELD_TILES; i++) {
     const at = i * TILE;
-    positions.push(at, 0, 0, at, 0, FIELD_U); // running north→south
-    positions.push(0, 0, at, FIELD_U, 0, at); // running west→east
+    for (let j = 0; j < FIELD_TILES; j++) {
+      const from = j * TILE;
+      const to = from + TILE;
+      // Running north→south at x = at: drop it where both flanking tiles are pit.
+      if (!(pit(i - 1, j) && pit(i, j))) {
+        pushTop(pos, nrm, at - half, at + half, from, to, GRID_LIFT);
+      }
+      // Running west→east at z = at.
+      if (!(pit(j, i - 1) && pit(j, i))) {
+        pushTop(pos, nrm, from, to, at - half, at + half, GRID_LIFT);
+      }
+    }
   }
+
   const geo = new BufferGeometry();
-  geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
   return geo;
 }

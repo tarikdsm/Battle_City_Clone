@@ -26,6 +26,7 @@ import {
   type Quality,
 } from './materials';
 import { createSceneRoot, type SceneRoot } from './sceneRoot';
+import { createTerrainView, type TerrainView } from './terrainView';
 
 // `Quality` is declared next to the preset table it indexes (materials.ts) and
 // re-exported here, because Contract Zero names `renderer.ts` as its home and a
@@ -91,6 +92,7 @@ export function createRenderer(
 ): Renderer {
   const materials = createMaterials();
   const sceneRoot: SceneRoot = createSceneRoot(materials);
+  const terrain: TerrainView = createTerrainView(materials, sceneRoot);
 
   const gl = new WebGLRenderer({
     canvas,
@@ -242,17 +244,24 @@ export function createRenderer(
   }
 
   return {
-    // `dtMs` is part of the contract but unused until time-based presentation
-    // lands (T2.5 shake/fly-in). A shorter parameter list is assignable to the
-    // interface, so it is omitted rather than named and ignored.
-    render(state: GameState, alpha: number): void {
+    render(state: GameState, alpha: number, dtMs: number): void {
+      // The terrain's ONE full pass, on the first frame it sees a state. After
+      // this the board is driven entirely by `onEvent`; rebuilding from
+      // `state.terrain` per frame is forbidden (arch §5) and would be ~40 k
+      // matrix writes a frame for a board that changes a few times a second.
+      terrain.build(state);
+      // Only advances the shovel's blink, and only while one is running.
+      terrain.update(dtMs);
       syncPlaceholderViews(state, alpha);
       gl.render(sceneRoot.scene, sceneRoot.camera);
     },
 
-    // T2.3+ (terrain damage) and T4.x (FX) subscribe here. A no-op stub with no
-    // parameter, so an unused argument cannot rot into a wrong one.
-    onEvent(): void {},
+    // Terrain damage (T2.3) is here; T4.x's FX joins it. Events must be pumped
+    // in the same frame they are produced — `stepGame` clears the array at the
+    // top of the next tick (arch §3.1).
+    onEvent(e: GameEvent): void {
+      terrain.onEvent(e);
+    },
 
     setQuality(q: Quality): void {
       if (q === currentQuality) {
@@ -269,6 +278,7 @@ export function createRenderer(
     dispose(): void {
       tankGeo.dispose();
       bulletGeo.dispose();
+      terrain.dispose();
       sceneRoot.dispose();
       materials.dispose();
       gl.dispose();
