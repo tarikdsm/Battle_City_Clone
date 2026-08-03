@@ -11,13 +11,14 @@
 import {
   ARMOR_HP,
   CARRIER_ORDINALS,
-  ENEMY_CAP,
   ENEMY_SPAWN_TILES,
   HALF_TICK,
   SPAWN_ANIM_S,
+  SPAWN_CYCLE_ORDER,
   SPAWN_RETRY_S,
   TICK_S,
   TILE,
+  enemyCap,
   spawnIntervalTicks,
 } from '../constants';
 import { aabbOverlap, type Aabb } from '../grid';
@@ -56,7 +57,7 @@ export function spawnerSystem(state: GameState, intents: Intents): void {
     sp.timerT <= HALF_TICK &&
     sp.retryT <= HALF_TICK &&
     sp.queue.length > 0 &&
-    activeEnemyCount(state) < ENEMY_CAP
+    activeEnemyCount(state) < enemyCap(activePlayers(state))
   ) {
     attemptSpawn(state);
   }
@@ -78,12 +79,14 @@ export function spawnerSystem(state: GameState, intents: Intents): void {
 // leave the cycle/queue/schedule untouched. Clear → start the spawn and re-arm.
 function attemptSpawn(state: GameState): void {
   const sp = state.spawner;
-  const point = ENEMY_SPAWN_TILES[sp.cyclePos];
+  // `cyclePos` counts spawns; SPAWN_CYCLE_ORDER maps that onto the ROM's visit
+  // order, which starts at the CENTRE point and not at the left one (CAL-10).
+  const point = ENEMY_SPAWN_TILES[SPAWN_CYCLE_ORDER[sp.cyclePos]];
   const x = point[0] * TILE;
   const y = point[1] * TILE;
 
   // Any alive tank (materialized OR mid-animation) overlapping the 16×16 spawn box
-  // blocks the attempt: retry in 0.5 s, do not advance the cycle or consume the
+  // blocks the attempt: retry next tick, do not advance the cycle or consume the
   // queue (§7, P-12). Spawning tanks are intangible to bullets/movement but they
   // DO reserve their spawn tile.
   if (isSpawnBlocked(state, x, y)) {
@@ -108,7 +111,7 @@ function attemptSpawn(state: GameState): void {
   });
 
   sp.nextOrdinal += 1;
-  sp.cyclePos = (sp.cyclePos + 1) % ENEMY_SPAWN_TILES.length;
+  sp.cyclePos = (sp.cyclePos + 1) % SPAWN_CYCLE_ORDER.length;
   sp.timerT =
     spawnIntervalTicks(state.stageNumber, activePlayers(state)) * TICK_S;
   sp.retryT = 0;
@@ -147,7 +150,8 @@ function isSpawnBlocked(state: GameState, x: number, y: number): boolean {
 // Start a new enemy in the first dead ENEMY slot (players own their own slots and
 // are never recycled here), else grow the pool. `id` == the slot's array index and
 // is stable for the slot's whole life — recycled across lifetimes exactly like the
-// bullet pool (bullets.ts). This keeps the array bounded at 2 players + 4 enemies.
+// bullet pool (bullets.ts). This keeps the array bounded at 2 players + the
+// on-field enemy cap (4 in 1P, 6 in 2P — CAL-09).
 function spawnEnemyTank(
   state: GameState,
   enemyType: EnemyType,

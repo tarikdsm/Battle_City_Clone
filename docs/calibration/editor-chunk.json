@@ -1,0 +1,28 @@
+{
+  "builtAt": "2026-08-02T18:19:35.197Z",
+  "chunks": [
+    {
+      "file": "index-BzSLcfVH.js",
+      "bytes": 817010
+    },
+    {
+      "file": "editor-CBHHIKDf.js",
+      "bytes": 18470
+    },
+    {
+      "file": "customLevels-BTEvrBLt.js",
+      "bytes": 1076
+    }
+  ],
+  "entry": {
+    "file": "index-BzSLcfVH.js",
+    "bytes": 817010
+  },
+  "editor": {
+    "file": "editor-CBHHIKDf.js",
+    "bytes": 18470
+  },
+  "editorShareOfEntry": "2.3%",
+  "entryMentionsEditorSource": false,
+  "entryReferencesEditorChunk": true
+}

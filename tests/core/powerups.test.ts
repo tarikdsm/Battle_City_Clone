@@ -16,8 +16,10 @@ import { makeTank } from '../../src/core/systems/movement';
 import {
   BASE_RING_TILES,
   CLOCK_S,
+  EAGLE_TILE,
   FIELD_U,
   HELMET_S,
+  POWERUP_SLOTS,
   POWERUP_TYPES,
   SHOVEL_BLINK_S,
   SHOVEL_SOLID_S,
@@ -50,18 +52,23 @@ const NO_INTENTS: readonly [PlayerIntent, PlayerIntent] = [
 const FIRE: PlayerIntent = { dir: null, fire: true, pause: false };
 const WALK_RIGHT: PlayerIntent = { dir: 1, fire: false, pause: false };
 
-// The base exclusion rectangle, spelled out exactly as the spec documents it
-// (tiles 5..7 × 11..12) so the test pins the RULE, not the implementation's
-// derivation of it.
-const BASE_ZONE: Aabb = { x: 80, y: 176, w: 48, h: 32 };
+// The eagle's own tile, spelled out from the spec's coordinates so the test pins
+// the RULE (CAL-13: no ROM slot can reach the eagle) rather than the
+// implementation's derivation of it.
+const EAGLE_BOX: Aabb = {
+  x: EAGLE_TILE[0] * TILE,
+  y: EAGLE_TILE[1] * TILE,
+  w: TILE,
+  h: TILE,
+};
 
 const SUBCELLS_PER_TILE = TILE / SUBCELL; // 2
-const ANIM_TICKS = Math.round(SPAWN_ANIM_S / TICK_S); // 78
-const CLOCK_TICKS = Math.round(CLOCK_S / TICK_S); // 600
-const HELMET_TICKS = Math.round(HELMET_S / TICK_S); // 600
-const STUN_TICKS = Math.round(STUN_S / TICK_S); // 180
-const SOLID_TICKS = Math.round(SHOVEL_SOLID_S / TICK_S); // 1020
-const BLINK_TICKS = Math.round(SHOVEL_BLINK_S / TICK_S); // 180
+const ANIM_TICKS = Math.round(SPAWN_ANIM_S / TICK_S); // 56
+const CLOCK_TICKS = Math.round(CLOCK_S / TICK_S); // 640
+const HELMET_TICKS = Math.round(HELMET_S / TICK_S); // 640
+const STUN_TICKS = Math.round(STUN_S / TICK_S); // 267
+const SOLID_TICKS = Math.round(SHOVEL_SOLID_S / TICK_S); // 1088
+const BLINK_TICKS = Math.round(SHOVEL_BLINK_S / TICK_S); // 192
 const RING_SUBCELLS = BASE_RING_TILES.length * SUBCELLS_PER_TILE ** 2; // 20
 
 // --- Fixtures --------------------------------------------------------------
@@ -294,13 +301,14 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
     });
   });
 
-  // Golden values for seed 42, computed from the DOCUMENTED draw order — type
-  // first, then a (x, y) pair per placement attempt with BOTH coordinates
-  // redrawn on a reject. Drop 1 rejects its first pair (it lands on the base),
-  // so this pair of triples also pins the reroll shape, not just the order.
-  // T1.8's golden replays inherit this stream: swapping x/y, hoisting the type
-  // roll, dropping a coordinate on reject, or reordering POWERUP_TYPES must all
-  // fail here rather than silently rewrite every recorded run.
+  // Golden values for seed 42, computed from the DOCUMENTED draw order. CAL-13
+  // moved that order: `sub_E8BE_spawn_bonus` ($E8BE) draws the POSITION first —
+  // an (x, y) pair per attempt, both redrawn on a reject — and rolls the TYPE
+  // only afterwards, at $E8E6. The old order (type first) was a guess and this
+  // test pinned it. T1.8's golden replays inherit this stream: swapping x/y,
+  // moving the type roll back in front, dropping a coordinate on reject, or
+  // reordering POWERUP_ROLL_TABLE must all fail here rather than silently
+  // rewrite every recorded run.
   // The triples below can only pin the table slots they happen to draw, so pin
   // the whole canonical order here too. game.ts's state hash indexes this same
   // array, so one reorder would shift both the RNG roll and every hash.
@@ -315,7 +323,7 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
     ]);
   });
 
-  it('pins the RNG draw order: type, then x, then y, both redrawn per attempt', () => {
+  it('pins the RNG draw order: x, then y (redrawn per attempt), then type', () => {
     const s = createGame(openField(), OPTS); // seed 42, nothing has drawn yet
     const carrier = addEnemy(s, 0, 0, { carrier: true });
 
@@ -332,8 +340,8 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
     }
 
     expect(drops).toEqual([
-      { type: 'shovel', x: 128, y: 32 },
-      { type: 'shovel', x: 48, y: 120 },
+      { type: 'grenade', x: 120, y: 72 },
+      { type: 'grenade', x: 120, y: 24 },
     ]);
   });
 
@@ -376,8 +384,15 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
     expect(only(stepCollect(s, 5), 'powerupSpawned')).toHaveLength(0);
   });
 
-  it('every drop lands subcell-aligned, in-field and clear of the base', () => {
+  // CAL-13. The ROM does not sample a free lattice point and reject the base —
+  // it picks one of SIXTEEN fixed slots ($E902 maps a 2-bit draw to 48n + 48).
+  // Two consequences this test now pins instead of the old rejection rule:
+  // no slot can ever touch the eagle tile (the lowest row of slots ends at
+  // y = 184, the eagle starts at y = 192), but a slot CAN sit on the base ring's
+  // brick — and does, in the real game.
+  it('every drop lands on the ROM slot grid, in-field and clear of the eagle', () => {
     let drops = 0;
+    const seen = new Set<string>();
     for (const seed of [1, 42, 1337]) {
       const s = createGame(openField(), { players: 1, seed, stageNumber: 1 });
       // Nobody on the field to collect: the two player tanks createGame stages
@@ -396,17 +411,20 @@ describe('power-ups — carrier drops (P-13, P-14)', () => {
         if (p === null) return;
         expect(p.x % SUBCELL).toBe(0);
         expect(p.y % SUBCELL).toBe(0);
-        expect(p.x).toBeGreaterThanOrEqual(0);
-        expect(p.y).toBeGreaterThanOrEqual(0);
+        expect(POWERUP_SLOTS).toContain(p.x);
+        expect(POWERUP_SLOTS).toContain(p.y);
         expect(p.x).toBeLessThanOrEqual(FIELD_U - TILE);
         expect(p.y).toBeLessThanOrEqual(FIELD_U - TILE);
         expect(
-          aabbOverlap({ x: p.x, y: p.y, w: TILE, h: TILE }, BASE_ZONE),
+          aabbOverlap({ x: p.x, y: p.y, w: TILE, h: TILE }, EAGLE_BOX),
         ).toBe(false);
+        seen.add(`${p.x},${p.y}`);
         drops++;
       }
     }
     expect(drops).toBe(300);
+    // 300 draws over 16 slots: every one of them should have come up.
+    expect(seen.size).toBe(POWERUP_SLOTS.length * POWERUP_SLOTS.length);
   });
 });
 
@@ -552,7 +570,7 @@ describe('power-ups — clock (P-15, P-17)', () => {
     const p = addPlayer(s, 0, 0, 0);
 
     giveTo(s, p, 'clock');
-    stepN(s, 299); // 10 s − 299 ticks ≈ 5.017 s left
+    stepN(s, CLOCK_TICKS / 2 - 1); // one tick short of half the freeze
 
     // A tank one tick away from materializing; the spawner (system #2) completes
     // it after stageflow has taken this tick's slice off the clock.

@@ -9,7 +9,8 @@ import { makeTank } from '../../src/core/systems/movement';
 import {
   ARMOR_HP,
   CARRIER_ORDINALS,
-  ENEMY_CAP,
+  ENEMY_CAP_1P,
+  ENEMY_CAP_2P,
   SPAWN_ANIM_S,
   SPAWN_RETRY_S,
   TICK_S,
@@ -71,17 +72,21 @@ function spawnStarts(s: GameState): SpawnStarted[] {
 
 // Interval, in whole ticks, between one spawn start and the next attempt.
 const INTERVAL_1P = 186; // spawnIntervalTicks(1, 1)
-const ANIM_TICKS = Math.round(SPAWN_ANIM_S / TICK_S); // 78
-const RETRY_TICKS = Math.round(SPAWN_RETRY_S / TICK_S); // 30
+const ANIM_TICKS = Math.round(SPAWN_ANIM_S / TICK_S); // 56 (CAL-12)
+const RETRY_TICKS = Math.round(SPAWN_RETRY_S / TICK_S); // 1 (CAL-11)
 
 describe('spawner — first spawn & cadence (P-12, P-25)', () => {
-  it('P-12: first spawn starts at t=0 at the LEFT point', () => {
+  // CAL-10: the ROM increments `ram_enemy_spawn_pos_index` BEFORE reading it
+  // ($E37C) from a per-stage zero ($C372), so the very first enemy of a stage
+  // appears at the CENTRE point, not the left one. This test used to assert LEFT
+  // — it encoded the spec's guess, and the spec was wrong.
+  it('P-12: first spawn starts at t=0 at the CENTRE point', () => {
     const s = createGame(basicLevel(), OPTS);
     step(s); // tick 1
 
     const enemies = aliveEnemies(s);
     expect(enemies).toHaveLength(1);
-    expect(enemies[0].x).toBe(0);
+    expect(enemies[0].x).toBe(96);
     expect(enemies[0].y).toBe(0);
     expect(enemies[0].dir).toBe(2); // Down — enemies face the base
     // Started this tick, then decremented once by the materialization pass.
@@ -92,23 +97,23 @@ describe('spawner — first spawn & cadence (P-12, P-25)', () => {
     expect(starts[0]).toMatchObject({
       spawnOrdinal: 1,
       carrier: false,
-      x: 0,
+      x: 96,
       y: 0,
       enemyType: 'basic',
     });
     expect(s.spawner.queue).toHaveLength(19);
   });
 
-  it('cadence: spawns start every 186 ticks cycling L → C → R', () => {
+  it('cadence: spawns start every 186 ticks cycling C → R → L', () => {
     const s = createGame(basicLevel(), OPTS);
 
     stepN(s, 1 + INTERVAL_1P); // through tick 187 → second spawn
     expect(aliveEnemies(s)).toHaveLength(2);
-    expect(aliveEnemies(s).some((t) => t.x === 96 && t.y === 0)).toBe(true); // C
+    expect(aliveEnemies(s).some((t) => t.x === 192 && t.y === 0)).toBe(true); // R
 
     stepN(s, INTERVAL_1P); // through tick 373 → third spawn
     expect(aliveEnemies(s)).toHaveLength(3);
-    expect(aliveEnemies(s).some((t) => t.x === 192 && t.y === 0)).toBe(true); // R
+    expect(aliveEnemies(s).some((t) => t.x === 0 && t.y === 0)).toBe(true); // L
   });
 
   it('P-25: stage number caps at 35 in the interval (stage 99 → 50 ticks)', () => {
@@ -145,21 +150,38 @@ describe('spawner — active cap & HUD semantics (P-11)', () => {
       if (t.spawningT === 0 && t.y === 0) t.y = 96;
   }
 
-  it('P-11: never more than ENEMY_CAP enemies active; a kill frees a slot', () => {
+  it('P-11: never more than ENEMY_CAP_1P enemies active; a kill frees a slot', () => {
     const s = createGame(basicLevel(), OPTS);
     for (let i = 0; i < 800; i++) {
       step(s);
       vacate(s);
-      expect(aliveEnemies(s).length).toBeLessThanOrEqual(ENEMY_CAP);
+      expect(aliveEnemies(s).length).toBeLessThanOrEqual(ENEMY_CAP_1P);
     }
-    expect(aliveEnemies(s)).toHaveLength(ENEMY_CAP); // 4
-    expect(s.spawner.queue).toHaveLength(20 - ENEMY_CAP); // only 4 consumed
+    expect(aliveEnemies(s)).toHaveLength(ENEMY_CAP_1P); // 4
+    expect(s.spawner.queue).toHaveLength(20 - ENEMY_CAP_1P); // only 4 consumed
 
     // Free one slot → the overdue attempt spawns a fifth on the very next tick.
     aliveEnemies(s)[0].alive = false;
     step(s);
-    expect(aliveEnemies(s)).toHaveLength(ENEMY_CAP);
+    expect(aliveEnemies(s)).toHaveLength(ENEMY_CAP_1P);
     expect(s.spawner.queue).toHaveLength(15);
+  });
+
+  // CAL-09. `ram_enemy_limit` is 5 for one player ($CA6F) and 7 for two ($CA74),
+  // and the spawn scan walks it down to slot 2 ($DB72) — four enemy slots in 1P,
+  // SIX in 2P. The spec said four in both; that half of it was a guess.
+  it('P-11: two active players raise the on-field cap to ENEMY_CAP_2P', () => {
+    const s = createGame(basicLevel(), {
+      players: 2,
+      seed: 42,
+      stageNumber: 1,
+    });
+    for (let i = 0; i < 1400; i++) {
+      step(s);
+      vacate(s);
+      expect(aliveEnemies(s).length).toBeLessThanOrEqual(ENEMY_CAP_2P);
+    }
+    expect(aliveEnemies(s)).toHaveLength(ENEMY_CAP_2P); // 6
   });
 
   it('P-11: exactly one enemySpawnStarted event per spawn (HUD icon decrement)', () => {
@@ -176,27 +198,30 @@ describe('spawner — active cap & HUD semantics (P-11)', () => {
 });
 
 describe('spawner — blocked point retry (P-12)', () => {
-  it('P-12: a blocked point retries after 0.5 s without advancing the cycle', () => {
+  // CAL-11: `sub_DB48` ($DB5D) reloads the spawn timer only on a spawn that
+  // actually happened, so a blocked attempt leaves the timer at 0 and retries on
+  // the NEXT frame. The old 0.5 s throttle was a guess; the test asserted it.
+  it('P-12: a blocked point retries on the next tick without advancing the cycle', () => {
     const s = createGame(basicLevel(), OPTS);
-    // Park the P1 tank (createGame owns slot 0 since T1.7) exactly on the LEFT
-    // spawn point before tick 1.
-    s.tanks[0].x = 0;
+    // Park the P1 tank (createGame owns slot 0 since T1.7) exactly on the CENTRE
+    // spawn point — the first point of the cycle (CAL-10) — before tick 1.
+    s.tanks[0].x = 96;
     s.tanks[0].y = 0;
 
-    step(s); // tick 1: attempt at LEFT is blocked
+    step(s); // tick 1: attempt at CENTRE is blocked
     expect(aliveEnemies(s)).toHaveLength(0);
     near(s.spawner.retryT, SPAWN_RETRY_S);
     expect(s.spawner.cyclePos).toBe(0); // cycle did NOT advance
     expect(s.spawner.queue).toHaveLength(20); // queue NOT consumed
 
-    // Move the player away; the retry (same cycle position) fires within 0.5 s.
-    s.tanks[0].x = 96;
+    // Move the player away; the retry (same cycle position) fires immediately.
+    s.tanks[0].x = 0;
     s.tanks[0].y = 96;
-    stepN(s, RETRY_TICKS + 1); // 31 ticks → re-attempt lands
+    stepN(s, RETRY_TICKS + 1); // 2 ticks → re-attempt lands
 
     const enemies = aliveEnemies(s);
     expect(enemies).toHaveLength(1);
-    expect(enemies[0].x).toBe(0); // spawned at LEFT — the cycle held
+    expect(enemies[0].x).toBe(96); // spawned at CENTRE — the cycle held
     expect(enemies[0].y).toBe(0);
     expect(s.spawner.cyclePos).toBe(1); // advanced only after the clear spawn
   });
@@ -240,15 +265,15 @@ describe('spawner — carriers & stats (P-13 first half)', () => {
 describe('spawner — materialization & slot reuse', () => {
   it('a spawning enemy has no hitbox: a player bullet passes through it', () => {
     const s = createGame(basicLevel(), OPTS);
-    // Player just below the LEFT spawn point, facing Up.
+    // Player just below the CENTRE spawn point (CAL-10), facing Up.
     s.tanks.push(
-      makeTank({ id: 0, kind: 'player', playerIndex: 0, x: 0, y: 48, dir: 0 }),
+      makeTank({ id: 0, kind: 'player', playerIndex: 0, x: 96, y: 48, dir: 0 }),
     );
 
-    step(s); // enemy starts spawning at (0,0)
+    step(s); // enemy starts spawning at (96,0)
     const enemy = aliveEnemies(s)[0];
     expect(enemy.spawningT).toBeGreaterThan(0);
-    expect(enemy.x).toBe(0);
+    expect(enemy.x).toBe(96);
     expect(enemy.y).toBe(0);
 
     // Fire the player's bullet up through the spawn point (press edge).
@@ -261,7 +286,7 @@ describe('spawner — materialization & slot reuse', () => {
 
   it('materializes after SPAWN_ANIM_S and emits enemySpawned with its id', () => {
     const s = createGame(basicLevel(), OPTS);
-    stepN(s, ANIM_TICKS); // 78 ticks
+    stepN(s, ANIM_TICKS); // 56 ticks
 
     const enemy = aliveEnemies(s)[0];
     expect(enemy.spawningT).toBe(0);
@@ -279,7 +304,7 @@ describe('spawner — materialization & slot reuse', () => {
     expect(enemy.spawningT).toBe(0);
     // Since T1.5, stageflow (system #1) counts the Clock down every tick, so what
     // the enemy inherits at materialization is the REMAINING freeze — 5 s minus
-    // the 1.3 s the spawn animation took — and it runs in lockstep from there.
+    // the SPAWN_ANIM_S the animation took — and it runs in lockstep from there.
     near(enemy.frozenT, 5 - SPAWN_ANIM_S);
     expect(enemy.frozenT).toBe(s.clockT);
   });
@@ -304,13 +329,14 @@ describe('spawner — materialization & slot reuse', () => {
       for (const t of aliveEnemies(s))
         if (t.spawningT === 0 && t.y === 0) t.y = 96;
       const alive = aliveEnemies(s);
-      if (alive.length === ENEMY_CAP && i % 200 === 199) alive[0].alive = false;
+      if (alive.length === ENEMY_CAP_1P && i % 200 === 199)
+        alive[0].alive = false;
       // The two player slots (0 and 1) are permanent and never recycled, so the
       // bound is on the ENEMY slots the spawner adds behind them.
       const enemySlots = s.tanks.filter((t) => t.kind === 'enemy').length;
       maxLen = Math.max(maxLen, enemySlots);
-      expect(enemySlots).toBeLessThanOrEqual(ENEMY_CAP);
+      expect(enemySlots).toBeLessThanOrEqual(ENEMY_CAP_1P);
     }
-    expect(maxLen).toBe(ENEMY_CAP); // grew to 4, then plateaued via reuse
+    expect(maxLen).toBe(ENEMY_CAP_1P); // grew to 4, then plateaued via reuse
   });
 });

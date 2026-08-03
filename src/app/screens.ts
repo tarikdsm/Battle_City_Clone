@@ -16,6 +16,7 @@ export type ScreenName =
   | 'hiScore'
   | 'settings'
   | 'editor'
+  | 'customLevels'
   | 'error';
 
 export interface Screen {
@@ -63,6 +64,77 @@ export const OVERLAY_STYLE =
   'position:fixed;inset:0;display:flex;flex-direction:column;' +
   'align-items:center;justify-content:center;gap:0.75rem;padding:1.5rem;' +
   'font:16px/1.5 system-ui,sans-serif;color:#e8e8e8;text-align:center;';
+
+/**
+ * A screen whose module is fetched the first time it is shown (arch §9's
+ * "route `#editor` (code-split chunk)").
+ *
+ * The construction mode is a second application living inside this one — a
+ * 26×26 painting surface, a wave editor, a validator and a share codec — and a
+ * player who never opens it should not pay for its bytes on the boot path. A
+ * `Screen` whose `enter` is synchronous cannot express that on its own, so this
+ * adapter does: it shows `whileLoading` (the boot panel, in `main.ts`), awaits
+ * the dynamic import, then enters the real screen with the same `params`.
+ *
+ * **DOM-free on purpose.** The placeholder is injected rather than built here,
+ * which is what lets `tests/app/screens.test.ts` cover every path of this in
+ * Vitest's node environment, where `document` does not exist.
+ *
+ * A rejected import is deliberately left unhandled: `main.ts` arms
+ * `unhandledrejection` before the first screen exists, so a chunk that fails to
+ * load lands on the error screen with its real message instead of being
+ * swallowed into a blank panel.
+ */
+export function createLazyScreen(
+  load: () => Promise<Screen>,
+  whileLoading?: Screen,
+): Screen {
+  let real: Screen | null = null;
+  /** `real.enter` has been called and its `leave` has not. */
+  let entered = false;
+  /** This screen is on stage right now. */
+  let active = false;
+  let waiting = false;
+
+  return {
+    enter(root: HTMLElement, params?: unknown): void {
+      active = true;
+      if (real !== null) {
+        real.enter(root, params);
+        entered = true;
+        return;
+      }
+      whileLoading?.enter(root, params);
+      waiting = true;
+      void load().then((screen) => {
+        // Cached even if the player has already navigated away — the module is
+        // loaded either way, and the next visit should be instant.
+        real = screen;
+        if (!active || entered) {
+          return;
+        }
+        if (waiting) {
+          whileLoading?.leave();
+          waiting = false;
+        }
+        screen.enter(root, params);
+        entered = true;
+      });
+    },
+
+    leave(): void {
+      active = false;
+      if (waiting) {
+        whileLoading?.leave();
+        waiting = false;
+      }
+      if (entered) {
+        real?.leave();
+        entered = false;
+      }
+    },
+  };
+}
 
 export function createScreenMachine(root: HTMLElement): ScreenMachine {
   const registry = new Map<ScreenName, Screen>();

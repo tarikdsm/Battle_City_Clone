@@ -572,7 +572,9 @@
 
 .bc-stage-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* The screen sets --bc-stage-columns per campaign (7 for the originals’ 35,
+     6 for Neo’s 12) so neither grid has a ragged last row. */
+  grid-template-columns: repeat(var(--bc-stage-columns, 7), 1fr);
   gap: 4px;
 }
 
@@ -600,4 +602,627 @@
   color: var(--bc-gold);
   outline: 2px solid var(--bc-cyan);
   outline-offset: -1px;
+}
+
+/* --- touch controls (GDD §7, art §10) ----------------------------------- */
+
+/*
+  The controls are **reserved boxes**, not an overlay: `src/input/touch.ts`
+  reports what they take and the play screen subtracts it from the viewport
+  before sizing the board, so the stick and the button sit BESIDE the playfield
+  in every layout rather than on top of it.
+
+  Two shapes, and the reason is measured (see `touchLayout`):
+
+  - **Portrait — a bottom strip.** The board is square and a portrait viewport
+    is tall, so height is the axis with slack.
+  - **Landscape — two side columns.** The board is bound by HEIGHT, so a bottom
+    strip comes straight off the board: it measured 12.8 CSS px per tile on a
+    phone in landscape, against 21.1 with columns. The columns take space the
+    board could not have used, so they cost nothing at all.
+
+  The root is a full-viewport, pointer-transparent wrapper: it is not a reserved
+  box and nothing measures it. The zones inside it are, and they carry
+  `data-touch="zone-main"` / `zone-aux` for exactly that reason.
+
+  `z-index: 5` puts them over the canvas (0) and under the screen panels (10),
+  so a pause menu covers the controls rather than fighting them for taps.
+*/
+.bc-touch {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  /* No scroll, no pinch, no double-tap zoom anywhere in the controls. */
+  touch-action: none;
+}
+
+.bc-touch-zone {
+  position: fixed;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 clamp(0.5rem, 3vw, 1.25rem);
+  pointer-events: none;
+  touch-action: none;
+  /* A scrim so a light board tile never swallows a control's outline. */
+  background: linear-gradient(to top, rgb(6 7 11 / 82%), rgb(6 7 11 / 0%));
+}
+
+.bc-touch-zone[hidden] {
+  display: none;
+}
+
+/* A column stacks instead, and its scrim runs sideways off the board edge. */
+.bc-touch-zone.is-column {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: clamp(0.5rem, 2.5vh, 1rem) 0;
+  background: none;
+}
+
+/* Pause sits at the top of the left column, the stick at the bottom, so a
+   thumb reaching for the stick cannot catch pause on the way. */
+.bc-touch-zone.is-column[data-touch='zone-main'] {
+  justify-content: space-between;
+}
+
+.bc-touch-stick,
+.bc-touch-fire,
+.bc-touch-pause {
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.bc-touch-stick {
+  position: relative;
+  flex: 0 0 auto;
+  height: 80%;
+  aspect-ratio: 1;
+  min-width: 84px;
+  min-height: 84px;
+  max-width: 42vw;
+}
+
+/* In a column the stick is bound by WIDTH, not height. */
+.bc-touch-zone.is-column .bc-touch-stick {
+  width: 88%;
+  height: auto;
+  max-width: none;
+}
+
+.bc-touch-zone.is-column .bc-touch-fire {
+  width: 78%;
+  height: auto;
+  /* The column is the only place the fire button has room to be generous, and
+     it is the control a thumb hits hardest and most often. */
+  margin-bottom: 4%;
+}
+
+.bc-touch-stick-base {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(127 196 255 / 34%);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(16 18 27 / 62%) 0%,
+    rgb(16 18 27 / 26%) 70%,
+    rgb(16 18 27 / 8%) 100%
+  );
+}
+
+/* Four chevrons rather than a joystick ball: the control IS four-way, and a
+   round knob would promise the diagonals the game does not have. */
+.bc-touch-rose {
+  width: 58%;
+  height: 58%;
+  color: rgb(127 196 255 / 40%);
+}
+
+/*
+  The knob follows the thumb from wherever it landed (touch.ts sets `left`/`top`
+  on the press and `transform` on every move), so the negative margins — not a
+  centring transform — are what put it under the finger. A transform here would
+  be overwritten by the one that carries the offset.
+*/
+.bc-touch-stick-knob {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  border: 1px solid rgb(127 196 255 / 65%);
+  background: rgb(127 196 255 / 22%);
+  opacity: 0;
+  transition: opacity var(--bc-transition) ease-out;
+}
+
+.bc-touch-stick-knob.is-active {
+  opacity: 1;
+}
+
+.bc-touch-fire {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 62%;
+  aspect-ratio: 1;
+  min-width: 76px;
+  min-height: 76px;
+  padding: 0;
+  border: 1px solid rgb(255 215 107 / 55%);
+  border-radius: 50%;
+  background: rgb(255 215 107 / 12%);
+  transition:
+    background-color var(--bc-transition) ease-out,
+    transform var(--bc-transition) ease-out;
+}
+
+.bc-touch-fire-dot {
+  width: 34%;
+  height: 34%;
+  border-radius: 50%;
+  background: var(--bc-gold);
+}
+
+.bc-touch-fire.is-down {
+  background: rgb(255 215 107 / 32%);
+  transform: scale(0.95);
+}
+
+.bc-touch-pause {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 46px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  background: rgb(16 18 27 / 72%);
+}
+
+.bc-touch-pause-bar {
+  width: 4px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--bc-text-dim);
+}
+
+.bc-touch-pause.is-down {
+  border-color: rgb(255 215 107 / 55%);
+}
+
+/* A bottom strip in landscape (near-square viewports, where columns would start
+   eating the board): the same three controls, smaller, because every pixel of
+   height the strip takes comes off both sides of a square board. */
+.bc-touch.is-bottom .bc-touch-zone:not(.is-column) .bc-touch-stick {
+  max-height: 86%;
+}
+
+/* --- construction mode (arch §9) ---------------------------------------- */
+
+/*
+  The one screen that is not a narrow column: a 13x13 field next to its tools
+  needs the width, and an author scrolling between the brush and the board
+  would be an editor nobody wants to spend twelve stages in.
+*/
+.bc-screen[data-screen='editor'] .bc-panel {
+  width: min(72rem, 100%);
+}
+
+.bc-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+/*
+  The field and its coordinate readout travel together: the readout describes
+  what the pointer is over, so it is stuck to the top alongside the board
+  rather than left behind in a sidebar.
+*/
+.bc-editor-board {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  /*
+    The width lives HERE, not on the field.
+
+    With the field sized `min(30rem, 100%)` inside a content-sized wrapper, the
+    percentage resolved against a width the *readout* was setting — so the
+    board grew and shrank with the length of the sentence under it, and a
+    screenshot caught it collapsed to 90 px. Fixing the wrapper and letting the
+    field fill it breaks the loop.
+  */
+  flex: 0 0 auto;
+  width: min(30rem, 100%);
+  min-width: 0;
+}
+
+/*
+  The field. `aspect-ratio` plus a viewport-relative cap keeps it square at
+  every size — a rectangular field would misrepresent the tiles an author is
+  placing, which is the one thing this surface must not do.
+*/
+.bc-editor-field {
+  display: grid;
+  grid-template-columns: repeat(13, 1fr);
+  width: 100%;
+  aspect-ratio: 1;
+  gap: 0;
+  background: var(--bc-board);
+  border: 1px solid var(--bc-border);
+  border-radius: 6px;
+  overflow: hidden;
+  touch-action: none; /* a drag paints; it does not scroll the panel */
+  cursor: crosshair;
+}
+
+.bc-tile {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  box-shadow: inset 0 0 0 1px rgb(38 43 61 / 55%);
+}
+
+/* Spawn tiles, the eagle and its ring: hatched, so "reserved" is visible
+   before the brush refuses rather than after. */
+.bc-tile.is-reserved {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(139 147 167 / 16%) 0 3px,
+    transparent 3px 6px
+  );
+  cursor: not-allowed;
+}
+
+.bc-sub {
+  display: block;
+}
+
+.bc-sub.is-brick {
+  background: #c1663f;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 28%);
+}
+
+.bc-sub.is-steel {
+  background: #c9ccd6;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 28%);
+}
+
+.bc-sub.is-water {
+  background: #2b6fb5;
+}
+
+.bc-sub.is-trees {
+  background: #3f9d54;
+}
+
+.bc-sub.is-ice {
+  background: #9fd8ea;
+}
+
+.bc-sub.is-eagle {
+  background: var(--bc-gold);
+}
+
+/* The cursor lands on a tile or on a single subcell, depending on the mode —
+   which is also how the mode is legible without reading the button. */
+.bc-tile.is-cursor,
+.bc-sub.is-cursor {
+  outline: 2px solid var(--bc-cyan);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+/*
+  Tabular figures and a fixed height: the readout changes on every pointer move,
+  and digits that reflow (or a line that appears and disappears) would make the
+  board twitch under the cursor.
+*/
+.bc-editor-coords {
+  margin: 0;
+  min-height: 1.1rem;
+  /* Never widens the board: it is a caption, not a column. */
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--bc-font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-side {
+  flex: 1 1 20rem;
+  min-width: 17rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.bc-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bc-editor-heading {
+  margin: 0;
+  font-family: var(--bc-font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-note {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-modes,
+.bc-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.bc-editor-mode,
+.bc-editor-action,
+.bc-editor-brush,
+.bc-editor-slot {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--bc-text);
+  background: rgb(38 43 61 / 35%);
+  border: 1px solid var(--bc-border);
+  border-radius: 5px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  transition:
+    background var(--bc-transition) ease-out,
+    border-color var(--bc-transition) ease-out;
+}
+
+.bc-editor-mode:hover,
+.bc-editor-action:hover,
+.bc-editor-brush:hover,
+.bc-editor-slot:hover {
+  background: rgb(127 196 255 / 12%);
+}
+
+.bc-editor-mode.is-active,
+.bc-editor-brush.is-active {
+  background: rgb(255 215 107 / 14%);
+  border-color: rgb(255 215 107 / 55%);
+  color: var(--bc-gold);
+}
+
+.bc-editor-mode:focus-visible,
+.bc-editor-action:focus-visible,
+.bc-editor-brush:focus-visible,
+.bc-editor-slot:focus-visible,
+.bc-editor-text:focus-visible {
+  outline: 2px solid var(--bc-cyan);
+  outline-offset: 1px;
+}
+
+.bc-editor-palette {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+}
+
+.bc-editor-brush {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: left;
+}
+
+/* Water, trees and ice have no half-tiles (content §1): the palette says so
+   while half-tile mode is on, instead of the brush refusing after the click. */
+.bc-editor-brush.is-whole-only {
+  opacity: 0.42;
+}
+
+.bc-editor-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 2px;
+  border: 1px solid rgb(38 43 61 / 90%);
+  background: rgb(16 18 27 / 90%);
+  flex: 0 0 auto;
+}
+
+/* The swatch shows the material, not a generic chip: a palette whose entries
+   all look alike is a palette you have to read every time. Empty keeps the
+   board colour, which is what erasing leaves behind. */
+.bc-editor-swatch.is-brick {
+  background: #c1663f;
+}
+
+.bc-editor-swatch.is-steel {
+  background: #c9ccd6;
+}
+
+.bc-editor-swatch.is-water {
+  background: #2b6fb5;
+}
+
+.bc-editor-swatch.is-trees {
+  background: #3f9d54;
+}
+
+.bc-editor-swatch.is-ice {
+  background: #9fd8ea;
+}
+
+.bc-editor-brush-label {
+  flex: 1 1 auto;
+}
+
+.bc-editor-brush kbd {
+  font-family: var(--bc-font-mono);
+  font-size: 0.62rem;
+  color: var(--bc-text-off);
+}
+
+.bc-editor-textrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-textlabel {
+  flex: 0 0 3.5rem;
+}
+
+.bc-editor-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--bc-text);
+  background: rgb(10 11 16 / 70%);
+  border: 1px solid var(--bc-border);
+  border-radius: 4px;
+  padding: 0.3rem 0.45rem;
+}
+
+.bc-editor-wave {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.3rem;
+}
+
+.bc-editor-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.3rem 0.15rem;
+  font-size: 0.66rem;
+  position: relative;
+}
+
+.bc-editor-slot-n {
+  font-family: var(--bc-font-display);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6rem;
+  color: var(--bc-text-off);
+}
+
+/* A carrier slot is a rule, not a setting: it is marked, its type is still
+   the author's, and there is no control anywhere that moves the marker. */
+.bc-editor-slot.is-carrier {
+  border-color: rgb(255 215 107 / 60%);
+  background: rgb(255 215 107 / 10%);
+}
+
+.bc-editor-slot-carrier {
+  font-family: var(--bc-font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bc-gold);
+}
+
+.bc-editor-slot[data-type='fast'] .bc-editor-slot-type {
+  color: #7fd695;
+}
+
+.bc-editor-slot[data-type='power'] .bc-editor-slot-type {
+  color: #7fc4ff;
+}
+
+.bc-editor-slot[data-type='armor'] .bc-editor-slot-type {
+  color: #e2a04a;
+}
+
+.bc-editor-sharefields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.bc-editor-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 9rem;
+  overflow-y: auto;
+}
+
+.bc-editor-savedrow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bc-editor-savedname {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bc-editor-status {
+  margin: 0;
+  min-height: 1.1rem;
+  font-size: 0.76rem;
+  color: var(--bc-text-dim);
+}
+
+.bc-editor-status.is-warning {
+  color: var(--bc-gold);
+}
+
+.bc-editor-errors {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
+.bc-editor-error {
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--bc-danger);
+}
+
+.bc-editor-errors.is-ok .bc-editor-error {
+  color: var(--bc-p2);
 }

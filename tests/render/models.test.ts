@@ -15,7 +15,7 @@ import { Color, InstancedMesh, Matrix4, Scene, Vector3 } from 'three';
 
 import {
   ARMOR_HP,
-  ENEMY_CAP,
+  ENEMY_CAP_MAX,
   SPAWN_ANIM_S,
   TANK_SIZE,
 } from '../../src/core/constants';
@@ -1094,12 +1094,12 @@ describe('TankView — the shipped path', () => {
   });
 
   it('sizes each mesh for the tanks the core can actually put on the field', () => {
-    // 2 players + ENEMY_CAP enemies, and every enemy may be the same type.
+    // 2 players + ENEMY_CAP_MAX enemies, and every enemy may be the same type.
     const m = mount();
     for (const type of ['basic', 'fast', 'power', 'armor'] as const) {
       const slots =
         m.meshes[type].instanceMatrix.count / TANK_MODELS[type].parts.length;
-      expect(slots, type).toBeGreaterThanOrEqual(ENEMY_CAP);
+      expect(slots, type).toBeGreaterThanOrEqual(ENEMY_CAP_MAX);
     }
     m.dispose();
   });

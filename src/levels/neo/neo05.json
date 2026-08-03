@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "id": "neo-05",
+  "name": "Shatterfront",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "Solid brick with one crossroads cut through it: every route you want you have to shoot, and by the last tank the labyrinth is a field.",
+  "effectiveStage": 25,
+  "terrain": [
+    ".............",
+    "BBBBBB.BBBBBB",
+    "BB.BBB.BBB.BB",
+    "BB.BBBBBBB.BB",
+    "BBBBSB.BSBBBB",
+    "BBBBBB.BBBBBB",
+    ".S.........S.",
+    "BBBBBB.BBBBBB",
+    "BBBBSB.BSBBBB",
+    "BB.BBBBBBB.BB",
+    "BB.BB...BB.BB",
+    "BBBB.....BBBB",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 5,
+      "ty": 2,
+      "mask": 5
+    },
+    {
+      "tx": 7,
+      "ty": 2,
+      "mask": 10
+    },
+    {
+      "tx": 5,
+      "ty": 3,
+      "mask": 5
+    },
+    {
+      "tx": 7,
+      "ty": 3,
+      "mask": 10
+    },
+    {
+      "tx": 5,
+      "ty": 4,
+      "mask": 5
+    },
+    {
+      "tx": 7,
+      "ty": 4,
+      "mask": 10
+    },
+    {
+      "tx": 2,
+      "ty": 5,
+      "mask": 3
+    },
+    {
+      "tx": 3,
+      "ty": 5,
+      "mask": 3
+    },
+    {
+      "tx": 4,
+      "ty": 5,
+      "mask": 3
+    },
+    {
+      "tx": 5,
+      "ty": 5,
+      "mask": 5
+    },
+    {
+      "tx": 7,
+      "ty": 5,
+      "mask": 10
+    },
+    {
+      "tx": 8,
+      "ty": 5,
+      "mask": 3
+    },
+    {
+      "tx": 9,
+      "ty": 5,
+      "mask": 3
+    },
+    {
+      "tx": 10,
+      "ty": 5,
+      "mask": 3
+    },
+    {
+      "tx": 5,
+      "ty": 7,
+      "mask": 5
+    },
+    {
+      "tx": 7,
+      "ty": 7,
+      "mask": 10
+    },
+    {
+      "tx": 5,
+      "ty": 8,
+      "mask": 5
+    },
+    {
+      "tx": 7,
+      "ty": 8,
+      "mask": 10
+    },
+    {
+      "tx": 5,
+      "ty": 9,
+      "mask": 5
+    },
+    {
+      "tx": 7,
+      "ty": 9,
+      "mask": 10
+    }
+  ],
+  "enemies": [
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "basic",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "power",
+    "power",
+    "power",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}

@@ -159,8 +159,8 @@
       "icePct": -7.136648829462022,
       "iceDecalHex": "#3d404a",
       "iceDecalRatio": 3.5024813082069,
-      "canopyApexHex": "#3c7b3e",
-      "canopyApexPct": 1.7750311510808192,
+      "canopyApexHex": "#3c7a3e",
+      "canopyApexPct": 1.0831288842108489,
       "canopyFlankHex": "#2c7533",
       "canopyFlankPct": -6.43550371878121,
       "canopyShadeHex": "#023f14",
@@ -302,11 +302,11 @@
       "bulletCtlPct": -6.163841221215516,
       "eagleStoneHex": "#9a9aa1",
       "eagleStonePct": 4.682143273340267,
-      "eagleStoneSideHex": "#5f4a3a",
-      "eagleStoneSideOfTopPct": 50.03669774648654,
-      "eagleStoneSideHue": 25.945945945945954,
+      "eagleStoneSideHex": "#604a3a",
+      "eagleStoneSideOfTopPct": 50.17429811514679,
+      "eagleStoneSideHue": 25.263157894736853,
       "eagleStoneTokenHue": 220.90909090909088,
-      "eagleStoneHueErr": 165.0368550368551,
+      "eagleStoneHueErr": 164.35406698564597,
       "tints": [
         {
           "label": "armor hp4",
@@ -337,10 +337,10 @@
       "tanks": [
         {
           "type": "p1",
-          "topHex": "#cd9f47",
-          "topPct": 1.004912629811594,
+          "topHex": "#cc9f47",
+          "topPct": 0.8727069212113747,
           "sideHex": "#a45307",
-          "sideOfTopPct": 58.324036792139175,
+          "sideOfTopPct": 58.40047739582549,
           "sideHue": 29.044585987261144,
           "tokenHue": 38.96551724137931,
           "hueErr": -9.920931254118166

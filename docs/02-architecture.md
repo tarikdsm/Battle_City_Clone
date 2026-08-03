@@ -133,7 +133,12 @@ Unknown/corrupt payloads are discarded field-wise with defaults (never crash on 
   **⚠️ Never add an `OutputPass`, and do not move the beauty render into a composer target** (measured, T2.5). three 0.185.1 disables `material.toneMapped` inside any render target, so a `RenderPass` + `OutputPass` arrangement applies ACES to the *whole* frame and crushes art §3.0's flat graphics — the board token `#10121b` was measured collapsing to `#020202`. The shipped arrangement renders the beauty pass to the drawing buffer and the chain copies it out; that copy was verified **bit-identical** at DPR 2 with MSAA.
 - **Camera FX:** trauma-based shake (art doc §2), stage fly-in, base-destruction slow-mo (presentation-side time dilation of *interpolation only* — simulation ticks are unaffected except the scripted lock in fidelity §11).
 - **Resize/DPR:** letterboxed board + HUD dock; `devicePixelRatio` capped by preset (High 2, Med 1.5, Low 1).
-- **Quality presets:** Low/Med/High + Auto (probe: DPR, `navigator.hardwareConcurrency`, 1-s FPS sample on title screen → pick preset; user override persists).
+- **Quality presets:** Low/Med/High + Auto (probe: DPR, `navigator.hardwareConcurrency`, 1-s FPS sample → pick preset; user override persists).
+  **Amended twice, both times because the fps term was measuring the wrong thing.** The sample is *not* taken on the title screen and *not* taken immediately:
+  1. **Sample while drawing, at High** (T3.2). On the boot screen rAF is vsync-locked with nothing to draw, so `fps` read ≈60 on every machine and the decision collapsed to DPR + cores — which is how Auto could hand High to a device that cannot run it. The probe now samples a live board rendering at the High preset, because the viability of High is the actual question.
+  2. **Discard a warm-up first** (T9). Sampling from the moment the entry module finishes evaluating measures the renderer's *first* draws — shader compilation, pipeline warm-up — i.e. the most expensive second of the app's life. Measured: a viewport sustaining 94 fps scored 32.7, one sustaining 165 fps scored **0.0**, so every device fell below `lowFps` and Auto meant Low universally. `sampleDevice` now discards `WARMUP_FRAMES` (60) frames, capped at `WARMUP_MAX_MS` (3 s), and opens the measurement window after them. Evidence: `docs/calibration/touch-layout.json` → `mobileQuality`.
+
+  The cost is that a weak device runs at High for up to ~3 s before being demoted, once per run. The alternative was every device running at Low for ever.
 
 ## 6. Audio (audio/)
 
@@ -172,14 +177,24 @@ Unknown/corrupt payloads are discarded field-wise with defaults (never crash on 
 
 | Budget | Target |
 |---|---|
-| Frame rate | 60 FPS sustained: desktop @High, mid-2020s mobile @Low |
+| Frame rate | **60 FPS sustained at whatever preset the auto-probe selects** — that is the contract, and it is met. Measured on the reference Intel UHD iGPU: Low 87.8, Medium 59.6, High **26.2** (GPU-bound; frame CPU is 4.27 ms of a 16.7 ms budget). **High does not hold 60 on integrated graphics** — it is a discrete-GPU preset, and the probe correctly declines to select it on hardware that cannot carry it (ruled 2026-08-02). The original wording, "desktop @High", assumed desktop meant discrete. |
 | Sim step | ≤ 2 ms worst case (typically ≪ 1 ms) |
-| Render CPU | ≤ 6 ms @High desktop; draw calls ≤ ~120 (instancing) |
+| Render CPU | ≤ 6 ms @High desktop; draw calls ≤ ~120 (instancing) — **enforced at 60**, see below |
 | Steady-state allocations | zero in sim; near-zero in render (pools everywhere) |
 | Bundle | ≤ 1.5 MB gzip total (three.js dominates); editor code-split |
 | Load | interactive < 3 s on 4G mid-phone |
 
-Perf instrumentation: dev overlay (FPS, sim ms, render ms, draw calls, pool usage) toggled with backtick key in dev builds.
+Perf instrumentation (**built in T10; the backtick overlay was never built and is not in 1.0**):
+
+- `src/app/perf.ts` — frame-phase marks around the loop's `step` and `render`, published on `globalThis.__bcPerf` in dev builds only (`import.meta.env.DEV`, folded to `false` by Vite in production). Begin/end marks rather than a wrapper, so the per-tick path allocates nothing.
+- `scripts/capture-play.ts` (`npm run capture:play`) — drives the **real page**, patches `requestAnimationFrame` and the GL draw entry points, and writes `docs/calibration/play.json`: per-preset frame CPU, the sim/render split, draw calls, sustained FPS, board framing at eleven viewports, console errors and failed requests. Every budget above is restated inside the artifact and each row carries its own pass/fail.
+
+Two things T10 measured that this table did not previously say:
+
+- **Draw calls are far inside the ~120 allowance** — 41–53 at High, 14–20 at Low — so the artifact enforces **60**, which is a bound the scene is actually held to rather than one it cannot reach.
+- **Every measurement carries a machine-speed index.** The artifact records `busyMs`, the wall-clock cost of a fixed amount of arithmetic in the page, and refuses to certify a run's FPS rows when the machine was more than 1.5× slower than its unloaded reference. Without it a contended laptop is indistinguishable from a regression, and this repo's rule is that a measurement is evidence only if something committed backs it.
+- **The Low-preset mobile target is approximated by a 4× CPU throttle** (`Emulation.setCPUThrottlingRate`), because no phone has ever run this build. That models a slower CPU and *not* a slower GPU, and `docs/08-release-notes.md` says so.
+- **FPS is reported as a lower bound and judged only when it clears.** The verdict key is `fpsProvenAt60`: a bound that clears 60 proves the budget is met, a bound below it proves nothing, because `busyMs` sees CPU contention and cannot see a shared GPU. Where a figure matters, the artifact to keep is therefore the **highest** FPS across repeated runs — the tightest of the bounds — not the run with the quietest CPU.
 
 ## 12. Error handling & debug
 

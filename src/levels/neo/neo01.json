@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "id": "neo-01",
+  "name": "First Frost",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "Three ice avenues run spawn to base; the brick islands are the only brakes, so every duel on this stage is fought sliding.",
+  "effectiveStage": 20,
+  "terrain": [
+    ".............",
+    "BB..BIIIB..BB",
+    ".....III.....",
+    "II...III...II",
+    "II.BBIIIBB.II",
+    "II.BBIIIBB.II",
+    "IIB..III..BII",
+    "II...III...II",
+    "IIBB.III.BBII",
+    "II...III...II",
+    "...BBIIIBB...",
+    "...BB...BB...",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 4,
+      "ty": 1,
+      "mask": 10
+    },
+    {
+      "tx": 8,
+      "ty": 1,
+      "mask": 5
+    }
+  ],
+  "enemies": [
+    "basic",
+    "basic",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "armor",
+    "armor",
+    "fast",
+    "fast"
+  ]
+}

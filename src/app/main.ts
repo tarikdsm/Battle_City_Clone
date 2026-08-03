@@ -29,20 +29,33 @@ import {
   advanceStage,
   commitScore,
   createSession,
-  levelStageOf,
-  loadProgress,
+  campaignComplete,
+  highestReached,
+  stageLabelOf,
+  unlockReached,
   loadTable,
   qualifies,
   runScores,
   stageTally,
-  unlockStage,
+  type CampaignId,
   type Session,
 } from './session';
 import { parseDebugFlags } from './debug';
+import { installPerfHandle } from './perf';
 import { createErrorRail, createErrorScreen } from './errorScreen';
-import { loadSettings, saveSettings, type SettingsV1 } from './storage';
-import { createScreenMachine, OVERLAY_STYLE, type Screen } from './screens';
-import { validateLevel } from '../levels/schema';
+import {
+  loadCustomLevels,
+  loadSettings,
+  saveCustomLevels,
+  saveSettings,
+  type SettingsV1,
+} from './storage';
+import {
+  createLazyScreen,
+  createScreenMachine,
+  OVERLAY_STYLE,
+  type Screen,
+} from './screens';
 import type { LevelData } from '../core/types';
 import { createAudio } from '../audio/audio';
 import {
@@ -61,7 +74,7 @@ import { createIntroScreen } from '../ui/screens/intro';
 import { createTallyScreen } from '../ui/screens/tally';
 import { createGameOverScreen } from '../ui/screens/gameOver';
 import { createHiScoreScreen } from '../ui/screens/hiScore';
-import stage01 from '../levels/original/stage01.json';
+import { neoStage, originalStage } from '../levels/campaign';
 
 /**
  * The preset the auto probe runs **under**.
@@ -76,7 +89,16 @@ import stage01 from '../levels/original/stage01.json';
  * at High — the preset whose viability is the actual question. A device that
  * holds ≥55 fps under the heaviest chain has earned it; one that drops below 45
  * has answered "not even close" with a measurement rather than a core count.
- * The cost is up to one second of a heavy preset on a weak device, paid once.
+ *
+ * **And it is taken after a warm-up** (T9 follow-up, `post.ts`'s
+ * `WARMUP_FRAMES`). Drawing is necessary but not sufficient: sampling from the
+ * instant this module finishes evaluating measured the renderer's first draws —
+ * shader compilation and pipeline warm-up — so a machine that sustains 94 fps
+ * scored 32.7 and one that sustains 165 scored **0**. Every device fell under
+ * `lowFps` and Auto meant Low, universally. Sixty frames are now discarded
+ * first (capped at 3 s), so the window holds the steady state.
+ *
+ * The cost is up to ~3 s of a heavy preset on a weak device, paid once per run.
  */
 const PROBE_QUALITY: Quality = 'high';
 
@@ -128,12 +150,17 @@ if (
   debug.stage !== undefined ||
   debug.seed !== undefined ||
   debug.quality !== undefined ||
-  debug.enemies !== undefined
+  debug.enemies !== undefined ||
+  debug.players !== undefined
 ) {
   // Unreachable in a production bundle: parseDebugFlags returns all-inert flags
   // when `import.meta.env.DEV` is the literal `false` Vite substitutes.
   console.log('debug flags', debug);
 }
+
+// Arch §11's frame-phase counters. A no-op in a production bundle — see
+// app/perf.ts — so this line costs a shipped player one folded constant.
+installPerfHandle();
 
 screens.show('boot');
 
@@ -141,26 +168,60 @@ console.log('boot ok');
 
 // --- the app's singletons ---------------------------------------------------
 
-// The level is validated rather than trusted, even though it ships in the
-// bundle: `resolveJsonModule` types it as a loose object literal (`version:
-// number`, `terrain: string[]`), so the validator is what turns it into a
-// `LevelData` — and a hand-edited row of the wrong length surfaces on the error
-// screen instead of as an out-of-bounds read three systems deep.
-const parsed = validateLevel(stage01);
-if (!parsed.ok) {
-  throw new Error(`stage01.json is invalid:\n${parsed.errors.join('\n')}`);
+/**
+ * The layout for a 1…35 stage number, ready to hand to core.
+ *
+ * `originalStage` validates rather than trusts the JSON — `resolveJsonModule`
+ * types a stage file as a loose object literal (`version: number`, `terrain:
+ * string[]`), so the validator is what turns it into a `LevelData`, and a
+ * hand-edited row of the wrong length surfaces on the error screen instead of
+ * as an out-of-bounds read three systems deep.
+ *
+ * `?enemies=` (dev-only) shortens the wave so the stage-clear beat and the
+ * tally are reachable in a capture without twenty kills. It edits the LEVEL,
+ * never a rule: `createGame` copies this array into the spawner queue and every
+ * §7 behaviour runs against it unchanged.
+ */
+function stageLevel(campaign: CampaignId, levelStage: number): LevelData {
+  const level =
+    campaign === 'neo' ? neoStage(levelStage) : originalStage(levelStage);
+  return withDebugEnemies(level);
 }
-// `?enemies=` (dev-only) shortens the wave so the stage-clear beat and the
-// tally are reachable in a capture without twenty kills. It edits the LEVEL,
-// never a rule: `createGame` copies this array into the spawner queue and every
-// §7 behaviour runs against it unchanged.
-const level: LevelData =
-  debug.enemies === undefined
-    ? parsed.level
-    : {
-        ...parsed.level,
-        enemies: parsed.level.enemies.slice(0, debug.enemies),
-      };
+
+/**
+ * Which campaign the NEXT run starts in.
+ *
+ * Set by the menu row that was chosen, read by the stage-select screen and by
+ * `createSession`. A module-level `let` rather than a parameter threaded
+ * through four screens: the stage select is one registered screen serving both
+ * campaigns, so the thing it has to ask is "which one am I showing", and that
+ * is a property of the flow rather than of the screen.
+ */
+let campaign: CampaignId = 'original';
+
+/**
+ * `?enemies=` applied to any level, campaign or not.
+ *
+ * Split out of `stageLevel` in T8.3: it used to reach only the campaign, so a
+ * custom stage or an editor test-play was always twenty tanks, and "does this
+ * stage actually clear" was a five-minute question on a loop an author walks a
+ * hundred times. Twelve Neo stages made that cost obvious.
+ */
+function withDebugEnemies(level: LevelData): LevelData {
+  return debug.enemies === undefined
+    ? level
+    : { ...level, enemies: level.enemies.slice(0, debug.enemies) };
+}
+
+/**
+ * How many players the next run starts with.
+ *
+ * Chosen on the menu's `players` row since T10; `?players=2` (dev-only) still
+ * seeds it so an automated capture can skip the menu. Held for the life of the
+ * page rather than persisted: it is a property of the sitting, not a setting,
+ * and GDD §10's settings list does not contain it.
+ */
+let players: 1 | 2 = debug.players ?? 1;
 
 let settings: SettingsV1 = loadSettings();
 const settingsNow = (): SettingsV1 => settings;
@@ -196,6 +257,27 @@ let session: Session | null = null;
 let pendingEntry: { score: number; stage: number; playerIndex: 0 | 1 } | null =
   null;
 
+/**
+ * The stage being built in the construction mode, or `null`.
+ *
+ * It lives up here because it has to outlive the editor *screen*: a test-play
+ * tears the editor down to give the board its GL context back, and the draft
+ * has to be there on the way in. Typed as `LevelData` rather than held inside
+ * the editor's own module so this file stays the composition root and the
+ * editor chunk stays reachable only through the dynamic import below.
+ */
+let editorDraft: LevelData | null = null;
+
+/**
+ * Where a **one-off** run goes when it ends, or `null` during a campaign.
+ *
+ * A test-play and a saved custom stage are the same thing from the board's
+ * side: one level, 1P, no progression, no high-score entry — the run belongs to
+ * whoever launched it. This is that caller's way back, and its presence is also
+ * what tells the three callbacks below not to run the campaign's flow.
+ */
+let oneOffReturn: ((outcome: string) => void) | null = null;
+
 const play = createPlayScreen({
   canvas,
   quality: settled ?? PROBE_QUALITY,
@@ -203,6 +285,17 @@ const play = createPlayScreen({
   settings: settingsNow,
   reducedMotion,
   onPauseChanged(paused: boolean): void {
+    if (oneOffReturn !== null) {
+      // Arch §9: "Esc returns to editing (draft kept)". Escape is the only way
+      // out of a test-play, so it is the way out rather than a pause menu —
+      // pausing a stage you are checking is not a thing anybody wants to do,
+      // and a Resume/Quit menu in between would be one press too many on a
+      // loop an author walks a hundred times.
+      if (paused) {
+        oneOffReturn('Test play ended.');
+      }
+      return;
+    }
     // Core owns the pause (P-26); this is the screen that answers it. Either
     // source can flip it — the player's Escape or the overlay's Resume — and
     // both arrive here as the same state change.
@@ -218,15 +311,26 @@ const play = createPlayScreen({
   },
 
   onStageCleared(state): void {
+    if (oneOffReturn !== null) {
+      oneOffReturn('Test play cleared — all twenty tanks destroyed.');
+      return;
+    }
     if (session === null) {
       return;
     }
     // Fidelity §11.2: the stage's numbers are banked, progress is recorded, and
     // the tally shows what core counted — this layer adds no arithmetic.
     const columns = stageTally(state);
-    const stage = levelStageOf(session.stageNumber);
+    const stage = stageLabelOf(session);
     absorbStage(session, state);
-    unlockStage(levelStageOf(session.stageNumber + 1));
+    // The stage the player has EARNED, in whichever campaign they are in. For a
+    // looping campaign that is the next label; for Neo the last stage has no
+    // next, so clearing it unlocks itself and nothing beyond.
+    const next = { ...session, stageNumber: session.stageNumber + 1 };
+    unlockReached(
+      session.campaign,
+      campaignComplete(next) ? stage : stageLabelOf(next),
+    );
     audio.playMusic('tally');
     // Same rule as the pause overlay: the tally sits over a live (cleared)
     // simulation, and an Escape that reached the pad would pause the run and
@@ -236,6 +340,14 @@ const play = createPlayScreen({
   },
 
   onGameOver(state): void {
+    if (oneOffReturn !== null) {
+      oneOffReturn(
+        state.eagleAlive
+          ? 'Test play ended — out of lives.'
+          : 'Test play ended — the base was destroyed.',
+      );
+      return;
+    }
     if (session === null) {
       return;
     }
@@ -243,7 +355,7 @@ const play = createPlayScreen({
     const scores = runScores(session);
     screens.show('gameOver', {
       scores,
-      stage: levelStageOf(session.stageNumber),
+      stage: stageLabelOf(session),
       baseLost: !state.eagleAlive,
     });
   },
@@ -286,8 +398,18 @@ screens.register(
     onBack: () => {
       toTitle();
     },
+    players: () => players,
+    onPlayers: (n) => {
+      players = n;
+    },
     onChoose: (choice: MenuChoice) => {
       if (choice === 'campaign') {
+        campaign = 'original';
+        screens.show('stageSelect');
+        return;
+      }
+      if (choice === 'neo') {
+        campaign = 'neo';
         screens.show('stageSelect');
         return;
       }
@@ -305,9 +427,86 @@ screens.register(
         screens.show('settings');
         return;
       }
-      // The three Phase 8 entries are disabled rows and never reach here.
+      if (choice === 'construction') {
+        // Through the hash, not straight to the screen: `#editor` is the route
+        // (arch §9), so the back button and a shared link land in the same
+        // place the menu row does, and there is one code path instead of two.
+        window.location.hash = EDITOR_HASH;
+        return;
+      }
+      if (choice === 'custom') {
+        screens.show('customLevels');
+        return;
+      }
     },
   }),
+);
+
+/**
+ * The editor, fetched the first time it is opened.
+ *
+ * The dynamic `import()` is the whole code-split: nothing above this line
+ * mentions `src/editor/` or `ui/screens/editor.ts`, so Rollup gives the
+ * construction mode a chunk of its own and a player who never opens it never
+ * downloads it. The boot panel stands in while the chunk is in flight.
+ */
+screens.register(
+  'editor',
+  createLazyScreen(
+    async () =>
+      (await import('../ui/screens/editor')).createEditorScreen({
+        audio,
+        onDraftChanged: (level) => {
+          // Held here rather than inside the editor module, so a test-play can
+          // tear the screen down and hand the same draft back on the way in.
+          editorDraft = level;
+        },
+        onTestPlay: (level) => {
+          editorDraft = level;
+          startOneOff(level, (outcome) => {
+            // Straight back to the editor, with the draft this file kept.
+            oneOffReturn = null;
+            screens.show('editor', { draft: editorDraft, status: outcome });
+          });
+        },
+        onSave: (level) => {
+          const kept = loadCustomLevels().filter((l) => l.id !== level.id);
+          // Newest first: the stage you just saved is the one you are working
+          // on, and a list that buries it under twelve older ones is a list you
+          // stop reading.
+          saveCustomLevels([level, ...kept]);
+        },
+        onDelete: (id) => {
+          saveCustomLevels(loadCustomLevels().filter((l) => l.id !== id));
+        },
+        savedLevels: () => loadCustomLevels(),
+        onExit: () => {
+          leaveEditor();
+        },
+      }),
+    createBootScreen(),
+  ),
+);
+
+screens.register(
+  'customLevels',
+  createLazyScreen(
+    async () =>
+      (await import('../ui/screens/customLevels')).createCustomLevelsScreen({
+        audio,
+        levels: () => loadCustomLevels(),
+        onPlay: (level) => {
+          startOneOff(level, () => {
+            oneOffReturn = null;
+            screens.show('customLevels');
+          });
+        },
+        onBack: () => {
+          toMenu('custom');
+        },
+      }),
+    createBootScreen(),
+  ),
 );
 
 screens.register(
@@ -365,13 +564,19 @@ screens.register(
   'stageSelect',
   createStageSelectScreen({
     audio,
-    highest: () => loadProgress().highestStage,
+    campaign: () => campaign,
+    highest: () => highestReached(campaign),
     onBack: () => {
-      toMenu('campaign');
+      toMenu(campaign === 'neo' ? 'neo' : 'campaign');
     },
     onPick: (stage: number) => {
       startStage(
-        createSession({ players: 1, stageNumber: stage, seed: debug.seed }),
+        createSession({
+          players,
+          campaign,
+          stageNumber: stage,
+          seed: debug.seed,
+        }),
       );
     },
   }),
@@ -400,9 +605,21 @@ screens.register(
         toTitle();
         return;
       }
-      // Fidelity §11.5: the counter rises, the campaign loops. `startStage`
-      // reads `levelStageOf` for the label and hands core the raw number.
+      // Fidelity §11.5: the counter rises, and the ORIGINAL campaign loops.
+      // The Neo campaign does not — twelve authored stages have an end, and
+      // dropping the player into stage 1 of a different campaign would read as
+      // a bug rather than as a victory. `campaignComplete` is the single place
+      // that rule lives, so the flow cannot disagree with `session.ts` about
+      // what twelve means.
       advanceStage(session);
+      if (campaignComplete(session)) {
+        // The run is over and it was WON. Fidelity §13's post-run path is the
+        // same one a game over takes — bank the score, offer initials if it
+        // qualifies, then the table and the title.
+        audio.playMusic('hiscore');
+        toHiScore();
+        return;
+      }
       startStage(session);
     },
   }),
@@ -464,10 +681,12 @@ function startBoard(run: PlayRun): void {
 function toTitle(): void {
   session = null;
   // GDD §5's "subtle attract camera drift over a diorama": the title mounts
-  // over a real, running stage with no controls attached.
+  // over a real, running stage with no controls attached. Stage 1, always —
+  // the title is the one board the player has not chosen, so a layout that
+  // changed between visits would read as a bug rather than as variety.
   startBoard({
     session: createSession({ players: 1 }),
-    level,
+    level: stageLevel('original', 1),
     attract: true,
   });
   screens.showOverlay('title');
@@ -480,18 +699,100 @@ function toMenu(focus?: string): void {
   audio.stopMusic();
 }
 
+// --- the #editor route (arch §9) --------------------------------------------
+
+const EDITOR_HASH = '#editor';
+
+/**
+ * Show the editor if the URL asks for it. Returns whether it did.
+ *
+ * The draft travels as the screen's params, so re-entering after a test-play
+ * resumes the field the author left rather than a blank one.
+ */
+function applyRoute(): boolean {
+  if (window.location.hash !== EDITOR_HASH) {
+    return false;
+  }
+  session = null;
+  oneOffReturn = null;
+  audio.stopMusic();
+  screens.show('editor', { draft: editorDraft });
+  return true;
+}
+
+/**
+ * Put one level on the board, outside the campaign.
+ *
+ * No session progression, no `unlockStage`, no high-score entry: `back` is
+ * where the run's outcome goes instead, and it is the only way out. Used by the
+ * editor's test-play and by the custom-stage list — the same board either way,
+ * which is the point (arch §9: "launches the standard game loop on the draft").
+ */
+function startOneOff(level: LevelData, back: (outcome: string) => void): void {
+  session = null;
+  oneOffReturn = back;
+  startBoard({
+    session: createSession({ players, seed: debug.seed }),
+    level: withDebugEnemies(level),
+  });
+  // Fidelity §11.1's curtain, with the stage's own name under it — a custom
+  // stage has a name and "Stage 1" alone would be a lie about which one.
+  screens.showOverlay('intro', { stage: 1, note: level.name });
+}
+
+/**
+ * Leave the construction mode.
+ *
+ * `replaceState` rather than `location.hash = ''`: assigning an empty hash
+ * leaves a bare `#` in the address bar *and* pushes a history entry, so the
+ * back button would walk the player through every visit to the editor. It also
+ * fires no `hashchange`, which is what keeps this from re-entering itself
+ * through the listener below.
+ */
+function leaveEditor(): void {
+  window.history.replaceState(
+    null,
+    '',
+    window.location.pathname + window.location.search,
+  );
+  toMenu('construction');
+}
+
+window.addEventListener('hashchange', () => {
+  if (applyRoute()) {
+    return;
+  }
+  if (screens.current() === 'editor') {
+    // The player used the back button rather than the Back row.
+    toMenu('construction');
+  }
+});
+
 /**
  * Put a run's current stage on the board and announce it.
  *
- * There is exactly one level until Phase 7 transcribes the other 34, so the
- * layout is stage 1's whatever the number says. Everything else about the stage
- * — the spawn cadence, the AI's base-rush weight — already scales from
- * `session.stageNumber`, so dropping 35 files into `src/levels/original/` is
- * the only change this line needs.
+ * One number does both jobs and they are not the same number: `levelStageOf`
+ * folds the run's rising counter onto 1…35 — which is the layout to load and
+ * the label to show — while `run.stageNumber` itself goes to core untouched, so
+ * the spawn cadence and the AI's base-rush weight keep tightening past stage 35
+ * (fidelity §11.5).
  */
 function startStage(run: Session): void {
   session = run;
-  const stage = levelStageOf(run.stageNumber);
+  const stage = stageLabelOf(run);
+  const level = stageLevel(run.campaign, stage);
+  if (import.meta.env.DEV) {
+    // Which LAYOUT is on the board, not just which number is on the curtain.
+    // The two were the same thing for the whole of Phase 6 — every stage played
+    // stage 1 — and nothing on screen said so. A run that quietly serves the
+    // wrong file is invisible from any single stage, so it gets a line.
+    console.log(
+      'stage',
+      stage,
+      level.id,
+      `(${run.campaign}, counter ${run.stageNumber})`,
+    );
+  }
   startBoard({ session: run, level });
   screens.showOverlay('intro', { stage });
 }
@@ -516,7 +817,7 @@ function toHiScore(): void {
     (a, b) => (a === null || b.score > a.score ? b : a),
     null,
   );
-  const stage = session === null ? 1 : levelStageOf(session.stageNumber);
+  const stage = session === null ? 1 : stageLabelOf(session);
   pendingEntry =
     top !== null && qualifies(table, top.score)
       ? { score: top.score, stage, playerIndex: top.playerIndex }
@@ -535,12 +836,20 @@ function applySettings(next: SettingsV1): void {
 
 // --- boot into the flow -----------------------------------------------------
 
-if (debug.stage !== undefined) {
+if (applyRoute()) {
+  // `#editor` — a bookmark, a shared link, or a reload from inside the editor.
+  // Checked first: a route is the player's explicit destination, and it should
+  // not be overridden by a debug flag left in the query string.
+} else if (debug.stage !== undefined) {
   // `?stage=` means "put me on the board at stage N" — the path the capture
   // scripts and the calibration harnesses drive. Dev-only: `parseDebugFlags`
   // returns all-inert flags in a production bundle.
   startStage(
-    createSession({ players: 1, stageNumber: debug.stage, seed: debug.seed }),
+    createSession({
+      players,
+      stageNumber: debug.stage,
+      seed: debug.seed,
+    }),
   );
 } else {
   toTitle();

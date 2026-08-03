@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "id": "neo-09",
+  "name": "Mirrorworks",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "Two identical halves with a steel spine between them: each player owns a side, and the side that is left alone is the side the base falls on.",
+  "effectiveStage": 31,
+  "terrain": [
+    ".............",
+    ".....B.B.....",
+    ".BBBBB.BBBBB.",
+    ".B.BBB.BBB.B.",
+    "TT.BBB.BBB.TT",
+    "TT...B.B...TT",
+    ".WW.BB.BB.WW.",
+    ".WWBB.S.BBWW.",
+    "..BBS.S.SBB..",
+    "BB.TT.S.TT.BB",
+    "BB.TT.S.TT.BB",
+    "..TTB...BTT..",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 4,
+      "ty": 11,
+      "mask": 3
+    },
+    {
+      "tx": 8,
+      "ty": 11,
+      "mask": 3
+    }
+  ],
+  "enemies": [
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "power",
+    "power",
+    "fast",
+    "fast",
+    "basic",
+    "fast",
+    "fast",
+    "basic",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "armor",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}

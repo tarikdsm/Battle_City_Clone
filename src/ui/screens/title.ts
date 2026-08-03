@@ -8,6 +8,8 @@
 // file is only the logo and the prompt on top of it — DOM, never canvas.
 
 import { el, legend, mountChrome } from '../menus';
+import { sharedGamepads } from '../../input/gamepad';
+import { isTouchDevice } from '../../input/touch';
 import type { Screen } from '../../app/screens';
 import type { AudioSystem } from '../../audio/audio';
 import type { ScoreEntry } from '../../app/storage';
@@ -33,7 +35,15 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
         document.createTextNode('Battle'),
         el('em', undefined, 'City'),
       );
-      const press = el('p', 'bc-press', 'Press any key to start');
+      // GDD §5's prompt is "press any key/tap", and which half is true depends
+      // on the device in front of the player. A phone told to press a key is a
+      // phone that looks broken (caught by the offline PWA capture, T9.3).
+      const touch = isTouchDevice(window);
+      const press = el(
+        'p',
+        'bc-press',
+        touch ? 'Tap to start' : 'Press any key to start',
+      );
       press.dataset.role = 'press';
       view.body.append(logo, press);
 
@@ -47,7 +57,7 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
           ),
         );
       }
-      legend(view.footer, ['Any key', 'Start']);
+      legend(view.footer, touch ? ['Tap', 'Start'] : ['Any key', 'Start']);
 
       // "Press any key" means any key — so this screen does NOT go through
       // `navFromKey`. It is the one place in the app where the abstract nav
@@ -71,13 +81,47 @@ export function createTitleScreen(opts: TitleScreenOptions): Screen {
         opts.onStart();
       };
       window.addEventListener('keydown', listener);
-      view.node.addEventListener('pointerdown', click);
+      // **`click`, not `pointerdown`** (fixed at T9.2, found by the first tap a
+      // touch device ever made at this screen).
+      //
+      // A tap is `pointerdown → pointerup → click`, and this handler replaces
+      // the whole screen. Starting on `pointerdown` therefore mounted the main
+      // menu *under the finger that had not lifted yet*, and the `click` that
+      // followed landed on whatever menu row was at those coordinates — the
+      // centre of the viewport, which is Construction. One tap on "press any
+      // key" opened the level editor, every time. `click` is the last event of
+      // the gesture, so nothing follows it to be delivered to the new screen.
+      view.node.addEventListener('click', click);
       // Pointer events are off on `.bc-screen` so the board stays clickable;
       // the title is the one screen that wants the whole viewport as a button.
       view.node.style.pointerEvents = 'auto';
+
+      // …and any BUTTON, on any pad (T9.1). This screen does not use
+      // `attachNav` — "press any key" is the one place the six-event model
+      // would be wrong — so it pumps the hub itself. Every nav event counts,
+      // including a direction: the prompt says any, and a player reaching for a
+      // controller should not have to find the right button first.
+      const pads = sharedGamepads();
+      const releaseNav = pads.retainNav();
+      let frame: number | null = null;
+      const pump = (): void => {
+        pads.sample();
+        if (pads.drainNav().length > 0) {
+          click();
+          return; // started: stop pumping, `leave` is about to run
+        }
+        frame = window.requestAnimationFrame(pump);
+      };
+      frame = window.requestAnimationFrame(pump);
+
       detach = (): void => {
         window.removeEventListener('keydown', listener);
-        view.node.removeEventListener('pointerdown', click);
+        view.node.removeEventListener('click', click);
+        if (frame !== null) {
+          window.cancelAnimationFrame(frame);
+          frame = null;
+        }
+        releaseNav();
       };
     },
 

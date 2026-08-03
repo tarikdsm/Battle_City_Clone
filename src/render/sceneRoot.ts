@@ -193,6 +193,50 @@ const SHADOW_EXTENT = 170;
 const SHADOW_NEAR = 100;
 const SHADOW_FAR = 520;
 
+/**
+ * The orthographic half-extents that contain the board at a viewport of `w × h`
+ * CSS pixels.
+ *
+ * Contain-fit: grow whichever axis has slack so the board is never cropped, at
+ * any aspect ratio, in either orientation. Extracted from `setViewport` at the
+ * T9 follow-up so {@link tileCssPx} derives from the *same* arithmetic the
+ * camera uses — a readability metric computed from a re-stated formula would
+ * measure the re-statement.
+ *
+ * A zero-height viewport happens for real (a hidden tab, a collapsed flex
+ * parent, the frame between a CSS change and layout); dividing by it would put
+ * NaN in the projection matrix and blank the canvas for good.
+ */
+export function frustumHalfExtents(w: number, h: number): [number, number] {
+  const aspect = h > 0 ? w / h : HALF_X / HALF_Y;
+  if (aspect >= HALF_X / HALF_Y) {
+    return [HALF_Y * aspect, HALF_Y];
+  }
+  return [HALF_X, HALF_X / aspect];
+}
+
+/**
+ * How many CSS pixels **one field tile** spans horizontally at a viewport of
+ * `w × h`.
+ *
+ * This is the project's readability number, and it is the one the T9 follow-up
+ * argued about: the board is 13 × 13 (`FIELD_TILES`) and the game asks a player
+ * to tell five tank silhouettes and six terrain types apart at a glance, so the
+ * question "is this layout playable" is really "how big is a tile". Horizontal,
+ * because the vertical axis is foreshortened by the camera pitch and the
+ * unforeshortened axis is the honest one to quote.
+ */
+export function tileCssPx(w: number, h: number): number {
+  const [, halfH] = frustumHalfExtents(w, h);
+  if (h <= 0 || halfH <= 0) {
+    return 0;
+  }
+  // Contain-fit makes the two axes' scales equal by construction, so either
+  // one answers; the vertical is used because `h` is the axis that binds in
+  // every landscape case this was written for.
+  return (h / (2 * halfH)) * TILE;
+}
+
 export interface SceneRoot {
   readonly scene: Scene;
   readonly camera: OrthographicCamera;
@@ -373,19 +417,7 @@ export function createSceneRoot(materials: Materials): SceneRoot {
     entities,
 
     setViewport(w: number, h: number): void {
-      // A zero-height viewport happens for real: a hidden tab, a collapsed
-      // flex parent, the frame between a CSS change and layout. Dividing by it
-      // would put NaN in the projection matrix and blank the canvas for good.
-      const aspect = h > 0 ? w / h : HALF_X / HALF_Y;
-      // Contain-fit: grow whichever axis has slack so the board is never
-      // cropped, at any aspect ratio, in either orientation.
-      let halfW = HALF_X;
-      let halfH = HALF_Y;
-      if (aspect >= HALF_X / HALF_Y) {
-        halfW = HALF_Y * aspect;
-      } else {
-        halfH = HALF_X / aspect;
-      }
+      const [halfW, halfH] = frustumHalfExtents(w, h);
       camera.left = -halfW;
       camera.right = halfW;
       camera.top = halfH;

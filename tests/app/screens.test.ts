@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createLazyScreen,
   createScreenMachine,
   type Screen,
   type ScreenName,
@@ -162,5 +163,109 @@ describe('the overlay layer (GDD §5: pause/intro/tally sit OVER play)', () => {
       machine.showOverlay('tally');
     }).toThrow(/tally/);
     expect(machine.currentOverlay()).toBe(null);
+  });
+});
+
+describe('createLazyScreen (arch §9: the code-split editor route)', () => {
+  /** A `load` that resolves when the test says so. */
+  function deferred(screen: Screen): {
+    load: () => Promise<Screen>;
+    resolve: () => Promise<void>;
+    calls: number;
+  } {
+    const box = {
+      calls: 0,
+      load: (): Promise<Screen> => {
+        box.calls++;
+        return new Promise<Screen>((res) => {
+          settle = (): void => {
+            res(screen);
+          };
+        });
+      },
+      resolve: async (): Promise<void> => {
+        settle();
+        // One microtask turn for the `.then` inside the adapter.
+        await Promise.resolve();
+      },
+    };
+    let settle = (): void => {};
+    return box;
+  }
+
+  it('shows the placeholder, then hands the params to the real screen', async () => {
+    const log: string[] = [];
+    const real = fake('editor', log);
+    const loading = fake('loading', log);
+    const gate = deferred(real);
+
+    const lazy = createLazyScreen(gate.load, loading);
+    lazy.enter(root, { draft: 'x' });
+    expect(log).toEqual(['enter:loading']);
+
+    await gate.resolve();
+    expect(log).toEqual(['enter:loading', 'leave:loading', 'enter:editor']);
+    // The params survive the await — the draft has to reach the editor.
+    expect(real.params).toEqual([{ draft: 'x' }]);
+  });
+
+  it('imports once, then enters synchronously on the next visit', async () => {
+    const log: string[] = [];
+    const real = fake('editor', log);
+    const gate = deferred(real);
+    const lazy = createLazyScreen(gate.load, fake('loading', log));
+
+    lazy.enter(root);
+    await gate.resolve();
+    lazy.leave();
+    log.length = 0;
+
+    lazy.enter(root);
+    // No placeholder at all the second time: the chunk is already in memory.
+    expect(log).toEqual(['enter:editor']);
+    expect(gate.calls).toBe(1);
+  });
+
+  it('does not enter a screen the player has already navigated away from', async () => {
+    const log: string[] = [];
+    const real = fake('editor', log);
+    const gate = deferred(real);
+    const lazy = createLazyScreen(gate.load, fake('loading', log));
+
+    lazy.enter(root);
+    lazy.leave(); // the chunk is still in flight
+    expect(log).toEqual(['enter:loading', 'leave:loading']);
+
+    await gate.resolve();
+    // …and it never mounts behind whatever screen is up now.
+    expect(log).toEqual(['enter:loading', 'leave:loading']);
+  });
+
+  it('leaves the real screen once, and not before it was entered', async () => {
+    const log: string[] = [];
+    const real = fake('editor', log);
+    const gate = deferred(real);
+    const lazy = createLazyScreen(gate.load, fake('loading', log));
+
+    lazy.enter(root);
+    await gate.resolve();
+    lazy.leave();
+    lazy.leave();
+    expect(log).toEqual([
+      'enter:loading',
+      'leave:loading',
+      'enter:editor',
+      'leave:editor',
+    ]);
+  });
+
+  it('works without a placeholder at all', async () => {
+    const log: string[] = [];
+    const gate = deferred(fake('editor', log));
+    const lazy = createLazyScreen(gate.load);
+    lazy.enter(root);
+    expect(log).toEqual([]);
+    await gate.resolve();
+    expect(log).toEqual(['enter:editor']);
   });
 });

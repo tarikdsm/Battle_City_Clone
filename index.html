@@ -2,7 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      `viewport-fit=cover` + `user-scalable=no`: this is a game with on-glass
+      controls (T9.2), so a double-tap that zooms the board or a pinch that
+      scrolls the page is not a feature, it is a lost life. The controls set
+      `touch-action: none` themselves; this is the page-level half.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <!-- Matches the manifest's `theme_color`; a mismatch flashes on launch. -->
+    <meta name="theme-color" content="#0a0a0a" />
+    <!-- iOS reads neither `display` nor `icons` from the manifest. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="Battle City" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon-180.png" />
     <title>Battle City</title>
     <!--
       An inline icon, not a file. Without one the browser asks for

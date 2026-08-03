@@ -174,14 +174,14 @@ export interface InputSystem { poll(): [PlayerIntent, PlayerIntent]; dispose(): 
 
 **Key constants (core/constants.ts — canonical names; values + CAL ids from fidelity spec):**
 `TILE=16` `SUBCELL=8` `FIELD_TILES=13` `FIELD_U=208` `TANK_SIZE=16` `BULLET_SIZE=4` `TICK_S=1/60`,
-`PLAYER_SPEED=45` (CAL-01), `ENEMY_SPEED: {basic:30, fast:60, power:45, armor:30}` (CAL-03),
-`BULLET_SLOW=120` `BULLET_FAST=240`, `SPAWN_SHIELD_S=3` (CAL-02), `STUN_S=3` (CAL-06),
-`HELMET_S=10` (CAL-15), `CLOCK_S=10` (CAL-16), `SHOVEL_SOLID_S=17` `SHOVEL_BLINK_S=3` (CAL-17),
-`SPAWN_ANIM_S=1.3` (CAL-12), `ICE_DECEL=240` (CAL-05), `ENEMY_CAP=4` (CAL-09),
+`PLAYER_SPEED=45` (CAL-01), `ENEMY_SPEED: {basic:30, fast:60, power:30, armor:30}` (CAL-03),
+`BULLET_SLOW=120` `BULLET_FAST=240`, `SPAWN_SHIELD_S=192/60` (CAL-02), `STUN_S=267/60` (CAL-06),
+`HELMET_S=640/60` (CAL-15), `CLOCK_S=640/60` (CAL-16), `SHOVEL_SOLID_S=1088/60` `SHOVEL_BLINK_S=192/60` (CAL-17),
+`SPAWN_ANIM_S=56/60` (CAL-12), `ICE_COAST_U=28` (CAL-05), `ENEMY_CAP_1P=4` `ENEMY_CAP_2P=6` (CAL-09),
 `CARRIER_ORDINALS=[4,11,18]` (1-based), `SCORE: {basic:100, fast:200, power:300, armor:400, powerup:500}`,
 `BONUS_LIFE_AT=20000`, `START_LIVES=3`, `ARMOR_HP=4`,
-`spawnIntervalTicks(stage, players) = clamp(190 - 4*min(stage,35) - 20*(players-1), 30, 192)` (CAL-11),
-spawn points `[(0,0),(6,0),(12,0)]` cycle order L→C→R (CAL-10), `P1_SPAWN=(4,12)` `P2_SPAWN=(8,12)` `EAGLE_TILE=(6,12)`.
+`spawnIntervalTicks(stage, players) = 190 - 4*min(stage,35) - 20*(players-1)` (CAL-11; the ROM has no clamp, ours guards editor input only),
+spawn points `[(0,0),(6,0),(12,0)]` cycle order C→R→L (CAL-10), `P1_SPAWN=(4,12)` `P2_SPAWN=(8,12)` `EAGLE_TILE=(6,12)`.
 
 **npm scripts (fixed names):** `dev` `build` `preview` `test` `test:watch` `e2e` `lint` `typecheck` `format` `check` (typecheck+lint+**format**+test — format folded in 2026-07-22 after drift was found) `levels:preview`.
 
@@ -395,11 +395,11 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 7 — Content: original 35 (Lane C after G1 for T7.1; T7.2–4 parallelizable, disjoint files)
 
-### - [ ] T7.1 Level tooling & validation suite
+### - [x] T7.1 Level tooling & validation suite
 **Files:** create `scripts/level-preview.ts` (ASCII contact sheet: all levels → `docs/assets/level-contact-sheet.txt`, includes openness metric per content §4), extend `tests/levels/schema.test.ts` with completability check (BFS from each spawn over non-blocking tiles reaches ≥40% of field).
 **Spec:** content §2.2, §4. **Commit:** `feat(levels): preview tooling and completability validation`
 
-### - [ ] T7.2 / T7.3 / T7.4 Transcribe stages 1–12 / 13–24 / 25–35
+### - [x] T7.2 / T7.3 / T7.4 Transcribe stages 1–12 / 13–24 / 25–35
 **Files:** create `src/levels/original/stageNN.json` for the range (replacing T3.2's provisional stage01 in T7.2).
 **Spec:** content §2 (sources + protocol). Each stage: terrain rows + partials (half-tiles!) + 20-enemy composition from the cited FAQs (WebFetch; if a source 403s, report to orchestrator who fetches/mirrors).
 **Process per stage:** transcribe → `npm run levels:preview` → self-check against source → validation tests green. After the batch: orchestrator dispatches an **independent verifier agent** (sees only JSON + sources) whose diff report must be clean before the gate.
@@ -408,32 +408,32 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 8 — Editor & Neo campaign (Lane main after G3)
 
-### - [ ] T8.1 Editor: painting & wave editing
+### - [x] T8.1 Editor: painting & wave editing
 **Files:** create `src/editor/{editor,tools,waveEditor}.ts`, `src/ui/screens/editor.ts` (route `#editor`, code-split). Test `tests/editor/tools.test.ts` (paint tile/subcell mode produces expected LevelData mutations; validation surfaces content §1 errors verbatim).
 **Spec:** arch §9; content §1, §5.
 **Commit:** `feat(editor): terrain painting and enemy wave editor`
 
-### - [ ] T8.2 Editor: test-play, save, share codes
+### - [x] T8.2 Editor: test-play, save, share codes
 **Files:** create `src/editor/share.ts`; extend editor + menus (custom levels list/play). Tests `tests/editor/share.test.ts` (roundtrip JSON↔`BC1.` base64url; tampered payload → readable error; unknown prefix `BC2.` rejected).
 **Spec:** arch §9; content §5.
 **Commit:** `feat(editor): instant test-play, local save, share codes`
 
-### - [ ] T8.3 Neo campaign (12 stages)
+### - [x] T8.3 Neo campaign (12 stages)
 **Files:** create `src/levels/neo/neo01..12.json` per content §3 briefs (authored via the editor — dogfood; any editor friction reported becomes fix-first).
 **Tests:** schema+completability; contact sheet regenerated; difficulty positions per content §4.
 **Commit:** `content: neo campaign (12 stages)` — playtest gate with owner.
 
 ## Phase 9 — Inputs & platform (Lane main)
 
-### - [ ] T9.1 Gamepad
+### - [x] T9.1 Gamepad
 **Files:** create `src/input/gamepad.ts`; extend input.ts + menus nav. Test `tests/input/gamepad.test.ts` (fake Gamepad API: standard mapping, hot-plug assignment first-free-slot, stick 4-way latch with 0.4 deadzone, menu nav events).
 **Spec:** GDD §7; arch §7. **Commit:** `feat(input): hot-plug gamepads for both players`
 
-### - [ ] T9.2 Touch & responsive
+### - [x] T9.2 Touch & responsive
 **Files:** create `src/input/touch.ts`, touch CSS; portrait HUD layout. Test `tests/input/touch.test.ts` (virtual stick vector→4-way latch; fire button; only on touch devices flag).
 **Spec:** GDD §7; art §10 portrait. **Commit:** `feat(input): touch controls with responsive layouts`
 
-### - [ ] T9.3 PWA & build
+### - [x] T9.3 PWA & build
 **Files:** modify `vite.config.ts` (vite-plugin-pwa precache-all, manifest), create `scripts/gen-icons.ts` (renders icon SVG → PNGs via Playwright screenshot), `public/` icons. Test: `npm run build` + `npm run preview` + e2e against preview; offline reload works (Playwright offline context).
 **Spec:** arch §10; GDD §3. **Commit:** `feat(app): installable offline PWA`
 **⛔ Gate G4** — owner tests on phone + gamepad.
@@ -444,7 +444,7 @@ e2e/smoke.spec.ts             · Playwright
 Measure against arch §11 budgets on dev machine + throttled CPU (Playwright CDP 4× throttle): fix violations (pool audits, draw-call counts via renderer.info snapshot test ≤120, sim perf test tightened to spec 2ms/step equivalent). **Commit:** `perf: meet frame/step/draw budgets`
 
 ### - [ ] T10.2 Calibration session (owner + orchestrator)
-Execute fidelity §16 protocol with the owner running the NES reference (Mesen2): update each `[CAL-nn]` constant + fidelity doc + affected test expectations; re-record golden replays in the same commit batch. AI `[FEEL]` A/B tuning per §16.5. **Commit:** `fix(core): calibrated CAL constants against NES reference`
+Execute fidelity §16. **Done differently than planned and better:** no emulator and no owner session were needed — the Battle City (J) disassembly pinned in Phase 7 carries the game code as well as the stage data, so all 18 constants were read out of the 6502 (see fidelity §16). Updated each constant + fidelity doc + affected test expectations; re-recorded the golden replays in the same commit. AI `[FEEL]` stays [FEEL] with a stated reason (§16.5). **Commit:** `fix(core): calibrate CAL constants against the ROM`
 
 ### - [ ] T10.3 Accessibility & E2E hardening
 Verify GDD §10 + art §11: reduced-motion path, high-contrast toggle, colorblind silhouette review, HUD contrast ≥4.5:1 (automated check on palette), remap flow; extend e2e: 2P start, editor create→share→import→play, pause/resume, game-over→hi-score entry. **Commit:** `test: e2e hardening + accessibility pass`

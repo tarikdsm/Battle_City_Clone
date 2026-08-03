@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createGame, hashState, stepGame } from '../../src/core/game';
 import { makeTank, moveTank } from '../../src/core/systems/movement';
+import { ICE_COAST_U } from '../../src/core/constants';
 import { NULL_INTENT } from '../../src/core/types';
 import type {
   Dir,
@@ -248,6 +249,10 @@ describe('movement — ice slide (P-09)', () => {
     return level;
   }
 
+  // CAL-05: the ROM's coast is 28 px ($DBBD arms a 28-step counter that
+  // $DC5F decrements and moves one pixel for), so ICE_DECEL is now derived from
+  // that distance instead of the old guessed 240 u/s^2 (which coasted ~4 u).
+  // These bounds used to be 3.5..5 u — they encoded the guess.
   it('P-09: releasing input on ice slides further then stops at rest', () => {
     const s = playingGame(iceRowLevel());
     const t = addPlayer(s, { x: 48, y: 80, dir: RIGHT });
@@ -265,8 +270,8 @@ describe('movement — ice slide (P-09)', () => {
     } while (t.sliding && guard < 200);
 
     const extra = t.x - xRelease;
-    expect(extra).toBeGreaterThan(3.5);
-    expect(extra).toBeLessThan(5);
+    expect(extra).toBeGreaterThan(ICE_COAST_U - 1);
+    expect(extra).toBeLessThan(ICE_COAST_U + 1);
     expect(skids).toBe(1); // emitted exactly once
     expect(t.sliding).toBe(false);
     expect(t.slideV).toBe(0);
@@ -289,7 +294,7 @@ describe('movement — ice slide (P-09)', () => {
   it('P-09: momentum carries the slide off the ice edge (no hard stop)', () => {
     // Ice under a single tile (x 48..64). The tank is released near the far edge
     // so the slide crosses OFF the ice partway through. A hard stop at the edge
-    // would cut the slide short (~3u to x=60); momentum yields the full ~4.6u.
+    // would cut the slide short (~3u to x=60); momentum yields the full ~28u.
     const level = emptyLevel();
     setTileChar(level, 3, 5, 'I'); // x 48..64; center leaves ice at x >= 60
     const s = playingGame(level);
@@ -305,8 +310,9 @@ describe('movement — ice slide (P-09)', () => {
     } while (t.sliding && guard < 200);
 
     expect(t.x).toBeGreaterThan(60); // slid clear off the ice zone
-    expect(t.x - xRelease).toBeGreaterThan(3.5); // full momentum, not an edge stop
-    expect(t.x - xRelease).toBeLessThan(5);
+    // Full momentum, not an edge stop.
+    expect(t.x - xRelease).toBeGreaterThan(ICE_COAST_U - 1);
+    expect(t.x - xRelease).toBeLessThan(ICE_COAST_U + 1);
   });
 });
 

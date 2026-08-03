@@ -65,6 +65,7 @@ import {
   FramebufferTexture,
   HalfFloatType,
   NoColorSpace,
+  UnsignedByteType,
   Vector2,
   WebGLRenderTarget,
   type Camera,
@@ -388,7 +389,28 @@ export function createPostChain(
   scene: Scene,
   camera: Camera,
 ): PostChain {
-  const composer = new EffectComposer(gl);
+  // The composer's own ping-pong pair, explicitly **8-bit**.
+  //
+  // `EffectComposer` defaults to `HalfFloatType` (EffectComposer.js:69), which
+  // is the right default for a chain that renders an HDR scene into it. This
+  // chain does not: pass 0 is `copyFramebufferToTexture` of the finished drawing
+  // buffer, i.e. LDR sRGB **bytes** that are already quantised to 8 bits, and
+  // every pass after it (bloom composite, AA, vignette/grade) is a pure image
+  // operation whose output is likewise in [0,1]. Half-float buffers therefore
+  // carry no information the input has — they only double the bandwidth of two
+  // full-resolution targets and of every read and write through them, which on
+  // an integrated GPU is exactly the wrong place to spend it.
+  //
+  // The one genuinely HDR surface in the chain, the bloom source, keeps its
+  // half-float target (`buildBloom` below) because it IS a linear un-tone-mapped
+  // render whose core goes past 1.0 before the additive composite clips it.
+  //
+  // `type` is the only field that departs from the default; size is a
+  // placeholder because `applySize` sets it before the first frame.
+  const composer = new EffectComposer(
+    gl,
+    new WebGLRenderTarget(1, 1, { type: UnsignedByteType }),
+  );
   // The composer never renders the scene: pass 0 is always the copied beauty.
   // `NoColorSpace` is deliberate — the copy holds the drawing buffer's own sRGB
   // bytes, and every pass below is a pure image operation on those values, so
@@ -653,14 +675,18 @@ export function createPostChain(
 // Auto quality (arch §5)
 // ---------------------------------------------------------------------------
 
-/** What the boot probe measures. Injected in tests — no real timing there. */
+/** What the probe measures. Injected in tests — no real timing there. */
 export interface DeviceSample {
-  /** Frames per second over a ~1 s sample on the title/boot screen. */
+  /** Frames per second over a ~1 s window, taken **after** warm-up. */
   readonly fps: number;
   /** `devicePixelRatio`. */
   readonly dpr: number;
   /** `navigator.hardwareConcurrency`, or {@link ASSUMED_CORES} if absent. */
   readonly cores: number;
+  /** Frames discarded before the window opened. Diagnostics; not a decision. */
+  readonly warmupFrames?: number;
+  /** Wall-clock the warm-up took, ms. Diagnostics; not a decision. */
+  readonly warmupMs?: number;
 }
 
 /**
@@ -725,23 +751,110 @@ export function concreteQuality(
 }
 
 /**
- * A ~`ms` frame-rate sample from `requestAnimationFrame`. Not unit-tested — it
- * is the one part of the probe that is pure timing, which is exactly why
- * {@link decideAutoQuality} takes the number instead of measuring it.
+ * Frames discarded before the measurement window opens.
+ *
+ * **This is the whole fix for the T9 measurement** (`docs/calibration/
+ * touch-layout.json`, `mobileQuality`). `sampleDevice` used to start counting
+ * the instant `main.ts` finished evaluating, which is *during* the renderer's
+ * first draws — shader compilation, pipeline warm-up, the post chain's first
+ * allocations. So the second it averaged was the most expensive second of the
+ * app's life, and on this machine it measured:
+ *
+ * | profile | probe read | steady state |
+ * |---|---|---|
+ * | Pixel 5 metrics, no throttle | **0.0 fps** | 165.6 fps |
+ * | desktop 1280×800, no throttle | 32.7 fps | 94.0 fps |
+ *
+ * Every device therefore scored below `AUTO_THRESHOLDS.lowFps` and **Auto meant
+ * Low, universally** — the entire render phase invisible by default. Sixty
+ * frames is one vsync second of headroom on a 60 Hz display and rather less on a
+ * fast one, which is the right shape: warm-up is a *frame* count because what is
+ * being waited out is per-shader compilation, not wall-clock.
+ */
+export const WARMUP_FRAMES = 60;
+
+/**
+ * Wall-clock cap on the warm-up.
+ *
+ * Without it a device delivering one frame a second would spend a minute in
+ * warm-up. The number has to clear a *realistic* warm-up or it reintroduces the
+ * bug it exists beside: 60 frames costs 1 s of vsync on a 60 Hz display plus
+ * however long the jank lasts, and the jank measured here was ~1–1.5 s. Three
+ * seconds clears that with room; a device still stuttering at 3 s is measured
+ * while stuttering and gets Low, which for something that spends three seconds
+ * compiling shaders is not a misdiagnosis.
+ *
+ * The cost of the whole warm-up is that a weak device runs at High for up to
+ * ~3 s before being demoted, once, on the first stage. That is the price of not
+ * handing every device Low for ever.
+ */
+export const WARMUP_MAX_MS = 3000;
+
+/**
+ * The slice of `Window` the probe reads. `Window` satisfies it structurally.
+ *
+ * It exists so the sampler is **testable**, which it was not before: the old
+ * signature took a `Window`, so the one part of the probe with a real failure
+ * mode was the one part no test could reach. `tests/render/post.test.ts` now
+ * drives it with a fake clock and a fake frame scheduler, including the exact
+ * jank profile the boot second has.
+ */
+export interface SampleHost {
+  readonly devicePixelRatio: number;
+  readonly navigator: { readonly hardwareConcurrency?: number };
+  readonly performance: { now(): number };
+  requestAnimationFrame(cb: (t: number) => void): number;
+}
+
+/**
+ * A ~`ms` frame-rate sample from `requestAnimationFrame`, taken after
+ * {@link WARMUP_FRAMES} frames (or {@link WARMUP_MAX_MS}, whichever comes
+ * first) have been discarded.
+ *
+ * The measurement window starts at the frame the warm-up ends on, not at the
+ * call — so the number is what the device sustains, not what it costs to get
+ * there.
  */
 export async function sampleDevice(
-  win: Window,
+  win: SampleHost,
   ms = 1000,
+  warmupFrames = WARMUP_FRAMES,
+  warmupMaxMs = WARMUP_MAX_MS,
 ): Promise<DeviceSample> {
-  const fps = await new Promise<number>((resolve) => {
+  const measured = await new Promise<{
+    fps: number;
+    warmupFrames: number;
+    warmupMs: number;
+  }>((resolve) => {
+    const started = win.performance.now();
+    let warmed = 0;
+    let warming = warmupFrames > 0;
+    let windowStart = started;
+    let warmupMs = 0;
     let frames = 0;
-    const t0 = win.performance.now();
+
     const tick = (): void => {
-      const elapsed = win.performance.now() - t0;
+      const now = win.performance.now();
+      if (warming) {
+        warmed++;
+        if (warmed >= warmupFrames || now - started >= warmupMaxMs) {
+          warming = false;
+          // The window opens HERE. Everything before it is thrown away.
+          windowStart = now;
+          warmupMs = now - started;
+        }
+        win.requestAnimationFrame(tick);
+        return;
+      }
+      const elapsed = now - windowStart;
       if (elapsed >= ms) {
         // Guard the degenerate case: a backgrounded tab can fire one frame and
         // then jump the clock, and 1 frame / 0.001 s must not read as fast.
-        resolve(elapsed > 0 ? (frames * 1000) / elapsed : 0);
+        resolve({
+          fps: elapsed > 0 ? (frames * 1000) / elapsed : 0,
+          warmupFrames: warmed,
+          warmupMs,
+        });
         return;
       }
       frames++;
@@ -749,10 +862,13 @@ export async function sampleDevice(
     };
     win.requestAnimationFrame(tick);
   });
+
   const cores = win.navigator.hardwareConcurrency;
   return {
-    fps,
+    fps: measured.fps,
     dpr: win.devicePixelRatio || 1,
     cores: typeof cores === 'number' && cores > 0 ? cores : ASSUMED_CORES,
+    warmupFrames: measured.warmupFrames,
+    warmupMs: Math.round(measured.warmupMs),
   };
 }

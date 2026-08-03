@@ -164,16 +164,22 @@ const MOW: readonly Segment[] = [
 // the whole recording while producing kills, drops and terrain damage. The three
 // stage numbers differ on purpose — the spawn cadence formula (P-25) is a function
 // of stage and player count, so the set covers three different cadences.
+//
+// The seeds were re-swept in T10 after the ROM calibration (fidelity §16) moved
+// the spawn cycle's starting point, the spawn animation length, the blocked-spawn
+// retry, the power-up drop table and the drop grid. The routes are unchanged —
+// the same three scripts, re-seeded — because the runs they describe are still
+// the runs worth recording; only which seed produces one survived the change.
 const SCENARIOS: readonly Scenario[] = [
   // replay1 — one player patrolling level-basic around the brick diamond and
   // firing throughout. Shooting into blocked lanes is deliberate: the sustained
   // terrain damage is half the point, and chewing through a wall is what lets the
-  // patrol keep its shape. The player dies twice here and comes back, so the run
+  // patrol keep its shape. The player dies once here and comes back, so the run
   // also covers the death → life → respawn path end to end.
   {
     name: 'replay1',
     levelFile: 'level-basic.json',
-    seed: 18,
+    seed: 17,
     players: 1,
     stageNumber: 16,
     ticks: 1800,
@@ -205,7 +211,7 @@ const SCENARIOS: readonly Scenario[] = [
   {
     name: 'replay2',
     levelFile: 'level-mixed.json',
-    seed: 15,
+    seed: 253,
     players: 2,
     stageNumber: 3,
     ticks: 1800,
@@ -239,7 +245,7 @@ const SCENARIOS: readonly Scenario[] = [
   {
     name: 'replay3',
     levelFile: 'level-open.json',
-    seed: 4,
+    seed: 55,
     players: 1,
     stageNumber: 8,
     ticks: 2700,

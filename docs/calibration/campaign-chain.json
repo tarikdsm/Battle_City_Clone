@@ -1,0 +1,244 @@
+{
+  "capturedAt": "2026-08-02T17:45:37.492Z",
+  "url": "http://localhost:5173/",
+  "viewport": [
+    1280,
+    800
+  ],
+  "screenshots": [
+    "campaign-00-stage-1-board.png",
+    "campaign-01-stage-1-tally.png",
+    "campaign-02-stage-2-curtain.png",
+    "campaign-03-stage-2-board.png"
+  ],
+  "chain": [
+    "play(stage 1)",
+    "tally",
+    "intro",
+    "play(stage 2)"
+  ],
+  "stageLog": [
+    "stage 1 orig-01 (counter 1)",
+    "stage 2 orig-02 (counter 2)"
+  ],
+  "secondStageCurtain": "STAGE 2",
+  "terrainDiff": {
+    "stage1": "orig-01",
+    "stage2": "orig-02",
+    "tilesDiffering": 61
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "id": "orig-01",
+      "name": "Stage 1",
+      "fingerprint": "04076866"
+    },
+    {
+      "stage": 2,
+      "id": "orig-02",
+      "name": "Stage 2",
+      "fingerprint": "b912cda8"
+    },
+    {
+      "stage": 3,
+      "id": "orig-03",
+      "name": "Stage 3",
+      "fingerprint": "5f44c8ba"
+    },
+    {
+      "stage": 4,
+      "id": "orig-04",
+      "name": "Stage 4",
+      "fingerprint": "4a83e068"
+    },
+    {
+      "stage": 5,
+      "id": "orig-05",
+      "name": "Stage 5",
+      "fingerprint": "56b8718e"
+    },
+    {
+      "stage": 6,
+      "id": "orig-06",
+      "name": "Stage 6",
+      "fingerprint": "f2440da6"
+    },
+    {
+      "stage": 7,
+      "id": "orig-07",
+      "name": "Stage 7",
+      "fingerprint": "b51bdc61"
+    },
+    {
+      "stage": 8,
+      "id": "orig-08",
+      "name": "Stage 8",
+      "fingerprint": "acea9b34"
+    },
+    {
+      "stage": 9,
+      "id": "orig-09",
+      "name": "Stage 9",
+      "fingerprint": "e205815e"
+    },
+    {
+      "stage": 10,
+      "id": "orig-10",
+      "name": "Stage 10",
+      "fingerprint": "df7de0db"
+    },
+    {
+      "stage": 11,
+      "id": "orig-11",
+      "name": "Stage 11",
+      "fingerprint": "e293330d"
+    },
+    {
+      "stage": 12,
+      "id": "orig-12",
+      "name": "Stage 12",
+      "fingerprint": "3654f9a6"
+    },
+    {
+      "stage": 13,
+      "id": "orig-13",
+      "name": "Stage 13",
+      "fingerprint": "721a5daf"
+    },
+    {
+      "stage": 14,
+      "id": "orig-14",
+      "name": "Stage 14",
+      "fingerprint": "e25e6c41"
+    },
+    {
+      "stage": 15,
+      "id": "orig-15",
+      "name": "Stage 15",
+      "fingerprint": "8c3a9309"
+    },
+    {
+      "stage": 16,
+      "id": "orig-16",
+      "name": "Stage 16",
+      "fingerprint": "6720fa76"
+    },
+    {
+      "stage": 17,
+      "id": "orig-17",
+      "name": "Stage 17",
+      "fingerprint": "c1fae0aa"
+    },
+    {
+      "stage": 18,
+      "id": "orig-18",
+      "name": "Stage 18",
+      "fingerprint": "c1442c6f"
+    },
+    {
+      "stage": 19,
+      "id": "orig-19",
+      "name": "Stage 19",
+      "fingerprint": "58ed262c"
+    },
+    {
+      "stage": 20,
+      "id": "orig-20",
+      "name": "Stage 20",
+      "fingerprint": "3c725a06"
+    },
+    {
+      "stage": 21,
+      "id": "orig-21",
+      "name": "Stage 21",
+      "fingerprint": "e5fadde0"
+    },
+    {
+      "stage": 22,
+      "id": "orig-22",
+      "name": "Stage 22",
+      "fingerprint": "0e1c947c"
+    },
+    {
+      "stage": 23,
+      "id": "orig-23",
+      "name": "Stage 23",
+      "fingerprint": "41e7a912"
+    },
+    {
+      "stage": 24,
+      "id": "orig-24",
+      "name": "Stage 24",
+      "fingerprint": "70eb1068"
+    },
+    {
+      "stage": 25,
+      "id": "orig-25",
+      "name": "Stage 25",
+      "fingerprint": "dca05dfa"
+    },
+    {
+      "stage": 26,
+      "id": "orig-26",
+      "name": "Stage 26",
+      "fingerprint": "6c8282e9"
+    },
+    {
+      "stage": 27,
+      "id": "orig-27",
+      "name": "Stage 27",
+      "fingerprint": "4f9a0ee5"
+    },
+    {
+      "stage": 28,
+      "id": "orig-28",
+      "name": "Stage 28",
+      "fingerprint": "a509279d"
+    },
+    {
+      "stage": 29,
+      "id": "orig-29",
+      "name": "Stage 29",
+      "fingerprint": "7be4f338"
+    },
+    {
+      "stage": 30,
+      "id": "orig-30",
+      "name": "Stage 30",
+      "fingerprint": "402f846a"
+    },
+    {
+      "stage": 31,
+      "id": "orig-31",
+      "name": "Stage 31",
+      "fingerprint": "5ee93712"
+    },
+    {
+      "stage": 32,
+      "id": "orig-32",
+      "name": "Stage 32",
+      "fingerprint": "1eb0d528"
+    },
+    {
+      "stage": 33,
+      "id": "orig-33",
+      "name": "Stage 33",
+      "fingerprint": "be14aa3b"
+    },
+    {
+      "stage": 34,
+      "id": "orig-34",
+      "name": "Stage 34",
+      "fingerprint": "c305c515"
+    },
+    {
+      "stage": 35,
+      "id": "orig-35",
+      "name": "Stage 35",
+      "fingerprint": "bf562357"
+    }
+  ],
+  "distinctLayouts": 35,
+  "consoleErrors": []
+}

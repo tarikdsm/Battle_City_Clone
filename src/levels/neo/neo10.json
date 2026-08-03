@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "id": "neo-10",
+  "name": "Sandglass",
+  "provenance": "authored",
+  "source": "Authored in this project’s own editor (content §3 dogfooding gate); rebuilt tile by tile by `npm run levels:author`.",
+  "notes": "An hourglass with a one-tile waist of steel: the brick around it can be widened, the waist cannot, and everything has to come through.",
+  "effectiveStage": 32,
+  "terrain": [
+    ".............",
+    "B...........B",
+    "BB...WWW...BB",
+    "BBB..WWW..BBB",
+    "BBBB.BBB.BBBB",
+    "BBBBS...SBBBB",
+    "BBBBBS.SBBBBB",
+    "BBBBS...SBBBB",
+    "BBBB..S..BBBB",
+    "BBB..BBB..BBB",
+    "BB.BBBBBBB.BB",
+    "B.BB.....BB.B",
+    "............."
+  ],
+  "partials": [
+    {
+      "tx": 5,
+      "ty": 10,
+      "mask": 3
+    },
+    {
+      "tx": 6,
+      "ty": 10,
+      "mask": 3
+    },
+    {
+      "tx": 7,
+      "ty": 10,
+      "mask": 3
+    }
+  ],
+  "enemies": [
+    "power",
+    "power",
+    "power",
+    "power",
+    "power",
+    "power",
+    "fast",
+    "fast",
+    "fast",
+    "fast",
+    "power",
+    "power",
+    "power",
+    "power",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor",
+    "armor"
+  ]
+}
