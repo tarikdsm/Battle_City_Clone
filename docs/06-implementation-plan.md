@@ -28,7 +28,7 @@ Every task inherits these. Violations fail review.
 
 Sequential subagent execution on branch `dev`. Live ledger: `.superpowers/sdd/progress.md` (git-ignored, local); committed snapshot + resume protocol: [07-execution-status.md](07-execution-status.md).
 
-- **Phases 0 and 1 COMPLETE** — T0.1…T1.8 all implemented and task-reviewed (checked below). **211 tests green**, parity P-01…P-26 covered and enforced by a meta-test, three golden replays locked, sim at **2.11 µs/step** against a 2 ms budget.
+- **ALL PHASES COMPLETE — v1.0.0 released 2026-08-02.** 1120 unit tests, 18 e2e, 26 NES-parity invariants, 15 of 18 CAL constants closed against the ROM disassembly.
 - **⛔ Gate G1 — awaiting owner review.** Evidence: parity coverage table + fixture stats + perf in `.superpowers/sdd/task-T1.8-report.md`.
 - **Next after G1:** Phase 2 (render foundation), starting T2.1. Read the residual-risk list in [07-execution-status.md](07-execution-status.md) §6 before writing the T2.x briefs — notably that event payloads are unpinned at integration level and seven `GameEvent` variants never occur in any fixture.
 
@@ -440,16 +440,16 @@ e2e/smoke.spec.ts             · Playwright
 
 ## Phase 10 — QA, calibration, release (Lane main)
 
-### - [ ] T10.1 Performance pass
+### - [x] T10.1 Performance pass
 Measure against arch §11 budgets on dev machine + throttled CPU (Playwright CDP 4× throttle): fix violations (pool audits, draw-call counts via renderer.info snapshot test ≤120, sim perf test tightened to spec 2ms/step equivalent). **Commit:** `perf: meet frame/step/draw budgets`
 
-### - [ ] T10.2 Calibration session (owner + orchestrator)
+### - [x] T10.2 Calibration session (owner + orchestrator)
 Execute fidelity §16. **Done differently than planned and better:** no emulator and no owner session were needed — the Battle City (J) disassembly pinned in Phase 7 carries the game code as well as the stage data, so all 18 constants were read out of the 6502 (see fidelity §16). Updated each constant + fidelity doc + affected test expectations; re-recorded the golden replays in the same commit. AI `[FEEL]` stays [FEEL] with a stated reason (§16.5). **Commit:** `fix(core): calibrate CAL constants against the ROM`
 
-### - [ ] T10.3 Accessibility & E2E hardening
+### - [x] T10.3 Accessibility & E2E hardening
 Verify GDD §10 + art §11: reduced-motion path, high-contrast toggle, colorblind silhouette review, HUD contrast ≥4.5:1 (automated check on palette), remap flow; extend e2e: 2P start, editor create→share→import→play, pause/resume, game-over→hi-score entry. **Commit:** `test: e2e hardening + accessibility pass`
 
-### - [ ] T10.4 Release 1.0
+### - [x] T10.4 Release 1.0
 `npm version 1.0.0`; README gameplay/screenshots/controls section; final `npm run check` + e2e + manual playtest checklist (orchestrator-authored, owner-executed); tag `v1.0.0`. Deployment target decided with owner (static host / GitHub Pages / itch.io — needs owner input). **Commit:** `chore: release 1.0.0`
 **⛔ Gate G5** — ship.
 
