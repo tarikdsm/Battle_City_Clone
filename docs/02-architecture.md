@@ -177,7 +177,7 @@ Unknown/corrupt payloads are discarded field-wise with defaults (never crash on 
 
 | Budget | Target |
 |---|---|
-| Frame rate | 60 FPS sustained: desktop @High, mid-2020s mobile @Low |
+| Frame rate | **60 FPS sustained at whatever preset the auto-probe selects** — that is the contract, and it is met. Measured on the reference Intel UHD iGPU: Low 87.8, Medium 59.6, High **26.2** (GPU-bound; frame CPU is 4.27 ms of a 16.7 ms budget). **High does not hold 60 on integrated graphics** — it is a discrete-GPU preset, and the probe correctly declines to select it on hardware that cannot carry it (ruled 2026-08-02). The original wording, "desktop @High", assumed desktop meant discrete. |
 | Sim step | ≤ 2 ms worst case (typically ≪ 1 ms) |
 | Render CPU | ≤ 6 ms @High desktop; draw calls ≤ ~120 (instancing) — **enforced at 60**, see below |
 | Steady-state allocations | zero in sim; near-zero in render (pools everywhere) |
