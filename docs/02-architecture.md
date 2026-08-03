@@ -194,6 +194,7 @@ Two things T10 measured that this table did not previously say:
 - **Draw calls are far inside the ~120 allowance** — 41–53 at High, 14–20 at Low — so the artifact enforces **60**, which is a bound the scene is actually held to rather than one it cannot reach.
 - **Every measurement carries a machine-speed index.** The artifact records `busyMs`, the wall-clock cost of a fixed amount of arithmetic in the page, and refuses to certify a run's FPS rows when the machine was more than 1.5× slower than its unloaded reference. Without it a contended laptop is indistinguishable from a regression, and this repo's rule is that a measurement is evidence only if something committed backs it.
 - **The Low-preset mobile target is approximated by a 4× CPU throttle** (`Emulation.setCPUThrottlingRate`), because no phone has ever run this build. That models a slower CPU and *not* a slower GPU, and `docs/08-release-notes.md` says so.
+- **FPS is reported as a lower bound and judged only when it clears.** The verdict key is `fpsProvenAt60`: a bound that clears 60 proves the budget is met, a bound below it proves nothing, because `busyMs` sees CPU contention and cannot see a shared GPU. Where a figure matters, the artifact to keep is therefore the **highest** FPS across repeated runs — the tightest of the bounds — not the run with the quietest CPU.
 
 ## 12. Error handling & debug
 

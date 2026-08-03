@@ -13,8 +13,8 @@ This document is deliberately blunt about what is verified, what is emulated, an
 | | |
 |---|---|
 | **Simulation** | A deterministic 60 Hz core with no dependencies, no DOM and no clock of its own. 26 NES-parity invariants (fidelity §15), each one an automated test. |
-| **Stages** | The **35 original stages**, transcribed from the Battle City (J) ROM's own stage table — not redrawn from screenshots. Plus a 12-stage authored campaign that ships as data but is **not reachable from the menu** (see §4). |
-| **Modes** | 1P and 2P local co-op, stage select over unlocked progress, a map editor with share codes, local high scores. |
+| **Stages** | The **35 original stages**, transcribed from the Battle City (J) ROM's own stage table — not redrawn from screenshots — plus the **12-stage authored Neo campaign**, with its own stage select and its own saved progress. |
+| **Modes** | 1P and 2P local co-op, two campaigns each with its own stage select and progress, a map editor with share codes, local high scores. |
 | **Presentation** | A calibrated 2.5D renderer: instanced geometry, a measured lighting rig, a post chain, camera FX, and a full synthesized soundtrack with adaptive layers. No image, audio or font asset is downloaded — every pixel and every sample is generated at run time. |
 | **Platform** | An installable, offline-capable PWA. Keyboard, gamepad and touch input. |
 | **Accessibility** | `prefers-reduced-motion` support, a required high-contrast mode, per-player key remapping, silhouette-distinct enemy types. |
@@ -54,13 +54,14 @@ Full table, every address, and the reasoning for all three deviations: [fidelity
 
 | Claim | How it is backed |
 |---|---|
-| The simulation obeys the written rules | 26 parity invariants, 1,096 unit tests, three golden replays (same seed + same input log ⇒ identical state hash) |
+| The simulation obeys the written rules | 26 parity invariants, 1,111 unit tests, three golden replays (same seed + same input log ⇒ identical state hash) |
 | The 35 stages are the originals | Regenerated on demand by `npm run levels:transcribe` from a pinned ROM disassembly commit, cross-checked against two independent reimplementations on every run |
+| Both campaigns are reachable and chain | Played, not read: the keyboard walks the menu into each campaign's own stage select, clears a stage against the real AI, and asserts the *layout* the next stage served |
 | The 18 calibration constants | Each cites the 6502 label or address it came from (fidelity §16) |
 | The lighting and palette | Measured, not eyeballed: `docs/calibration/lighting.json` holds the probe values and their tolerances |
 | High-contrast mode separates the tanks | Measured: worst luma pair goes from 2.62 to 59.98 (`docs/calibration/high-contrast.json`) |
 | Frame budgets | Measured in the real play loop, on the real page, with the machine's own load index recorded next to the numbers: `docs/calibration/play.json` |
-| The screens and flows work | 16 Playwright tests through the real UI with a real keyboard: boot, resize, touch layout, a played stage, 2P start, pause/resume, the editor's create → share → import → play round trip, game over → high scores, and the accessibility pass below |
+| The screens and flows work | 18 Playwright tests through the real UI with a real keyboard: boot, resize, touch layout, a played stage, a scripted 2P run, pause/resume, the editor's create → share → import → play round trip, game over → high scores, both Neo campaign walks, and the accessibility pass below |
 
 ---
 
@@ -74,9 +75,19 @@ Nothing below is a suspicion. Each line is something that was never tested, stat
 - **No real phone or tablet has ever run this build.** Touch controls, layout, and the auto-quality probe were verified against emulated device profiles and CDP CPU throttling. A throttle models a slower CPU; it does not model a phone's GPU or its thermals.
 - **iOS and WebKit are entirely unverified.** Everything was run in Chromium. Safari's audio policies, its PWA behaviour and its WebGL differences are unknown territory for this build.
 - **The app has never been installed to a phone's home screen.** "Installable" was verified as a desktop app window plus a real service-worker offline reload — not as an Add-to-Home-Screen launch.
-- **60 FPS at High has never been shown, and has not been disproved either.** The development machine has an Intel UHD integrated GPU that it shares with other work, and no measurement here can separate a GPU-bound game from a shared GPU. What the committed artifact *does* prove, because a lower bound that clears a budget is proof: **89 FPS at Low**, and **62.5 FPS at Low under a 4× CPU throttle** — the stand-in for arch §11's mid-2020s phone. What it shows without proving: 30 FPS at High and 36 at Medium on a contended machine, against 45 and 58 measured on a quieter one in Phase 9. Auto, the shipped default, picks a preset after watching the device actually draw, so nobody is handed a preset their GPU cannot run.
-- **Every CPU-side budget is met with room.** Sim step 0.20 ms mean and 0.75 ms at the 95th percentile against a 2 ms budget; render CPU 5.4 ms at the 95th percentile against 6 ms at High; 41–53 draw calls against a bound of 60. All measured in the real play loop with a real board.
-- **The performance numbers were taken on a shared machine.** The harness records a machine-speed index with every row and refuses to certify a run taken on a contended CPU. Read `machine.certified` and `machine.certifyNote` in `docs/calibration/play.json` before quoting any frame rate from it — and note that the index bounds CPU contention only, never the GPU.
+- **The High preset does not hold 60 FPS on this machine's integrated GPU. Stated plainly, because it is the honest reading.** Every figure below is from the committed, certified artifact `docs/calibration/play.json`:
+
+  | Preset | FPS | frame CPU (mean / p95) | draw calls | verdict |
+  |---|---|---|---|---|
+  | High | 26.2 | 4.27 / 6.1 ms | 41–49 | 60 not held |
+  | Medium | 59.6 | 3.01 / 4.4 ms | 39–48 | on the line |
+  | Low | **87.8** | 1.74 / 2.9 ms | 14–20 | **60 proven** |
+  | Low, 4× CPU throttle | 50.8 | 14.09 / 24.1 ms | 14–20 | 60 not held under throttle |
+
+  The conclusion is not "the machine was busy". Across roughly thirty capture runs spanning a whole session, High was **never once** observed above 31 FPS — while its frame CPU is 4.3 ms of a 16.7 ms budget, i.e. the code spends a quarter of the frame and then waits. The binding constraint is the GPU finishing the picture, and on an Intel UHD it does not finish it sixty times a second at this preset.
+- **Every CPU-side budget is met with room, at every preset.** Sim step 0.15–0.18 ms mean and ≤ 0.7 ms at the 95th percentile against a 2 ms budget; render CPU 5.6 ms at the 95th percentile against 6 ms at High; 49 draw calls at worst against a bound of 60.
+- **The frame rates are lower bounds, not exact figures.** The harness records a machine-speed index with every row and refuses to certify a run taken on a contended CPU — but that index cannot see a *shared GPU*, and this machine's is shared. So each FPS row is a floor: 87.8 at Low proves Low clears 60; 26.2 at High proves only that it was at least that. Read `machine.certified` and `machine.certifyNote` in the artifact before quoting any of it.
+- **What this means for you:** leave quality on **Auto**. It samples the device actually drawing before it decides (arch §5), and on hardware like this it picks Low — which the same artifact shows running at 87.8 FPS. High is there for a machine with a discrete GPU, and nobody has run this on one.
 
 ### Accessibility, verified and not
 
@@ -88,8 +99,8 @@ Never checked by a human: whether the reduced-motion path *feels* calm, whether 
 
 ### Content and features
 
-- **The 12-stage Neo campaign is not reachable in 1.0.** The stages are authored, validated, completability-checked and committed (`src/levels/neo/`), and one was played end to end by a script. But routing a run through them needs a campaign selector threaded through the session, the progress store and the tally screen, which 1.0 does not have. The menu row is disabled and says so. They are shipped data, not a shipped mode.
-- **The Neo campaign's difficulty has never been judged by a human.** Twelve stages that validate and clear are not twelve stages that are *fun*.
+- **The Neo campaign's difficulty has never been judged by a human.** Twelve stages that validate, clear and sit in the originals' late difficulty band are not twelve stages that are *fun*. Its first and last stages have been played end to end by a script; the ten in between have been played by nobody, in any sense.
+- **No human has finished either campaign.** The originals' chain is proven stage 1 → 2, the Neo campaign's stage 1 → 2 and its ending at stage 12; the long middle of both is unwalked.
 - **The music's three "faithful" pieces are motif-shaped, not transcribed.** The stage fanfare, the game-over sting and the pause chirp were composed to the right character, length and instrumentation — no note-level source for Junko Ozawa's originals could be verified, and inventing one and calling it fidelity was refused. The game-over sting falls in two voices and ends unresolved in the original's 3 seconds; the stage fanfare is 2.0 s against the original's ~5, because the stage curtain is 2 s and the fanfare has to land on the music's downbeat. If your ear says no, each piece is one array of notes in one file.
 - **The enemy AI is a reconstruction, not the NES AI.** The disassembly *does* contain the original: enemies reconsider direction only on an 8-pixel lattice and only on a 1-in-16 roll, and they fire on a flat 1-in-32 per frame with no aiming at all. Ours is a weighted per-decision model with an alignment term. Adopting the ROM's would mean adopting its random generator and its frame-counter coupling, which is a different determinism model from this project's seeded one. Behaviourally equivalent is the claim; identical is not.
 - **No blind A/B review against NES footage has been done.** The AI's feel was never held against the original by a person.
@@ -107,8 +118,8 @@ Never checked by a human: whether the reduced-motion path *feels* calm, whether 
 ## 5. Known issues
 
 - High preset below 60 FPS on integrated graphics (§4).
-- The Neo campaign is unreachable from the menu (§4).
 - Three shader compile warnings from three.js's own FXAA pass appear on Medium and Low in Chromium/ANGLE. They come from upstream, are recorded in `docs/calibration/play.json` under `shaderWarnings`, and do not affect the image.
+- A rare, intermittent boot failure in the **headed screenshot harness** — not in the game. It fired once in fifteen consecutive headed capture runs and never in isolated ones: several headed browsers competing for one integrated GPU can lose a WebGL context, and the boot smoke test then sees the shader errors that follow. The same contention is why `playwright.config.ts` pins one worker. The test classifies what it caught and says so in its failure message, without excusing it.
 - The player-count choice is per sitting, not persisted: reloading the page returns to one player.
 
 ---

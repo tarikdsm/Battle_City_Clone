@@ -14,6 +14,8 @@ A faithful remake of Namco's **Battle City** (NES, 1985) for the browser. The ru
 
 Defend the eagle at the bottom of the field. Twenty enemy tanks come at it, four on the board at a time (six in two-player). Lose the eagle, or lose all your lives, and the run is over. Shoot bricks to open lanes, shoot the flashing tank to make it drop a power-up, and do not shoot your own base.
 
+Two campaigns: the **35 originals**, which loop after the last one as the NES does, and the **12-stage Neo campaign**, which is built for this remake and finishes.
+
 ### Controls
 
 | Action | Player 1 | Player 2 | Gamepad | Touch |
@@ -43,13 +45,12 @@ Star and grenade come up twice as often as the rest. That is the NES's own weigh
 ## What is in it
 
 - **The 35 original stages**, decoded from the Battle City (J) ROM's own stage table rather than redrawn from screenshots.
+- **A 12-stage Neo campaign** written for this remake, with its own stage select and its own saved progress. It plays in the originals' late difficulty band and it *ends* rather than looping.
 - **1P and 2P local co-op** — separate scores and lives, one shared enemy pool.
 - **A map editor**: terrain painting, mirror modes, enemy-wave editing, instant test-play, local saving, and share codes you can paste to a friend.
 - **A synthesized soundtrack** whose layers come in as a stage heats up, and every sound effect generated from oscillators and noise at run time.
 - **An installable, offline-capable PWA.**
 - Keyboard, gamepad and touch; reduced-motion and high-contrast modes; local high scores.
-
-A twelve-stage authored "Neo" campaign ships as data but is **not reachable from the menu in 1.0** — see the release notes.
 
 ---
 
