@@ -38,10 +38,10 @@ async function focusMenuRow(page: Page, id: string): Promise<void> {
   throw new Error(`could not focus menu row ${id}`);
 }
 
-test('2P: the menu starts a two-player run with two live HUD columns', async ({
+test('2P: a scripted two-player run — both spawn, both score, it ends', async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(400_000);
   const consoleErrors = watchErrors(page);
   await page.goto('/?quality=low&seed=11');
 
@@ -71,13 +71,44 @@ test('2P: the menu starts a two-player run with two live HUD columns', async ({
   await expect(hud(page, 'p1-score')).toHaveText('0');
   await expect(hud(page, 'p2-score')).toHaveText('0');
 
-  // And the run is live for both: play a beat and make sure nothing throws.
+  // And the run is live for BOTH of them. Both fire keys held, both stationary
+  // — the same reasoning as the Neo tests: fidelity §9 weights enemies toward
+  // the base, and P1 and P2 spawn either side of it on row 12, so each has a
+  // lane of its own. Scoring separately is the thing that proves two players
+  // rather than one player with a second HUD column (GDD §8).
   await expect(screen(page, 'intro')).toHaveCount(0, { timeout: 15_000 });
-  await page.keyboard.down('KeyW');
-  await page.keyboard.down('ArrowUp');
-  await page.waitForTimeout(1200);
-  await page.keyboard.up('KeyW');
-  await page.keyboard.up('ArrowUp');
+  await page.keyboard.down('KeyJ'); // P1 fire
+  await page.keyboard.down('Numpad0'); // P2 fire
+  const gameOver = screen(page, 'gameOver');
+  let p1 = 0;
+  let p2 = 0;
+  const until = Date.now() + 120_000;
+  while (Date.now() < until && (p1 === 0 || p2 === 0)) {
+    if ((await gameOver.count()) > 0) break;
+    p1 = Number(
+      (await hud(page, 'p1-score')
+        .textContent()
+        .catch(() => '0')) ?? 0,
+    );
+    p2 = Number(
+      (await hud(page, 'p2-score')
+        .textContent()
+        .catch(() => '0')) ?? 0,
+    );
+    await page.waitForTimeout(500);
+  }
+  await page.keyboard.up('KeyJ');
+  await page.keyboard.up('Numpad0');
+  expect(p1, 'P1 never scored').toBeGreaterThan(0);
+  expect(p2, 'P2 never scored').toBeGreaterThan(0);
+
+  // And it ENDS — one shared enemy pool eventually takes the base or the lives,
+  // and a 2P run that could not reach game over would strand the player.
+  await expect(gameOver).toBeVisible({ timeout: 180_000 });
+  await page.keyboard.press('Enter');
+  await expect(
+    screen(page, 'hiScoreEntry').or(screen(page, 'hiScore')).first(),
+  ).toBeVisible({ timeout: 20_000 });
 
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });
@@ -244,5 +275,196 @@ test('game over takes the high-score fork the score earned (fidelity §13)', asy
   await expect(page.locator('[data-role="scores"] tr')).not.toHaveCount(0);
   await page.keyboard.press('Enter');
   await expect(screen(page, 'title')).toBeVisible();
+  expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+});
+
+// --- the Neo campaign ------------------------------------------------------
+//
+// These two exist because the campaign was authored in T8.3 and reachable by
+// nobody until T10's follow-up: twelve validated, completability-checked stages
+// that no player could open, and a full unit suite that never noticed because
+// nothing asked. So both tests below are about REACHABILITY, walked with the
+// keyboard through the real menu.
+//
+// `?enemies=1` (dev-only) shortens the wave to one tank. It is a CONTENT knob,
+// not a rules knob — `withDebugEnemies` truncates `LevelData.enemies` before
+// `createGame` sees it, so the cadence, the cap, the carrier ordinals and the
+// stage-clear rule are all untouched. Without it a stage clear is twenty kills
+// away, which is not a thing an e2e suite can walk to.
+
+/**
+ * Clear a one-enemy stage by holding fire and standing still.
+ *
+ * Not a shortcut — it is the script `scripts/capture-campaign.ts` established
+ * for exactly this job, and the reasoning is the AI's: fidelity §9 weights
+ * enemies toward the base, so they come down into a stationary player's lane.
+ * A player who also moves has an outcome that compounds with the AI's own
+ * decisions, which is how the first version of these tests failed to kill a
+ * single tank in 150 seconds of wandering.
+ *
+ * Still a real game against a real AI, so the callers retry across seeds rather
+ * than assume one attempt lands.
+ */
+async function holdFireUntilCleared(
+  page: Page,
+  budgetMs: number,
+): Promise<boolean> {
+  const tally = screen(page, 'tally');
+  await page.keyboard.down('KeyJ');
+  // The tally's own key handler is attached during its `enter`, which happens a
+  // frame after the screen mounts. Pressing Enter the instant `tally` appears
+  // lands before that and does nothing at all — the run then sits on the tally
+  // for ever and the failure reads as "the next stage never started", which is
+  // a good hour's worth of looking in the wrong file. Callers settle first.
+  try {
+    const until = Date.now() + budgetMs;
+    while (Date.now() < until) {
+      if ((await tally.count()) > 0) return true;
+      await page.waitForTimeout(500);
+    }
+    return (await tally.count()) > 0;
+  } finally {
+    await page.keyboard.up('KeyJ');
+  }
+}
+
+test('neo campaign: menu -> its own stage select -> clear neo-01 -> neo-02', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const consoleErrors = watchErrors(page);
+  // `main.ts` logs the layout it actually served on every stage start, in dev
+  // builds. That line is the decisive assertion here: a HUD reading "2" proves
+  // only that a second stage began, not that it was neo-02 rather than the
+  // ORIGINAL stage 2 — which is exactly the confusion this feature could ship.
+  const stageLog: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.text().startsWith('stage ')) stageLog.push(msg.text());
+  });
+
+  // Seeds chosen, not arbitrary: swept for ones whose stationary hold-fire run
+  // actually kills the single tank inside a minute. It is a real game against a
+  // real AI, so three are kept rather than one.
+  let cleared = false;
+  for (const seed of [33, 37, 44]) {
+    stageLog.length = 0;
+    await page.goto(`/?quality=low&enemies=1&seed=${seed}`);
+    await page.evaluate(() => {
+      localStorage.clear();
+    });
+    await page.goto(`/?quality=low&enemies=1&seed=${seed}`);
+    await expect(screen(page, 'title')).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press('Enter');
+    await expect(screen(page, 'menu')).toBeVisible();
+
+    // The row that was disabled for two phases.
+    await focusMenuRow(page, 'neo');
+    await expect(row(page, 'neo')).not.toHaveClass(/is-disabled/);
+    await page.keyboard.press('Enter');
+
+    // Its OWN stage select: twelve cells, not thirty-five, and its own progress.
+    const select = screen(page, 'stageSelect');
+    await expect(select).toBeVisible();
+    await expect(select).toHaveAttribute('data-campaign', 'neo');
+    await expect(
+      page.locator('[data-screen="stageSelect"] [data-stage]'),
+    ).toHaveCount(12);
+    await page.keyboard.press('Enter'); // the furthest unlocked Neo stage (1)
+
+    await expect(hud(page, 'root')).toBeVisible({ timeout: 45_000 });
+    await expect(hud(page, 'stage')).toHaveText('1');
+    await expect(screen(page, 'intro')).toHaveCount(0, { timeout: 15_000 });
+    expect(stageLog[0], 'first stage served').toContain('neo-01');
+    expect(stageLog[0]).toContain('(neo, counter 1)');
+
+    cleared = await holdFireUntilCleared(page, 60_000);
+    if (cleared) break;
+  }
+  expect(cleared, 'never cleared neo-01 on any of the three seeds').toBe(true);
+  await expect(screen(page, 'tally')).toBeVisible();
+
+  // And on into the second stage of the SAME campaign.
+  await page.waitForTimeout(2000); // let the tally attach its nav
+  await page.keyboard.press('Enter');
+  await expect(hud(page, 'stage')).toHaveText('2', { timeout: 45_000 });
+  expect(stageLog.at(-1), 'second stage served').toContain('neo-02');
+  expect(stageLog.at(-1)).toContain('(neo, counter 2)');
+
+  // Progress is recorded in the Neo campaign's own field, and the originals'
+  // unlock list is untouched — one save field for two campaigns would hand the
+  // player original stage 2 for a Neo clear.
+  const save = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('bc.save.v1') ?? '{}'),
+  );
+  expect(save.highestNeoStage).toBe(2);
+  expect(save.highestStage).toBe(1);
+
+  expect(consoleErrors, 'expected no console/page errors').toEqual([]);
+});
+
+test('neo campaign: clearing the twelfth stage ends the run, never loops', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const consoleErrors = watchErrors(page);
+  const stageLog: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.text().startsWith('stage ')) stageLog.push(msg.text());
+  });
+
+  // Swept the same way as the test above; neo-12 is the more cooperative of the
+  // two, which is convenient because it is the one that proves the ending.
+  let cleared = false;
+  for (const seed of [33, 35, 36]) {
+    stageLog.length = 0;
+    await page.goto(`/?quality=low&enemies=1&seed=${seed}`);
+    // Unlock the whole Neo campaign so the last stage is one keypress away.
+    // Save data, not a rule: the ENDING is what is under test, and playing
+    // eleven stages to reach it is not something a suite can walk.
+    await page.evaluate(() => {
+      localStorage.setItem(
+        'bc.save.v1',
+        JSON.stringify({ highestStage: 1, highestNeoStage: 12 }),
+      );
+    });
+    await page.goto(`/?quality=low&enemies=1&seed=${seed}`);
+
+    await expect(screen(page, 'title')).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press('Enter');
+    await expect(screen(page, 'menu')).toBeVisible();
+    await focusMenuRow(page, 'neo');
+    await page.keyboard.press('Enter');
+    // The grid opens on the furthest stage reached, which is now the twelfth.
+    await expect(screen(page, 'stageSelect')).toBeVisible();
+    await page.keyboard.press('Enter');
+
+    await expect(hud(page, 'root')).toBeVisible({ timeout: 45_000 });
+    await expect(hud(page, 'stage')).toHaveText('12');
+    expect(stageLog.at(-1)).toContain('neo-12');
+    await expect(screen(page, 'intro')).toHaveCount(0, { timeout: 15_000 });
+
+    cleared = await holdFireUntilCleared(page, 60_000);
+    if (cleared) break;
+  }
+  expect(cleared, 'never cleared neo-12 on any of the three seeds').toBe(true);
+  await page.waitForTimeout(2000); // let the tally attach its nav
+  await page.keyboard.press('Enter');
+
+  // The rule: a finished Neo run goes to fidelity §13's post-run path, NOT into
+  // a thirteenth stage and NOT into the originals' stage 1. Either of those
+  // would mount the HUD again, so "no HUD" is the strong form of it.
+  const entry = screen(page, 'hiScoreEntry');
+  const table = screen(page, 'hiScore');
+  await expect(entry.or(table).first()).toBeVisible({ timeout: 30_000 });
+  await expect(hud(page, 'root')).toHaveCount(0);
+  expect(
+    stageLog.filter((l) => l.includes('counter 13')),
+    'a thirteenth Neo stage was started',
+  ).toEqual([]);
+  expect(
+    stageLog.filter((l) => l.includes('stage01')),
+    'the run looped into the original campaign',
+  ).toEqual([]);
+
   expect(consoleErrors, 'expected no console/page errors').toEqual([]);
 });

@@ -572,7 +572,9 @@
 
 .bc-stage-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* The screen sets --bc-stage-columns per campaign (7 for the originals’ 35,
+     6 for Neo’s 12) so neither grid has a ragged last row. */
+  grid-template-columns: repeat(var(--bc-stage-columns, 7), 1fr);
   gap: 4px;
 }
 

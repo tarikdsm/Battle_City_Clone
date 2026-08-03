@@ -11,13 +11,31 @@
 import { attachNav, el, legend, mountChrome, type NavEvent } from '../menus';
 import type { Screen } from '../../app/screens';
 import type { AudioSystem } from '../../audio/audio';
-import { STAGE_LOOP } from '../../app/session';
+import { campaignLength, type CampaignId } from '../../app/session';
 
 /** Cells per row. 35 = 5 × 7 exactly, so the grid has no ragged last row. */
 export const STAGE_COLUMNS = 7;
 
+/**
+ * Cells per row for the Neo campaign. 12 = 2 × 6, so that grid is also exact —
+ * a ragged last row is the one thing `moveInGrid`'s wrapping cannot make feel
+ * right, because the wrapped cell would land under a gap.
+ */
+export const NEO_COLUMNS = 6;
+
+/** How wide the grid is for a campaign, chosen so no row is ragged. */
+export function columnsFor(campaign: CampaignId): number {
+  return campaign === 'neo' ? NEO_COLUMNS : STAGE_COLUMNS;
+}
+
 export interface StageSelectOptions {
-  /** Highest stage reached, 1…35 (`bc.save.v1`). */
+  /**
+   * Which campaign this screen is selecting from. Read on every `enter`, not
+   * captured at construction: one screen instance serves both, and the flow
+   * switches between them without rebuilding anything.
+   */
+  campaign(): CampaignId;
+  /** Highest stage reached in that campaign (`bc.save.v1`). */
   highest(): number;
   onPick(stage: number): void;
   onBack(): void;
@@ -60,24 +78,31 @@ export function createStageSelectScreen(opts: StageSelectOptions): Screen {
 
   return {
     enter(root: HTMLElement): void {
-      const highest = Math.min(STAGE_LOOP, Math.max(1, opts.highest()));
+      const campaign = opts.campaign();
+      const count = campaignLength(campaign);
+      const columns = columnsFor(campaign);
+      const highest = Math.min(count, Math.max(1, opts.highest()));
       // Start on the furthest stage reached: the player who opened this screen
       // almost always wants to continue, not to replay stage 1.
       let index = highest - 1;
 
       const view = mountChrome(root, {
         screen: 'stageSelect',
-        title: 'Stage select',
+        title: campaign === 'neo' ? 'Neo campaign' : 'Stage select',
         subtitle:
           highest === 1
             ? 'Only stage 1 is unlocked. Clearing a stage unlocks the next one.'
             : `Stages 1 to ${highest} are unlocked. Progress saves as you clear them.`,
       });
       chrome = view;
+      // So a test — and a player coming back to it — can tell which of the two
+      // grids is on screen without counting cells.
+      view.node.dataset.campaign = campaign;
 
       const grid = el('div', 'bc-stage-grid');
+      grid.style.setProperty('--bc-stage-columns', String(columns));
       const cells: HTMLElement[] = [];
-      for (let i = 0; i < STAGE_LOOP; i++) {
+      for (let i = 0; i < count; i++) {
         const cell = el('div', 'bc-stage-cell', String(i + 1));
         cell.dataset.stage = String(i + 1);
         cell.addEventListener('click', () => {
@@ -122,7 +147,7 @@ export function createStageSelectScreen(opts: StageSelectOptions): Screen {
           confirm();
           return;
         }
-        const next = moveInGrid(index, ev, STAGE_LOOP, STAGE_COLUMNS);
+        const next = moveInGrid(index, ev, count, columns);
         if (next !== index) {
           index = next;
           opts.audio?.play('uiMove');

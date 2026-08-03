@@ -54,13 +54,12 @@ export function menuItems(players: 1 | 2 = 1): MenuItem[] {
       kind: 'action',
       id: 'neo',
       label: 'Neo campaign',
-      disabled: true,
-      // Accurate as of T10: the twelve stages exist (`src/levels/neo/`,
-      // authored in T8.3) and are validated and completability-checked, but
-      // nothing routes a run through them — the campaign chain, the progress
-      // store and the tally all assume the original 35. Reaching them needs a
-      // campaign selector threaded through `Session`, which 1.0 does not have.
-      hint: 'Twelve new stages. Built, but not reachable in 1.0.',
+      // Playable since T10's follow-up. The twelve stages were authored in T8.3
+      // and sat as unreachable JSON for two phases because nothing routed a run
+      // through them; `Session.campaign` is what routes one now. Its own
+      // progress lives in `highestNeoStage`, which had been in `SaveV1` since
+      // T6 and had never been written.
+      hint: 'Twelve new stages, built for this remake.',
     },
     {
       kind: 'action',

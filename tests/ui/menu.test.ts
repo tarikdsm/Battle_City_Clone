@@ -54,16 +54,14 @@ describe('main menu rows', () => {
     ]);
   });
 
-  // T8.3 authored twelve Neo stages and they are committed, validated and
-  // completability-checked — but nothing routes a run through them, because the
-  // campaign chain, the progress store and the tally all assume the original 35.
-  // The row therefore stays disabled in 1.0 and its hint must say why: "not
-  // built yet" was true in Phase 6 and is false now, and a hint that lies about
-  // shipped content is worse than a disabled row.
-  it('marks the Neo campaign unreachable rather than unbuilt', () => {
+  // T8.3 authored twelve Neo stages and they sat as unreachable JSON for two
+  // phases — validated, completability-checked, committed, and openable by
+  // nobody. The row is live now, and this is what stops it regressing to a
+  // disabled placeholder again: a campaign that ships as dead data is the most
+  // misleading thing a release can contain.
+  it('offers the Neo campaign as a playable row', () => {
     const neo = menuItems().find((i) => i.id === 'neo');
-    expect(neo?.disabled).toBe(true);
-    expect(neo?.hint ?? '').toMatch(/not reachable/i);
-    expect(neo?.hint ?? '').not.toMatch(/not built/i);
+    expect(neo?.disabled ?? false).toBe(false);
+    expect(neo?.hint ?? '').not.toMatch(/not built|not reachable/i);
   });
 });

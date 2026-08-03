@@ -29,13 +29,15 @@ import {
   advanceStage,
   commitScore,
   createSession,
-  levelStageOf,
-  loadProgress,
+  campaignComplete,
+  highestReached,
+  stageLabelOf,
+  unlockReached,
   loadTable,
   qualifies,
   runScores,
   stageTally,
-  unlockStage,
+  type CampaignId,
   type Session,
 } from './session';
 import { parseDebugFlags } from './debug';
@@ -72,7 +74,7 @@ import { createIntroScreen } from '../ui/screens/intro';
 import { createTallyScreen } from '../ui/screens/tally';
 import { createGameOverScreen } from '../ui/screens/gameOver';
 import { createHiScoreScreen } from '../ui/screens/hiScore';
-import { originalStage } from '../levels/campaign';
+import { neoStage, originalStage } from '../levels/campaign';
 
 /**
  * The preset the auto probe runs **under**.
@@ -180,9 +182,22 @@ console.log('boot ok');
  * never a rule: `createGame` copies this array into the spawner queue and every
  * §7 behaviour runs against it unchanged.
  */
-function stageLevel(levelStage: number): LevelData {
-  return withDebugEnemies(originalStage(levelStage));
+function stageLevel(campaign: CampaignId, levelStage: number): LevelData {
+  const level =
+    campaign === 'neo' ? neoStage(levelStage) : originalStage(levelStage);
+  return withDebugEnemies(level);
 }
+
+/**
+ * Which campaign the NEXT run starts in.
+ *
+ * Set by the menu row that was chosen, read by the stage-select screen and by
+ * `createSession`. A module-level `let` rather than a parameter threaded
+ * through four screens: the stage select is one registered screen serving both
+ * campaigns, so the thing it has to ask is "which one am I showing", and that
+ * is a property of the flow rather than of the screen.
+ */
+let campaign: CampaignId = 'original';
 
 /**
  * `?enemies=` applied to any level, campaign or not.
@@ -306,9 +321,16 @@ const play = createPlayScreen({
     // Fidelity §11.2: the stage's numbers are banked, progress is recorded, and
     // the tally shows what core counted — this layer adds no arithmetic.
     const columns = stageTally(state);
-    const stage = levelStageOf(session.stageNumber);
+    const stage = stageLabelOf(session);
     absorbStage(session, state);
-    unlockStage(levelStageOf(session.stageNumber + 1));
+    // The stage the player has EARNED, in whichever campaign they are in. For a
+    // looping campaign that is the next label; for Neo the last stage has no
+    // next, so clearing it unlocks itself and nothing beyond.
+    const next = { ...session, stageNumber: session.stageNumber + 1 };
+    unlockReached(
+      session.campaign,
+      campaignComplete(next) ? stage : stageLabelOf(next),
+    );
     audio.playMusic('tally');
     // Same rule as the pause overlay: the tally sits over a live (cleared)
     // simulation, and an Escape that reached the pad would pause the run and
@@ -333,7 +355,7 @@ const play = createPlayScreen({
     const scores = runScores(session);
     screens.show('gameOver', {
       scores,
-      stage: levelStageOf(session.stageNumber),
+      stage: stageLabelOf(session),
       baseLost: !state.eagleAlive,
     });
   },
@@ -382,6 +404,12 @@ screens.register(
     },
     onChoose: (choice: MenuChoice) => {
       if (choice === 'campaign') {
+        campaign = 'original';
+        screens.show('stageSelect');
+        return;
+      }
+      if (choice === 'neo') {
+        campaign = 'neo';
         screens.show('stageSelect');
         return;
       }
@@ -410,7 +438,6 @@ screens.register(
         screens.show('customLevels');
         return;
       }
-      // The Neo campaign is still a disabled row and never reaches here.
     },
   }),
 );
@@ -537,14 +564,16 @@ screens.register(
   'stageSelect',
   createStageSelectScreen({
     audio,
-    highest: () => loadProgress().highestStage,
+    campaign: () => campaign,
+    highest: () => highestReached(campaign),
     onBack: () => {
-      toMenu('campaign');
+      toMenu(campaign === 'neo' ? 'neo' : 'campaign');
     },
     onPick: (stage: number) => {
       startStage(
         createSession({
           players,
+          campaign,
           stageNumber: stage,
           seed: debug.seed,
         }),
@@ -576,9 +605,21 @@ screens.register(
         toTitle();
         return;
       }
-      // Fidelity §11.5: the counter rises, the campaign loops. `startStage`
-      // reads `levelStageOf` for the label and hands core the raw number.
+      // Fidelity §11.5: the counter rises, and the ORIGINAL campaign loops.
+      // The Neo campaign does not — twelve authored stages have an end, and
+      // dropping the player into stage 1 of a different campaign would read as
+      // a bug rather than as a victory. `campaignComplete` is the single place
+      // that rule lives, so the flow cannot disagree with `session.ts` about
+      // what twelve means.
       advanceStage(session);
+      if (campaignComplete(session)) {
+        // The run is over and it was WON. Fidelity §13's post-run path is the
+        // same one a game over takes — bank the score, offer initials if it
+        // qualifies, then the table and the title.
+        audio.playMusic('hiscore');
+        toHiScore();
+        return;
+      }
       startStage(session);
     },
   }),
@@ -645,7 +686,7 @@ function toTitle(): void {
   // changed between visits would read as a bug rather than as variety.
   startBoard({
     session: createSession({ players: 1 }),
-    level: stageLevel(1),
+    level: stageLevel('original', 1),
     attract: true,
   });
   screens.showOverlay('title');
@@ -738,14 +779,19 @@ window.addEventListener('hashchange', () => {
  */
 function startStage(run: Session): void {
   session = run;
-  const stage = levelStageOf(run.stageNumber);
-  const level = stageLevel(stage);
+  const stage = stageLabelOf(run);
+  const level = stageLevel(run.campaign, stage);
   if (import.meta.env.DEV) {
     // Which LAYOUT is on the board, not just which number is on the curtain.
     // The two were the same thing for the whole of Phase 6 — every stage played
     // stage 1 — and nothing on screen said so. A run that quietly serves the
     // wrong file is invisible from any single stage, so it gets a line.
-    console.log('stage', stage, level.id, `(counter ${run.stageNumber})`);
+    console.log(
+      'stage',
+      stage,
+      level.id,
+      `(${run.campaign}, counter ${run.stageNumber})`,
+    );
   }
   startBoard({ session: run, level });
   screens.showOverlay('intro', { stage });
@@ -771,7 +817,7 @@ function toHiScore(): void {
     (a, b) => (a === null || b.score > a.score ? b : a),
     null,
   );
-  const stage = session === null ? 1 : levelStageOf(session.stageNumber);
+  const stage = session === null ? 1 : stageLabelOf(session);
   pendingEntry =
     top !== null && qualifies(table, top.score)
       ? { score: top.score, stage, playerIndex: top.playerIndex }

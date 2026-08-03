@@ -507,10 +507,15 @@ test('loops: title → play → death → game over → high scores → title', 
 
   // --- menu → stage select -------------------------------------------------
   await expect(screen(page, 'menu')).toBeVisible();
-  // The Neo row is focusable and refuses to activate — it must read as
-  // deliberate, and a broken one would strand the cursor here. (T10 made its
-  // hint honest: the stages exist, nothing routes a run through them.)
-  await expect(page.locator('[data-item="neo"]')).toHaveClass(/is-disabled/);
+  // Every row is live as of T10's follow-up: the Neo campaign was a disabled
+  // placeholder for two phases while twelve authored stages sat unreachable in
+  // `src/levels/neo/`. `e2e/flows.spec.ts` walks that campaign; here it is
+  // enough that nothing on this menu is a dead end any more.
+  for (const id of ['players', 'campaign', 'neo', 'construction', 'custom']) {
+    await expect(page.locator(`[data-item="${id}"]`)).not.toHaveClass(
+      /is-disabled/,
+    );
+  }
   // The menu opens on T10's `players` row, so Campaign is one step down. Walked
   // rather than counted, so another row above it cannot silently retarget this.
   for (let i = 0; i < 8; i++) {

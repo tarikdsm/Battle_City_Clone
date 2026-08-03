@@ -24,6 +24,7 @@ import {
   START_LIVES,
 } from '../core/constants';
 import type { EnemyType, GameState } from '../core/types';
+import { NEO_STAGE_COUNT, neoEffectiveStage } from '../levels/campaign';
 import {
   MAX_SCORES,
   loadSave,
@@ -47,6 +48,35 @@ export { MAX_SCORES } from './storage';
  */
 export const STAGE_LOOP = STAGE_CAP;
 
+/**
+ * Which set of stages a run is playing.
+ *
+ * GDD §4 promised both from the start — "the 35 original stages **and** new
+ * ones" — and content §3 authored the twelve. Until T10 the second half existed
+ * only as JSON: `neoStage()` could load it and nothing ever called that. This
+ * type is what makes a run *know* which campaign it is in, and every difference
+ * between them below hangs off it.
+ */
+export type CampaignId = 'original' | 'neo';
+
+/** How many stages a campaign has. */
+export function campaignLength(campaign: CampaignId): number {
+  return campaign === 'neo' ? NEO_STAGE_COUNT : STAGE_LOOP;
+}
+
+/**
+ * Whether a campaign runs out or comes round again.
+ *
+ * The originals **loop** — fidelity §11.5 is explicit, and the NES does it. The
+ * Neo campaign does not: twelve authored stages have an order and an end
+ * (content §3 builds to `Mirrorworks` and `Blackout`), and dropping the player
+ * back into stage 1 of a different campaign would read as a bug rather than as
+ * a victory lap.
+ */
+export function campaignLoops(campaign: CampaignId): boolean {
+  return campaign === 'original';
+}
+
 /** Per-player state that survives a stage boundary (fidelity §12). */
 export interface PlayerCarry {
   lives: number;
@@ -61,6 +91,8 @@ export type KillCounts = Record<EnemyType, number>;
 
 export interface Session {
   players: 1 | 2;
+  /** Which stage set this run is playing. Defaults to the originals. */
+  campaign: CampaignId;
   /**
    * The **internal** stage counter (fidelity §11.5). It rises forever; after 35
    * the campaign loops back to stage 1's *layout* while this number keeps
@@ -108,6 +140,7 @@ export function createSession(init?: Partial<Session>): Session {
   const players = init?.players ?? 1;
   return {
     players,
+    campaign: init?.campaign ?? 'original',
     stageNumber: init?.stageNumber ?? 1,
     seed: init?.seed ?? Date.now() >>> 0,
     carry: init?.carry ?? [freshCarry(true), freshCarry(players === 2)],
@@ -132,15 +165,63 @@ export function advanceStage(session: Session): void {
   session.stageNumber += 1;
 }
 
+/**
+ * The stage number to LOAD and to SHOW for this run — campaign-aware.
+ *
+ * For the originals this is `levelStageOf`, which loops. For Neo it is the
+ * counter itself, because that campaign ends instead of wrapping; a run that
+ * has gone past its last stage returns the last stage rather than 0 or 13, so a
+ * caller that reads this while the finish is being handled cannot index out of
+ * the table.
+ */
+export function stageLabelOf(session: Session): number {
+  if (campaignLoops(session.campaign)) {
+    return levelStageOf(session.stageNumber);
+  }
+  const len = campaignLength(session.campaign);
+  return Math.min(len, Math.max(1, Math.floor(session.stageNumber)));
+}
+
+/**
+ * True once the run has advanced past the last stage of a non-looping campaign.
+ *
+ * This is the whole "ends cleanly" rule, in one place: the tally's `onDone`
+ * advances the counter and then asks this, rather than the flow deciding what
+ * twelve means in two files that could disagree.
+ */
+export function campaignComplete(session: Session): boolean {
+  return (
+    !campaignLoops(session.campaign) &&
+    session.stageNumber > campaignLength(session.campaign)
+  );
+}
+
+/**
+ * The stage number the SPAWN CADENCE should be read at (fidelity §7).
+ *
+ * Not the same number as the label, and for Neo not even the same shape. The
+ * originals hand core the raw rising counter, so the cadence keeps tightening
+ * past stage 35. A Neo stage instead declares its own pressure in its file
+ * (`effectiveStage`, content §4) — that is how twelve stages span the originals'
+ * 18–35 difficulty band without pretending to be stage 30 in every other
+ * respect — so the value comes from the level, not from the position.
+ */
+export function cadenceStageOf(session: Session): number {
+  if (campaignLoops(session.campaign)) {
+    return session.stageNumber;
+  }
+  return neoEffectiveStage(stageLabelOf(session));
+}
+
 /** Stage-select progress (arch §4.2's `bc.save.v1`). */
 export function loadProgress(): SaveV1 {
   return loadSave();
 }
 
 /**
- * Record that a stage was reached. Monotonic: a looped run re-reaches stage 1,
- * and progress that could go *down* would relock the campaign at the moment of
- * its greatest achievement.
+ * Record that a stage of the ORIGINAL campaign was reached. Monotonic: a looped
+ * run re-reaches stage 1, and progress that could go *down* would relock the
+ * campaign at the moment of its greatest achievement.
  */
 export function unlockStage(levelStage: number): void {
   const save = loadSave();
@@ -149,6 +230,40 @@ export function unlockStage(levelStage: number): void {
     return;
   }
   saveSave({ ...save, highestStage: reached });
+}
+
+/** The same, for the Neo campaign's own progress (`highestNeoStage`). */
+export function unlockNeoStage(levelStage: number): void {
+  const save = loadSave();
+  const reached = Math.min(
+    NEO_STAGE_COUNT,
+    Math.max(1, Math.floor(levelStage)),
+  );
+  if (reached <= save.highestNeoStage) {
+    return;
+  }
+  saveSave({ ...save, highestNeoStage: reached });
+}
+
+/**
+ * Record the stage a run has just reached, in whichever campaign it is playing.
+ *
+ * The two progress fields have always been in `SaveV1`; only `highestStage` was
+ * ever written. Routing through one function is what keeps a Neo clear out of
+ * the originals' unlock list and vice versa.
+ */
+export function unlockReached(campaign: CampaignId, levelStage: number): void {
+  if (campaign === 'neo') {
+    unlockNeoStage(levelStage);
+  } else {
+    unlockStage(levelStage);
+  }
+}
+
+/** Highest stage unlocked in `campaign` (`bc.save.v1`). */
+export function highestReached(campaign: CampaignId): number {
+  const save = loadSave();
+  return campaign === 'neo' ? save.highestNeoStage : save.highestStage;
 }
 
 // ---------------------------------------------------------------------------

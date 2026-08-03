@@ -47,7 +47,12 @@ import {
   markStepStart,
 } from '../../app/perf';
 import type { Screen } from '../../app/screens';
-import { applyCarry, levelStageOf, type Session } from '../../app/session';
+import {
+  applyCarry,
+  cadenceStageOf,
+  stageLabelOf,
+  type Session,
+} from '../../app/session';
 import type { SettingsV1 } from '../../app/storage';
 import { createInput, type InputSystem } from '../../input/input';
 import { sharedGamepads } from '../../input/gamepad';
@@ -223,13 +228,17 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
     lastPaused = false;
 
     const settings = opts.settings();
-    // The RISING internal counter reaches core (fidelity §11.5): the spawn
+    // The number core gets is the CADENCE stage, not the label (fidelity §7,
+    // §11.5). For the originals that is the rising internal counter — the spawn
     // formula's own cap at 35 lives in `spawnIntervalTicks`, so capping it here
-    // would make stage 36 play like stage 1.
+    // would make stage 36 play like stage 1. For a Neo stage it is the pressure
+    // the stage FILE declares (content §4's `effectiveStage`), which is how
+    // twelve stages cover the originals' 18–35 band; `cadenceStageOf` owns that
+    // difference so this call site does not have to know there is one.
     const state = createGame(next.level, {
       players: next.session.players,
       seed: next.session.seed,
-      stageNumber: next.session.stageNumber,
+      stageNumber: cadenceStageOf(next.session),
     });
     // Fidelity §12's carryover: lives, score and the bonus-life threshold from
     // the stage that just ended. Written before the first tick — this is
@@ -280,7 +289,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
               : [sharedGamepads(), glass.source],
           );
     const panel = next.attract === true ? null : createHud(mount);
-    panel?.sync(state, levelStageOf(next.session.stageNumber));
+    panel?.sync(state, stageLabelOf(next.session));
 
     // The board area is the viewport MINUS whatever the HUD docks, so the
     // two never overlap at any size or orientation. `dock()` re-docks for the
@@ -419,7 +428,7 @@ export function createPlayScreen(opts: PlayScreenOptions): PlayScreen {
         // The HUD is synced from the state, not from the events, but only on
         // a tick that produced some: that is what makes it event-driven
         // without having to derive lives/score/tier from an event stream.
-        panel?.sync(state, levelStageOf(next.session.stageNumber));
+        panel?.sync(state, stageLabelOf(next.session));
       }
 
       if (state.paused !== lastPaused) {
