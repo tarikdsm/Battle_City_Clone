@@ -96,9 +96,11 @@ Retrigger guard: identical SFX ≥ 30 ms apart; beyond poly cap, steal the oldes
 
 ## 7. Faithfulness ledger
 
-| Faithful re-arrangements (motif-recognizable) | New compositions (motif-quoting) |
+| Motif-shaped (see the honesty note below) | Original compositions |
 |---|---|
-| Stage intro fanfare, Game over, Pause chirp, engine hum concept, power-up pickup feel, extra-life spirit | Title, adaptive gameplay suite, tally, high-score |
+| Game over, Pause chirp, engine hum concept, power-up pickup feel, extra-life spirit | **Stage intro fanfare**, Title, adaptive gameplay suite, tally, high-score |
+
+**The stage-intro fanfare moved to "original" on 2026-08-02.** The owner asked for the NES cue itself; I declined — this repo deploys publicly under his name, and a melody is the clearest form of protected expression there is, unlike mechanics or layout data. It was rewritten as our own piece instead: an Andalusian-cadence fanfare whose closing bass notes *are* L0's two notes at half speed, so the hand-off into the gameplay bed is built from shared material rather than stitched.
 
 Review criterion for the faithful set: a Battle City player must recognize each within 2 seconds.
 

@@ -91,6 +91,7 @@ const CLIPS: readonly Clip[] = [
   { name: 'music-fanfare', seconds: 3.0, note: 'audio 7 FAITHFUL: the stage-intro fanfare. One bar at 120 BPM = 2.000 s, ending on the downbeat of the suite; the tail rings past it' }, // prettier-ignore
   { name: 'music-gameover', seconds: 4.5, note: 'audio 7 FAITHFUL: the game-over motif. A doubled descent over i-VII-VI-V that stops on the dominant, unresolved' }, // prettier-ignore
   { name: 'pause-chirp', seconds: 1.0, note: 'audio 7 FAITHFUL: the two-note pause chirp, E6 to A6 - on the SFX bus, so a muted music slider still answers the button' }, // prettier-ignore
+  { name: 'fanfare-handoff', seconds: 5.5, note: 'the seam: the stage-intro fanfare, then the suites L0 entering on its downbeat. The fanfares last two bass notes are L0s two notes, and the final A2 is still ringing when L0 takes it over' }, // prettier-ignore
   { name: 'music-title', seconds: 12.0, note: 'audio 4 NEW: the title theme, first eight bars. Opens on the fanfare motif with the third flattened' }, // prettier-ignore
   { name: 'music-tally', seconds: 7.0, note: 'audio 4 NEW: the stage-clear jingle. F-G-C climbing, the game-over descent answered' }, // prettier-ignore
   { name: 'music-hiscore', seconds: 8.0, note: 'audio 4 NEW: the high-score bell loop, first four bars' }, // prettier-ignore
@@ -347,6 +348,7 @@ async function installAudioHarness(): Promise<void> {
         piece: Record<string, unknown>,
         clipS: number,
         layers?: Record<string, number>,
+        startAtS?: number,
       ): void => {
         const song = piece.song as Record<string, unknown>;
         const seq = seqMod.createSequencer({
@@ -364,12 +366,14 @@ async function installAudioHarness(): Promise<void> {
           }
         }
         graph.setDelayTempo(song.bpm);
-        seq.play(song);
+        seq.play(song, startAtS);
         // A one-shot is pumped only to its own length, or the offline walk
         // would loop it for the whole clip — which is what the live driver's
         // `durationS` stop exists to prevent, and what the first render of
         // this harness did (two fanfares in a three-second file).
-        seq.pumpTo(piece.loops ? clipS : (piece.durationS as number));
+        seq.pumpTo(
+          piece.loops ? clipS : (startAtS ?? 0) + (piece.durationS as number),
+        );
       };
 
       /** The suite's layer gains, derived from a state driven to a threshold. */
@@ -421,6 +425,16 @@ async function installAudioHarness(): Promise<void> {
             0.02,
           );
           break;
+        case 'fanfare-handoff': {
+          // Both pieces in ONE render, at the times the live driver uses: the
+          // fanfare from its own pre-roll, and the suite's L0 starting on the
+          // tick the fanfare ends. Two separate files cannot be listened to
+          // across a seam, and the seam is the point.
+          music(audioMod.MUSIC.fanfare, seconds);
+          const seam = 0.05 + (audioMod.MUSIC.fanfare.durationS as number);
+          music(audioMod.MUSIC.suite, seconds, suiteAt(0, 20, 0, false), seam);
+          break;
+        }
         case 'music-title':
           music(audioMod.MUSIC.title, seconds);
           break;
