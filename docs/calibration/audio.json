@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-02T14:24:15.181Z",
+  "capturedAt": "2026-08-04T13:52:09.243Z",
   "url": "http://localhost:5173/",
   "sampleRate": 48000,
   "thresholds": {
@@ -150,10 +150,10 @@
     },
     "music-fanfare": {
       "durationS": 3,
-      "peakDbfs": -4.59,
-      "rmsDbfs": -19.39,
-      "centroidHz": 2919,
-      "dcOffset": 0.00002,
+      "peakDbfs": -4.6,
+      "rmsDbfs": -18.63,
+      "centroidHz": 3350,
+      "dcOffset": -0.00045,
       "silent": false,
       "clipped": false,
       "note": "audio 7 FAITHFUL: the stage-intro fanfare. One bar at 120 BPM = 2.000 s, ending on the downbeat of the suite; the tail rings past it"
@@ -177,6 +177,16 @@
       "silent": false,
       "clipped": false,
       "note": "audio 7 FAITHFUL: the two-note pause chirp, E6 to A6 - on the SFX bus, so a muted music slider still answers the button"
+    },
+    "fanfare-handoff": {
+      "durationS": 5.5,
+      "peakDbfs": -4.48,
+      "rmsDbfs": -18.56,
+      "centroidHz": 2289,
+      "dcOffset": -0.0008,
+      "silent": false,
+      "clipped": false,
+      "note": "the seam: the stage-intro fanfare, then the suites L0 entering on its downbeat. The fanfares last two bass notes are L0s two notes, and the final A2 is still ringing when L0 takes it over"
     },
     "music-title": {
       "durationS": 12,
@@ -279,7 +289,7 @@
     "passes": true
   },
   "verdict": {
-    "clips": 26,
+    "clips": 27,
     "allAudible": true,
     "noneClipped": true,
     "duckWithinTolerance": true

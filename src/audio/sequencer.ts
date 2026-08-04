@@ -212,7 +212,14 @@ export interface SequencerOptions {
 }
 
 export interface Sequencer {
-  play(song: Song): void;
+  /**
+   * @param startAtS context time of the song's first tick. Defaults to
+   *                 `currentTime + START_PADDING_S`, which is what the game
+   *                 always wants; the capture harness passes an explicit time
+   *                 so one offline render can hold a cue **and** the piece it
+   *                 hands off to, which is the only way that seam can be heard.
+   */
+  play(song: Song, startAtS?: number): void;
   /** Stops scheduling. Notes already handed to the clock still sound. */
   stop(): void;
   playing(): boolean;
@@ -357,7 +364,7 @@ export function createSequencer(opts: SequencerOptions): Sequencer {
   }
 
   return {
-    play(next: Song): void {
+    play(next: Song, startAtS?: number): void {
       if (handle !== null) {
         clearTimer(handle);
         handle = null;
@@ -369,7 +376,7 @@ export function createSequencer(opts: SequencerOptions): Sequencer {
       cursors = next.tracks.map(() => 0);
       dests = next.tracks.map((t) => layerNode(t.layer));
       nextTick = 0;
-      nextTime = ctx.currentTime + START_PADDING_S;
+      nextTime = startAtS ?? ctx.currentTime + START_PADDING_S;
       pump();
       handle = setTimer(pump, SCHEDULER_INTERVAL_MS);
     },

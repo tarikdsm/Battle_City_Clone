@@ -109,8 +109,9 @@ const L2: SongStep[] = merge(
 );
 
 // --- L3: the lead -----------------------------------------------------------
-// Bar 1 is `FANFARE_MOTIF` with the major third flattened — the stage jingle,
-// minorised, which is how the suite quotes it without repeating it.
+// Bar 1 is `FANFARE_MOTIF`, literally: A4 C5 E5 A5, the same four notes the
+// stage-intro fanfare opens on. The lead then walks away from it, which is how
+// the suite quotes the cue rather than repeating it.
 const L3: SongStep[] = [
   [0, 69, 2, 0.9],
   [2, 72, 2, 0.9],

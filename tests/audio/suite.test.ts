@@ -183,25 +183,40 @@ describe('the music map (audio §4)', () => {
     ]);
   });
 
-  it('quotes the fanfare motif in the title theme and the suite lead', () => {
-    // §4: the title theme "quotes stage-fanfare motif"; the suite's L3 does the
-    // same, minorised. The quote is the flattened-third version of the same
-    // four rising notes, so the first, third and fourth are literal.
+  it('quotes the fanfare motif literally, in all three places', () => {
+    // §4: the title theme "quotes stage-fanfare motif", and the suite's L3
+    // lead does the same. Since the fanfare rewrite put the cue in the mode
+    // the rest of the score already lived in, the quote is exact rather than
+    // exact-after-flattening-a-third.
+    const motif = [...FANFARE_MOTIF];
+
+    // The fanfare states it one note per beat, in a dotted 3+1 figure, so the
+    // quote lives on the strong beats and the off-sixteenths decorate it.
+    const fan = MUSIC.fanfare.song.tracks.find((t) => t.layer === 'lead');
+    const beats = [0, 4, 8, 12].map(
+      (tick) => fan?.steps.find((s) => s[0] === tick)?.[1],
+    );
+    expect(beats).toEqual(motif);
+
     const lead = MUSIC.title.song.tracks.find((t) => t.layer === 'lead');
-    const opening = lead?.steps.slice(0, 4).map((s) => s[1]);
-    expect(opening?.[0]).toBe(FANFARE_MOTIF[0]);
-    expect(opening?.[2]).toBe(FANFARE_MOTIF[2]);
-    expect(opening?.[3]).toBe(FANFARE_MOTIF[3]);
-    // …and the second note is the major third made minor.
-    expect(opening?.[1]).toBe(FANFARE_MOTIF[1] - 1);
+    expect(lead?.steps.slice(0, 4).map((s) => s[1])).toEqual(motif);
 
     const l3 = suiteSong.tracks.find((t) => t.layer === 'L3');
-    expect(l3?.steps.slice(0, 4).map((s) => s[1])).toEqual([
-      FANFARE_MOTIF[0],
-      FANFARE_MOTIF[1] - 1,
-      FANFARE_MOTIF[2],
-      FANFARE_MOTIF[3],
-    ]);
+    expect(l3?.steps.slice(0, 4).map((s) => s[1])).toEqual(motif);
+  });
+
+  it('hands the fanfare off to L0 on the same two bass notes', () => {
+    // The seam this whole cue is built around: the fanfare's last two bass
+    // notes are L0's two notes, in order, and the final one is still ringing
+    // when L0 starts alternating them.
+    const bass = MUSIC.fanfare.song.tracks.find((t) => t.layer === 'bass');
+    const tail = bass?.steps.slice(-2).map((s) => s[1]);
+    const l0 = suiteSong.tracks.find((t) => t.layer === 'L0');
+    expect(tail).toEqual([l0?.steps[1][1], l0?.steps[0][1]]);
+    expect(tail).toEqual([46, 45]); // A♯2 then A2
+
+    // …and it lands exactly on L0's downbeat, so there is no gap to cover.
+    expect(MUSIC.fanfare.durationS).toBeCloseTo(2.0, 6);
   });
 });
 

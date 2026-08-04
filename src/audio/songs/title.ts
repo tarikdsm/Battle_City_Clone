@@ -60,13 +60,15 @@ const PAD_CYCLE: SongStep[] = [
 ];
 
 /**
- * The A section. Bar 1 is {@link FANFARE_MOTIF} with the third flattened —
- * A4 C5 E5 A5 where the jingle plays A4 C♯5 E5 A5 — which is the quote, and
- * the reason the title theme and the stage start feel like the same game.
+ * The A section. Bar 1 is {@link FANFARE_MOTIF} **literally** — the same four
+ * notes the stage-intro fanfare opens on, which is why the title screen and
+ * the start of a stage feel like the same game. (It used to be the motif with
+ * its third flattened by hand, because the fanfare was in the major; the T5.4
+ * rewrite put the fanfare in the mode everything else already lived in.)
  */
 const THEME: SongStep[] = [
   [0, FANFARE_MOTIF[0], 2, 0.9],
-  [2, 72, 2, 0.9],
+  [2, FANFARE_MOTIF[1], 2, 0.9],
   [4, FANFARE_MOTIF[2], 2, 0.9],
   [6, FANFARE_MOTIF[3], 6, 1],
   [14, 79, 2, 0.85],
